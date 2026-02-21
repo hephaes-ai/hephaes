@@ -50,6 +50,7 @@ class ParquetWriter:
         output_path.mkdir(parents=True, exist_ok=True)
         self.path = output_path / f"{episode_id}.parquet"
         self._schema = _schema_from_parquet_row(self._pa)
+        self._field_types = {field.name: field.type for field in self._schema}
         self._writer = self._pq.ParquetWriter(str(self.path), self._schema)
 
     def write_batch(
@@ -68,21 +69,20 @@ class ParquetWriter:
         if row_count == 0:
             return
 
-        field_types = {field.name: field.type for field in self._schema}
+        ft = self._field_types
         table = self._pa.table(
             {
                 "episode_id": self._pa.array(
-                    [self._episode_id] * row_count,
-                    type=field_types["episode_id"],
+                    [self._episode_id] * row_count, type=ft["episode_id"]
                 ),
-                "bag_path": self._pa.array([bag_path] * row_count, type=field_types["bag_path"]),
-                "ros_version": self._pa.array([ros_version] * row_count, type=field_types["ros_version"]),
-                "message_index": self._pa.array(message_indices, type=field_types["message_index"]),
-                "timestamp_ns": self._pa.array(timestamps, type=field_types["timestamp_ns"]),
-                "topic": self._pa.array(topic_names, type=field_types["topic"]),
-                "field": self._pa.array(mapped_fields, type=field_types["field"]),
-                "topic_type": self._pa.array(topic_types, type=field_types["topic_type"]),
-                "data_json": self._pa.array(payload_json, type=field_types["data_json"]),
+                "bag_path": self._pa.array([bag_path] * row_count, type=ft["bag_path"]),
+                "ros_version": self._pa.array([ros_version] * row_count, type=ft["ros_version"]),
+                "message_index": self._pa.array(message_indices, type=ft["message_index"]),
+                "timestamp_ns": self._pa.array(timestamps, type=ft["timestamp_ns"]),
+                "topic": self._pa.array(topic_names, type=ft["topic"]),
+                "field": self._pa.array(mapped_fields, type=ft["field"]),
+                "topic_type": self._pa.array(topic_types, type=ft["topic_type"]),
+                "data_json": self._pa.array(payload_json, type=ft["data_json"]),
             },
             schema=self._schema,
         )

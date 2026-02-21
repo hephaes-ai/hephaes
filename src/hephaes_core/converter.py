@@ -7,6 +7,13 @@ from multiprocessing import Pool
 from pathlib import Path
 from typing import Any, Callable, ContextManager, Protocol
 
+try:
+    import orjson as _orjson
+    _ORJSON_AVAILABLE = True
+except ImportError:  # pragma: no cover
+    _orjson = None  # type: ignore[assignment]
+    _ORJSON_AVAILABLE = False
+
 from ._utils import determine_ros_version_from_path
 from .models import MappingTemplate, RosVersion
 from .reader import RosReader
@@ -71,6 +78,12 @@ class DefaultTopicPlanner:
 
 class JsonPayloadSerializer:
     def dumps(self, payload: Any) -> str:
+        if _ORJSON_AVAILABLE:
+            return _orjson.dumps(
+                payload,
+                default=_json_default_orjson,
+                option=_orjson.OPT_SERIALIZE_NUMPY | _orjson.OPT_NON_STR_KEYS,
+            ).decode()
         return json.dumps(payload, default=_json_default)
 
 
@@ -125,6 +138,21 @@ def _default_row_sink_factory(output_dir: str | Path, episode_id: str) -> Contex
 def _json_default(obj: Any) -> Any:
     if is_dataclass(obj):
         return asdict(obj)
+    if isinstance(obj, (bytes, bytearray)):
+        return {
+            "__bytes__": True,
+            "encoding": "base64",
+            "value": base64.b64encode(obj).decode("ascii"),
+        }
+    if isinstance(obj, set):
+        return list(obj)
+    if hasattr(obj, "__dict__"):
+        return obj.__dict__
+    return str(obj)
+
+
+def _json_default_orjson(obj: Any) -> Any:
+    # orjson handles dataclasses and numpy natively; handle remaining types here
     if isinstance(obj, (bytes, bytearray)):
         return {
             "__bytes__": True,
@@ -264,14 +292,16 @@ def _convert_single(
         with resolved_row_sink_factory(output_dir, episode_id) as sink:
             batch = _BatchBuffer()
 
-            for index, message in enumerate(reader.read_messages(topics=plan.topics_to_read)):
+            for index, (topic, timestamp, msgtype, rawdata) in enumerate(
+                reader.iter_raw_messages(topics=plan.topics_to_read)
+            ):
                 batch.append(
                     message_index=index,
-                    timestamp=int(message.timestamp),
-                    topic_name=message.topic,
-                    mapped_field=plan.topic_rename_map.get(message.topic, message.topic),
-                    topic_type=known_topics.get(message.topic, "unknown"),
-                    payload_json=resolved_payload_serializer.dumps(message.data),
+                    timestamp=int(timestamp),
+                    topic_name=topic,
+                    mapped_field=plan.topic_rename_map.get(topic, topic),
+                    topic_type=msgtype,
+                    payload_json=resolved_payload_serializer.dumps(rawdata),
                 )
                 if batch.size >= batch_size:
                     written_rows += _flush_batch(

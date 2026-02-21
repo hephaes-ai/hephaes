@@ -153,6 +153,22 @@ class RosReader(ABC):
         except Exception as exc:
             raise RuntimeError(f"Failed to read message headers from bag: {exc}") from exc
 
+    def iter_raw_messages(
+        self, topics: list[str] | None = None
+    ) -> Generator[tuple[str, int, str, bytes], None, None]:
+        reader = self._require_reader()
+        try:
+            if topics:
+                target_topics = set(topics)
+                connections = [conn for conn in reader.connections if conn.topic in target_topics]
+            else:
+                connections = reader.connections
+
+            for connection, timestamp, rawdata in reader.messages(connections=connections):
+                yield connection.topic, timestamp, connection.msgtype, rawdata
+        except Exception as exc:
+            raise RuntimeError(f"Failed to read raw messages from bag: {exc}") from exc
+
     def read_messages(self, topics: list[str] | None = None) -> Generator[Message, None, None]:
         reader = self._require_reader()
         try:
