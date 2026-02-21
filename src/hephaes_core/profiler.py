@@ -43,14 +43,13 @@ def _scan_messages(reader: RosReader, *, progress_context: str) -> _MessageScan:
     message_count = 0
     topic_stats: dict[str, _TopicStats] = {}
 
-    for message in reader.read_messages():
-        timestamp = message.timestamp
+    for topic, timestamp in reader.iter_message_headers():
         if start_timestamp is None or timestamp < start_timestamp:
             start_timestamp = timestamp
         if end_timestamp is None or timestamp > end_timestamp:
             end_timestamp = timestamp
 
-        stats = topic_stats.setdefault(message.topic, _TopicStats())
+        stats = topic_stats.setdefault(topic, _TopicStats())
         stats.update(timestamp)
 
         message_count += 1

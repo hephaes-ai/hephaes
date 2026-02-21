@@ -133,6 +133,26 @@ class RosReader(ABC):
         value = self._safe_reader_int("message_count", default=0)
         return value if value is not None else 0
 
+    def iter_message_headers(
+        self, topics: list[str] | None = None
+    ) -> Generator[tuple[str, int], None, None]:
+        """Yield (topic, timestamp) for each message without deserializing the payload.
+
+        Significantly faster than read_messages() when the message body is not needed.
+        """
+        reader = self._require_reader()
+        try:
+            if topics:
+                target_topics = set(topics)
+                connections = [conn for conn in reader.connections if conn.topic in target_topics]
+            else:
+                connections = reader.connections
+
+            for connection, timestamp, _rawdata in reader.messages(connections=connections):
+                yield connection.topic, timestamp
+        except Exception as exc:
+            raise RuntimeError(f"Failed to read message headers from bag: {exc}") from exc
+
     def read_messages(self, topics: list[str] | None = None) -> Generator[Message, None, None]:
         reader = self._require_reader()
         try:
