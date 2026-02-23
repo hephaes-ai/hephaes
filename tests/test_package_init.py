@@ -22,6 +22,10 @@ class TestPublicExports:
         from hephaes_core import MappingTemplate
         assert MappingTemplate is not None
 
+    def test_resample_config_exported(self):
+        from hephaes_core import ResampleConfig
+        assert ResampleConfig is not None
+
     def test_wide_parquet_writer_exported(self):
         from hephaes_core import WideParquetWriter
         assert WideParquetWriter is not None
@@ -64,6 +68,7 @@ class TestPublicExports:
             "configure_logging",
             "Converter",
             "MappingTemplate",
+            "ResampleConfig",
             "WideParquetWriter",
             "Profiler",
             "ROS1Reader",

@@ -1,61 +1,48 @@
 import base64
-import bisect
 import json
 import logging
 import os
 from dataclasses import asdict, dataclass, field, is_dataclass
 from multiprocessing import Pool
 from pathlib import Path
-from typing import Any, Callable, ContextManager, Literal, Protocol
+from typing import Any
 
 try:
     import orjson as _orjson
+
     _ORJSON_AVAILABLE = True
 except ImportError:  # pragma: no cover
     _orjson = None  # type: ignore[assignment]
     _ORJSON_AVAILABLE = False
 
 from ._utils import determine_ros_version_from_path
-from .models import MappingTemplate, ResampleMethod, RosVersion
+from .models import MappingTemplate, ResampleConfig, RosVersion
 from .reader import RosReader
 
 logger = logging.getLogger(__name__)
 
 
-class TopicPlanner(Protocol):
-    def plan(
-        self,
-        *,
-        mapping: MappingTemplate,
-        available_topics: dict[str, str],
-        requested_topics: set[str],
-    ) -> "TopicPlan": ...
-
-
-class PayloadSerializer(Protocol):
-    def dumps(self, payload: Any) -> str: ...
-
-
 @dataclass(frozen=True)
 class TopicPlan:
     topics_to_read: list[str]
-    topic_rename_map: dict[str, str]
+    topic_to_field: dict[str, str]
 
 
-class DefaultTopicPlanner:
-    def plan(
-        self,
-        *,
-        mapping: MappingTemplate,
-        available_topics: dict[str, str],
-        requested_topics: set[str],
-    ) -> TopicPlan:
-        topics_to_read, topic_rename_map = _resolve_mapping_for_bag(
-            mapping=mapping,
-            available_topics=available_topics,
-            requested_topics=requested_topics,
-        )
-        return TopicPlan(topics_to_read=topics_to_read, topic_rename_map=topic_rename_map)
+@dataclass
+class _TopicSamples:
+    timestamps: list[int] = field(default_factory=list)
+    payloads: list[Any] = field(default_factory=list)
+
+    def append(self, timestamp: int, payload: Any) -> None:
+        self.timestamps.append(timestamp)
+        self.payloads.append(payload)
+
+    def sort(self) -> None:
+        if len(self.timestamps) <= 1:
+            return
+        order = sorted(range(len(self.timestamps)), key=self.timestamps.__getitem__)
+        self.timestamps = [self.timestamps[i] for i in order]
+        self.payloads = [self.payloads[i] for i in order]
 
 
 class JsonPayloadSerializer:
@@ -67,6 +54,45 @@ class JsonPayloadSerializer:
                 option=_orjson.OPT_SERIALIZE_NUMPY | _orjson.OPT_NON_STR_KEYS,
             ).decode()
         return json.dumps(payload, default=_json_default)
+
+
+class _SparseChunkBuilder:
+    """Builds column chunks sparsely to avoid O(fields * rows) append overhead."""
+
+    def __init__(self, field_names: list[str]) -> None:
+        self._field_names = field_names
+        self._columns: dict[str, list[str | None]] = {name: [] for name in field_names}
+        self.timestamps: list[int] = []
+        self.row_count = 0
+
+    def add_row(self, timestamp: int, values: dict[str, str | None]) -> None:
+        self.timestamps.append(timestamp)
+        self.row_count += 1
+
+        target_len = self.row_count
+        for field_name, value in values.items():
+            if value is None:
+                continue
+            column = self._columns[field_name]
+            missing = target_len - 1 - len(column)
+            if missing > 0:
+                column.extend([None] * missing)
+            column.append(value)
+
+    def pop_field_data(self) -> dict[str, list[str | None]]:
+        if self.row_count == 0:
+            return {name: [] for name in self._field_names}
+
+        for field_name in self._field_names:
+            column = self._columns[field_name]
+            if len(column) < self.row_count:
+                column.extend([None] * (self.row_count - len(column)))
+
+        data = self._columns
+        self._columns = {name: [] for name in self._field_names}
+        self.timestamps = []
+        self.row_count = 0
+        return data
 
 
 def _default_episode_id(index: int) -> str:
@@ -90,7 +116,6 @@ def _json_default(obj: Any) -> Any:
 
 
 def _json_default_orjson(obj: Any) -> Any:
-    # orjson handles dataclasses and numpy natively; handle remaining types here
     if isinstance(obj, (bytes, bytearray)):
         return {
             "__bytes__": True,
@@ -104,70 +129,49 @@ def _json_default_orjson(obj: Any) -> Any:
     return str(obj)
 
 
+def _encode_raw_payload(raw_payload: bytes) -> str:
+    encoded = base64.b64encode(raw_payload).decode("ascii")
+    return '{"__bytes__":true,"encoding":"base64","value":"' + encoded + '"}'
+
+
+def _normalize_payload(payload: Any) -> Any:
+    if payload is None or isinstance(payload, (bool, int, float, str)):
+        return payload
+    if is_dataclass(payload):
+        return _normalize_payload(asdict(payload))
+    if isinstance(payload, (bytes, bytearray)):
+        return {
+            "__bytes__": True,
+            "encoding": "base64",
+            "value": base64.b64encode(payload).decode("ascii"),
+        }
+    if isinstance(payload, dict):
+        return {str(k): _normalize_payload(v) for k, v in payload.items()}
+    if isinstance(payload, (list, tuple)):
+        return [_normalize_payload(v) for v in payload]
+    if isinstance(payload, set):
+        return [_normalize_payload(v) for v in payload]
+    if hasattr(payload, "__dict__"):
+        return _normalize_payload(payload.__dict__)
+    return str(payload)
+
+
 def _resolve_mapping_for_bag(
     *,
     mapping: MappingTemplate,
     available_topics: dict[str, str],
-    requested_topics: set[str],
-) -> tuple[list[str], dict[str, str]]:
+) -> TopicPlan:
     topics_to_read: list[str] = []
-    topic_rename_map: dict[str, str] = {}
+    topic_to_field: dict[str, str] = {}
 
     for target_field, source_topics in mapping.root.items():
         for source_topic in source_topics:
-            if source_topic in available_topics and source_topic in requested_topics:
+            if source_topic in available_topics:
                 topics_to_read.append(source_topic)
-                topic_rename_map[source_topic] = target_field
+                topic_to_field[source_topic] = target_field
                 break
 
-    return topics_to_read, topic_rename_map
-
-
-@dataclass
-class _TopicBuffer:
-    """Accumulates all (timestamp_ns, payload_json) for one mapped field."""
-    timestamps: list[int] = field(default_factory=list)
-    payloads: list[str] = field(default_factory=list)
-
-    def append(self, timestamp: int, payload_json: str) -> None:
-        self.timestamps.append(timestamp)
-        self.payloads.append(payload_json)
-
-    def __len__(self) -> int:
-        return len(self.timestamps)
-
-    def sort(self) -> None:
-        if len(self.timestamps) > 1:
-            paired = sorted(zip(self.timestamps, self.payloads))
-            self.timestamps = [p[0] for p in paired]
-            self.payloads = [p[1] for p in paired]
-
-
-def _build_time_grid(
-    *,
-    topic_buffers: dict[str, _TopicBuffer],
-    resample_freq_hz: float | None,
-) -> list[int]:
-    if resample_freq_hz is not None:
-        all_ts = [ts for buf in topic_buffers.values() for ts in buf.timestamps]
-        if not all_ts:
-            return []
-        t_start = min(all_ts)
-        t_end = max(all_ts)
-        step_ns = int(round(1e9 / resample_freq_hz))
-        if step_ns <= 0:
-            raise ValueError("resample_freq_hz is too large to produce a finite grid")
-        grid: list[int] = []
-        t = t_start
-        while t <= t_end:
-            grid.append(t)
-            t += step_ns
-        return grid
-    else:
-        all_ts_set: set[int] = set()
-        for buf in topic_buffers.values():
-            all_ts_set.update(buf.timestamps)
-        return sorted(all_ts_set)
+    return TopicPlan(topics_to_read=topics_to_read, topic_to_field=topic_to_field)
 
 
 def _interpolate_json_leaves(lo: Any, hi: Any, alpha: float) -> Any:
@@ -177,157 +181,300 @@ def _interpolate_json_leaves(lo: Any, hi: Any, alpha: float) -> Any:
         return {k: _interpolate_json_leaves(lo[k], hi[k], alpha) for k in lo if k in hi}
     if isinstance(lo, list) and isinstance(hi, list) and len(lo) == len(hi):
         return [_interpolate_json_leaves(a, b, alpha) for a, b in zip(lo, hi)]
-    return lo  # forward-fill fallback for non-numeric / shape mismatch
+    return lo
 
 
-def _resample_field(
+def _step_ns_from_frequency(freq_hz: float) -> int:
+    step_ns = int(round(1e9 / freq_hz))
+    if step_ns <= 0:
+        raise ValueError("resample frequency is too large to produce a finite grid")
+    return step_ns
+
+
+def _flush_chunk(
     *,
-    buf: _TopicBuffer,
-    grid: list[int],
-    method: str,
-    serializer: PayloadSerializer,
-) -> list[str | None]:
-    if not buf.timestamps:
-        return [None] * len(grid)
+    builder: _SparseChunkBuilder,
+    writer: Any,
+    bag_path: str,
+    ros_version: RosVersion,
+) -> None:
+    if builder.row_count == 0:
+        return
 
-    if method == "ffill":
-        result: list[str | None] = []
-        ptr = 0
-        last: str | None = None
-        for target_ts in grid:
-            while ptr < len(buf.timestamps) and buf.timestamps[ptr] <= target_ts:
-                last = buf.payloads[ptr]
-                ptr += 1
-            result.append(last)
-        return result
-
-    # interpolate
-    result = []
-    for target_ts in grid:
-        lo_idx = bisect.bisect_right(buf.timestamps, target_ts) - 1
-        hi_idx = lo_idx + 1
-
-        if lo_idx < 0:
-            result.append(None)
-            continue
-
-        lo_payload = buf.payloads[lo_idx]
-
-        if hi_idx >= len(buf.timestamps):
-            result.append(lo_payload)
-            continue
-
-        lo_ts = buf.timestamps[lo_idx]
-        hi_ts = buf.timestamps[hi_idx]
-
-        if lo_ts == hi_ts or target_ts == lo_ts:
-            result.append(lo_payload)
-            continue
-
-        alpha = (target_ts - lo_ts) / (hi_ts - lo_ts)
-        lo_obj = json.loads(lo_payload)
-        hi_obj = json.loads(buf.payloads[hi_idx])
-        interpolated = _interpolate_json_leaves(lo_obj, hi_obj, alpha)
-        result.append(serializer.dumps(interpolated))
-
-    return result
+    timestamps = builder.timestamps
+    field_data = builder.pop_field_data()
+    writer.write_table(
+        bag_path=bag_path,
+        ros_version=ros_version,
+        timestamps=timestamps,
+        field_data=field_data,
+    )
 
 
-def _convert_single_wide(
+def _convert_no_resample(
+    *,
+    reader: RosReader,
+    plan: TopicPlan,
+    writer: Any,
+    all_field_names: list[str],
+    bag_path: str,
+    ros_version: RosVersion,
+    chunk_rows: int,
+) -> int:
+    builder = _SparseChunkBuilder(all_field_names)
+    current_timestamp: int | None = None
+    row_values: dict[str, str | None] = {}
+    previous_timestamp: int | None = None
+    rows_written = 0
+
+    for topic, timestamp, _msgtype, rawdata in reader.iter_raw_messages(topics=plan.topics_to_read):
+        ts = int(timestamp)
+        if previous_timestamp is not None and ts < previous_timestamp:
+            raise ValueError(
+                f"Bag messages are out of order for '{bag_path}'. "
+                "Streaming conversion requires non-decreasing timestamps."
+            )
+        previous_timestamp = ts
+
+        if current_timestamp is None:
+            current_timestamp = ts
+        elif ts != current_timestamp:
+            builder.add_row(current_timestamp, row_values)
+            rows_written += 1
+            if builder.row_count >= chunk_rows:
+                _flush_chunk(builder=builder, writer=writer, bag_path=bag_path, ros_version=ros_version)
+            row_values = {}
+            current_timestamp = ts
+
+        row_values[plan.topic_to_field[topic]] = _encode_raw_payload(rawdata)
+
+    if current_timestamp is not None:
+        builder.add_row(current_timestamp, row_values)
+        rows_written += 1
+
+    _flush_chunk(builder=builder, writer=writer, bag_path=bag_path, ros_version=ros_version)
+    return rows_written
+
+
+def _convert_downsample(
+    *,
+    reader: RosReader,
+    plan: TopicPlan,
+    writer: Any,
+    all_field_names: list[str],
+    bag_path: str,
+    ros_version: RosVersion,
+    chunk_rows: int,
+    freq_hz: float,
+) -> int:
+    step_ns = _step_ns_from_frequency(freq_hz)
+
+    builder = _SparseChunkBuilder(all_field_names)
+    previous_timestamp: int | None = None
+    bucket_start: int | None = None
+    bucket_end: int | None = None
+    bucket_values: dict[str, str | None] = {}
+    rows_written = 0
+
+    for topic, timestamp, _msgtype, rawdata in reader.iter_raw_messages(topics=plan.topics_to_read):
+        ts = int(timestamp)
+        if previous_timestamp is not None and ts < previous_timestamp:
+            raise ValueError(
+                f"Bag messages are out of order for '{bag_path}'. "
+                "Streaming conversion requires non-decreasing timestamps."
+            )
+        previous_timestamp = ts
+
+        if bucket_start is None:
+            bucket_start = ts
+            bucket_end = bucket_start + step_ns
+
+        while bucket_end is not None and ts >= bucket_end:
+            builder.add_row(bucket_start, bucket_values)
+            rows_written += 1
+            if builder.row_count >= chunk_rows:
+                _flush_chunk(builder=builder, writer=writer, bag_path=bag_path, ros_version=ros_version)
+            bucket_values = {}
+            bucket_start += step_ns
+            bucket_end += step_ns
+
+        bucket_values[plan.topic_to_field[topic]] = _encode_raw_payload(rawdata)
+
+    if bucket_start is not None:
+        builder.add_row(bucket_start, bucket_values)
+        rows_written += 1
+
+    _flush_chunk(builder=builder, writer=writer, bag_path=bag_path, ros_version=ros_version)
+    return rows_written
+
+
+def _collect_interpolation_samples(
+    *,
+    reader: RosReader,
+    plan: TopicPlan,
+    all_field_names: list[str],
+) -> tuple[dict[str, _TopicSamples], int | None, int | None]:
+    buffers = {field_name: _TopicSamples() for field_name in all_field_names}
+
+    min_ts: int | None = None
+    max_ts: int | None = None
+
+    for message in reader.read_messages(topics=plan.topics_to_read):
+        ts = int(message.timestamp)
+        field_name = plan.topic_to_field[message.topic]
+        buffers[field_name].append(ts, _normalize_payload(message.data))
+
+        if min_ts is None or ts < min_ts:
+            min_ts = ts
+        if max_ts is None or ts > max_ts:
+            max_ts = ts
+
+    for sample in buffers.values():
+        sample.sort()
+
+    return buffers, min_ts, max_ts
+
+
+def _convert_interpolate(
+    *,
+    reader: RosReader,
+    plan: TopicPlan,
+    writer: Any,
+    all_field_names: list[str],
+    bag_path: str,
+    ros_version: RosVersion,
+    chunk_rows: int,
+    freq_hz: float,
+) -> int:
+    samples, min_ts, max_ts = _collect_interpolation_samples(
+        reader=reader,
+        plan=plan,
+        all_field_names=all_field_names,
+    )
+    if min_ts is None or max_ts is None:
+        return 0
+
+    step_ns = _step_ns_from_frequency(freq_hz)
+    builder = _SparseChunkBuilder(all_field_names)
+    lower_indices = {field_name: 0 for field_name in all_field_names}
+    serializer = JsonPayloadSerializer()
+    rows_written = 0
+
+    target_ts = min_ts
+    while target_ts <= max_ts:
+        row_values: dict[str, str | None] = {}
+
+        for field_name in all_field_names:
+            sample = samples[field_name]
+            if not sample.timestamps:
+                continue
+
+            timestamps = sample.timestamps
+            payloads = sample.payloads
+            idx = lower_indices[field_name]
+            if idx >= len(timestamps):
+                idx = len(timestamps) - 1
+
+            if target_ts < timestamps[0] or target_ts > timestamps[-1]:
+                lower_indices[field_name] = idx
+                continue
+
+            while idx + 1 < len(timestamps) and timestamps[idx + 1] <= target_ts:
+                idx += 1
+            lower_indices[field_name] = idx
+
+            if timestamps[idx] == target_ts:
+                row_values[field_name] = serializer.dumps(payloads[idx])
+                continue
+
+            upper_idx = idx + 1
+            if upper_idx >= len(timestamps):
+                continue
+
+            lo_ts = timestamps[idx]
+            hi_ts = timestamps[upper_idx]
+            if hi_ts == lo_ts:
+                row_values[field_name] = serializer.dumps(payloads[idx])
+                continue
+
+            alpha = (target_ts - lo_ts) / (hi_ts - lo_ts)
+            row_values[field_name] = serializer.dumps(
+                _interpolate_json_leaves(payloads[idx], payloads[upper_idx], alpha)
+            )
+
+        builder.add_row(target_ts, row_values)
+        rows_written += 1
+        if builder.row_count >= chunk_rows:
+            _flush_chunk(builder=builder, writer=writer, bag_path=bag_path, ros_version=ros_version)
+
+        target_ts += step_ns
+
+    _flush_chunk(builder=builder, writer=writer, bag_path=bag_path, ros_version=ros_version)
+    return rows_written
+
+
+def _convert_single_bag(
     bag_path: str | Path,
     output_dir: str | Path,
     episode_id: str,
-    topics: list[str],
     mapping_dict: dict[str, list[str]],
-    resample_freq_hz: float | None,
-    resample_method: str,
-    topic_planner: TopicPlanner | None = None,
-    payload_serializer: PayloadSerializer | None = None,
+    resample_dict: dict[str, Any] | None,
+    chunk_rows: int,
 ) -> str:
     mapping = MappingTemplate.model_validate(mapping_dict)
-    resolved_ros_version = determine_ros_version_from_path(bag_path)
+    resample = ResampleConfig.model_validate(resample_dict) if resample_dict is not None else None
+
     normalized_bag_path = str(bag_path)
-    selected_topics = set(topics)
+    ros_version = determine_ros_version_from_path(normalized_bag_path)
 
-    resolved_topic_planner = topic_planner or DefaultTopicPlanner()
-    resolved_payload_serializer = payload_serializer or JsonPayloadSerializer()
-
-    # Phase 1: collect all messages into per-field buffers
-    with RosReader.open(normalized_bag_path, ros_version=resolved_ros_version) as reader:
-        known_topics = reader.topics
-        plan = resolved_topic_planner.plan(
-            mapping=mapping,
-            available_topics=known_topics,
-            requested_topics=selected_topics,
-        )
+    with RosReader.open(normalized_bag_path, ros_version=ros_version) as reader:
+        plan = _resolve_mapping_for_bag(mapping=mapping, available_topics=reader.topics)
         if not plan.topics_to_read:
-            raise ValueError(
-                f"No requested topics from mapping were found in bag: {normalized_bag_path}"
-            )
+            raise ValueError(f"No requested topics from mapping were found in bag: {normalized_bag_path}")
 
-        logger.info(
-            "Wide conversion: collecting messages from %s (%s topics)",
-            Path(normalized_bag_path).name,
-            len(plan.topics_to_read),
-        )
+        all_field_names = list(mapping.root.keys())
 
-        # All field names in mapping order (even ones absent from this bag)
-        all_field_names: list[str] = list(mapping.root.keys())
-        # Resolved fields (fields that have a matching topic in this bag)
-        resolved_fields = set(plan.topic_rename_map.values())
-        topic_buffers: dict[str, _TopicBuffer] = {
-            fname: _TopicBuffer() for fname in all_field_names if fname in resolved_fields
-        }
+        from .parquet import WideParquetWriter
 
-        for _index, (topic, timestamp, _msgtype, rawdata) in enumerate(
-            reader.iter_raw_messages(topics=plan.topics_to_read)
-        ):
-            field_name = plan.topic_rename_map[topic]
-            payload = resolved_payload_serializer.dumps(rawdata)
-            topic_buffers[field_name].append(int(timestamp), payload)
+        with WideParquetWriter(
+            output_dir=output_dir,
+            episode_id=episode_id,
+            field_names=all_field_names,
+        ) as writer:
+            if resample is None:
+                rows_written = _convert_no_resample(
+                    reader=reader,
+                    plan=plan,
+                    writer=writer,
+                    all_field_names=all_field_names,
+                    bag_path=normalized_bag_path,
+                    ros_version=ros_version,
+                    chunk_rows=chunk_rows,
+                )
+            elif resample.method == "downsample":
+                rows_written = _convert_downsample(
+                    reader=reader,
+                    plan=plan,
+                    writer=writer,
+                    all_field_names=all_field_names,
+                    bag_path=normalized_bag_path,
+                    ros_version=ros_version,
+                    chunk_rows=chunk_rows,
+                    freq_hz=resample.freq_hz,
+                )
+            else:
+                rows_written = _convert_interpolate(
+                    reader=reader,
+                    plan=plan,
+                    writer=writer,
+                    all_field_names=all_field_names,
+                    bag_path=normalized_bag_path,
+                    ros_version=ros_version,
+                    chunk_rows=chunk_rows,
+                    freq_hz=resample.freq_hz,
+                )
 
-    # Sort each buffer by timestamp (handles out-of-order bags)
-    for buf in topic_buffers.values():
-        buf.sort()
-
-    # Phase 2: build time grid and resample
-    grid = _build_time_grid(
-        topic_buffers=topic_buffers,
-        resample_freq_hz=resample_freq_hz,
-    )
-
-    field_data: dict[str, list[str | None]] = {}
-    for fname in all_field_names:
-        if fname in topic_buffers:
-            field_data[fname] = _resample_field(
-                buf=topic_buffers[fname],
-                grid=grid,
-                method=resample_method,
-                serializer=resolved_payload_serializer,
-            )
-        else:
-            field_data[fname] = [None] * len(grid)
-
-    # Phase 3: write wide parquet
-    from .parquet import WideParquetWriter
-
-    with WideParquetWriter(
-        output_dir=output_dir,
-        episode_id=episode_id,
-        field_names=all_field_names,
-    ) as writer:
-        writer.write_table(
-            bag_path=normalized_bag_path,
-            ros_version=resolved_ros_version,
-            timestamps=grid,
-            field_data=field_data,
-        )
-        logger.info(
-            "Finished %s: wrote %s wide rows to %s",
-            episode_id,
-            len(grid),
-            writer.path,
-        )
+        logger.info("Finished %s: wrote %s rows to %s", episode_id, rows_written, writer.path)
         return str(writer.path)
 
 
@@ -338,78 +485,51 @@ class Converter:
         mapping: MappingTemplate,
         output_dir: str | Path,
         *,
-        progress_every: int = 50000,
+        resample: ResampleConfig | None = None,
         max_workers: int | None = None,
-        resample_freq_hz: float | None = None,
-        resample_method: ResampleMethod = "ffill",
-        topic_planner: TopicPlanner | None = None,
-        payload_serializer: PayloadSerializer | None = None,
+        chunk_rows: int = 50_000,
     ) -> None:
         if not isinstance(file_paths, list):
             raise TypeError("file_paths must be a list of file paths")
         if not file_paths:
             raise ValueError("file_paths must be non-empty")
-        if progress_every < 0:
-            raise ValueError("progress_every must be >= 0")
         if max_workers is not None and max_workers < 1:
             raise ValueError("max_workers must be >= 1 or None")
-        if resample_freq_hz is not None and resample_freq_hz <= 0:
-            raise ValueError("resample_freq_hz must be positive")
-        if resample_method not in ("ffill", "interpolate"):
-            raise ValueError("resample_method must be 'ffill' or 'interpolate'")
+        if chunk_rows < 1:
+            raise ValueError("chunk_rows must be >= 1")
+        if resample is not None and not isinstance(resample, ResampleConfig):
+            raise TypeError("resample must be a ResampleConfig instance or None")
 
-        for path in file_paths:
-            determine_ros_version_from_path(path)
+        for file_path in file_paths:
+            determine_ros_version_from_path(file_path)
 
-        self.file_paths = file_paths
+        self.file_paths = [Path(path) for path in file_paths]
         self.mapping = mapping
         self.output_dir = Path(output_dir)
-        self.progress_every = progress_every
+        self.resample = resample
         self.max_workers = max_workers
-        self.resample_freq_hz = resample_freq_hz
-        self.resample_method = resample_method
-        self.topic_planner = topic_planner
-        self.payload_serializer = payload_serializer
-
-    def _derive_topics(self) -> list[str]:
-        topics: list[str] = []
-        for source_topics in self.mapping.root.values():
-            for topic in source_topics:
-                if topic not in topics:
-                    topics.append(topic)
-        return topics
+        self.chunk_rows = chunk_rows
 
     def convert(self) -> list[Path]:
-        topics = self._derive_topics()
-        if not topics:
+        if not self.mapping.root:
             raise ValueError("No topics found in mapping template")
 
         mapping_dict = self.mapping.model_dump()
-        workers = self.max_workers or os.cpu_count() or 1
-        logger.info(
-            "Converting %d file(s) with %d worker(s)",
-            len(self.file_paths),
-            workers,
-        )
+        resample_dict = self.resample.model_dump() if self.resample is not None else None
 
-        has_custom_dependencies = any(
-            dep is not None for dep in (self.topic_planner, self.payload_serializer)
-        )
-        if workers > 1 and has_custom_dependencies:
-            raise ValueError("Custom conversion dependencies require max_workers=1")
+        requested_workers = self.max_workers or os.cpu_count() or 1
+        workers = min(requested_workers, len(self.file_paths))
+        logger.info("Converting %d bag(s) with %d worker(s)", len(self.file_paths), workers)
 
-        if workers == 1:
+        if workers <= 1:
             results = [
-                _convert_single_wide(
-                    str(bag_path),
-                    str(self.output_dir),
-                    _default_episode_id(index),
-                    topics,
-                    mapping_dict,
-                    self.resample_freq_hz,
-                    self.resample_method,
-                    self.topic_planner,
-                    self.payload_serializer,
+                _convert_single_bag(
+                    bag_path=str(bag_path),
+                    output_dir=str(self.output_dir),
+                    episode_id=_default_episode_id(index),
+                    mapping_dict=mapping_dict,
+                    resample_dict=resample_dict,
+                    chunk_rows=self.chunk_rows,
                 )
                 for index, bag_path in enumerate(self.file_paths)
             ]
@@ -419,14 +539,13 @@ class Converter:
                     str(bag_path),
                     str(self.output_dir),
                     _default_episode_id(index),
-                    topics,
                     mapping_dict,
-                    self.resample_freq_hz,
-                    self.resample_method,
+                    resample_dict,
+                    self.chunk_rows,
                 )
                 for index, bag_path in enumerate(self.file_paths)
             ]
             with Pool(processes=workers) as pool:
-                results = pool.starmap(_convert_single_wide, args)
+                results = pool.starmap(_convert_single_bag, args)
 
-        return [Path(r) for r in results]
+        return [Path(path) for path in results]

@@ -4,6 +4,7 @@ from pydantic import BaseModel, ConfigDict, Field, RootModel, field_validator, m
 
 CompressionFormat = Literal["zstd", "lz4", "bz2", "none", "unknown"]
 ResampleMethod = Literal["ffill", "interpolate"]
+ResampleStrategy = Literal["interpolate", "downsample"]
 RosVersion = Literal["ROS1", "ROS2"]
 StorageFormat = Literal["bag", "mcap", "unknown"]
 
@@ -26,6 +27,13 @@ class GroupingConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     method: Literal["bag"] = "bag"
+
+
+class ResampleConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    freq_hz: float = Field(gt=0)
+    method: ResampleStrategy
 
 
 class EpisodeRef(BaseModel):
@@ -119,12 +127,14 @@ class BagMetadata(BaseModel):
 __all__ = [
     "CompressionFormat",
     "ResampleMethod",
+    "ResampleStrategy",
     "RosVersion",
     "StorageFormat",
     "Message",
     "ReaderMetadata",
     "InternalStats",
     "GroupingConfig",
+    "ResampleConfig",
     "EpisodeRef",
     "MappingTemplate",
     "TemporalMetadata",

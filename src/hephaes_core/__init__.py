@@ -29,7 +29,7 @@ def configure_logging(
 
 from .converter import Converter
 from .mappers import build_mapping_template, build_mapping_template_from_json
-from .models import MappingTemplate
+from .models import MappingTemplate, ResampleConfig
 from .profiler import Profiler
 from .reader import ROS1Reader, ROS2Reader, RosReader
 
@@ -38,6 +38,7 @@ __all__ = [
     "configure_logging",
     "Converter",
     "MappingTemplate",
+    "ResampleConfig",
     "WideParquetWriter",
     "Profiler",
     "ROS1Reader",
