@@ -9,7 +9,6 @@ from hephaes_core.models import (
     InternalStats,
     MappingTemplate,
     Message,
-    ParquetRow,
     ReaderMetadata,
     TemporalMetadata,
     Topic,
@@ -308,57 +307,3 @@ class TestBagMetadata:
         bm = BagMetadata(**kwargs)
         assert bm.topics == []
 
-
-# ---------------------------------------------------------------------------
-# ParquetRow
-# ---------------------------------------------------------------------------
-
-class TestParquetRow:
-    def _valid_kwargs(self):
-        return dict(
-            episode_id="ep1",
-            bag_path="/data/test.bag",
-            ros_version="ROS1",
-            message_index=0,
-            timestamp_ns=1_000_000_000,
-            topic="/cmd_vel",
-            field="cmd_vel",
-            topic_type="geometry_msgs/Twist",
-            data_json='{"linear": 1.0}',
-        )
-
-    def test_valid(self):
-        row = ParquetRow(**self._valid_kwargs())
-        assert row.episode_id == "ep1"
-        assert row.message_index == 0
-
-    def test_negative_message_index_rejected(self):
-        kwargs = self._valid_kwargs()
-        kwargs["message_index"] = -1
-        with pytest.raises(ValidationError):
-            ParquetRow(**kwargs)
-
-    def test_negative_timestamp_rejected(self):
-        kwargs = self._valid_kwargs()
-        kwargs["timestamp_ns"] = -1
-        with pytest.raises(ValidationError):
-            ParquetRow(**kwargs)
-
-    def test_empty_episode_id_rejected(self):
-        kwargs = self._valid_kwargs()
-        kwargs["episode_id"] = ""
-        with pytest.raises(ValidationError):
-            ParquetRow(**kwargs)
-
-    def test_column_names(self):
-        cols = ParquetRow.column_names()
-        assert "episode_id" in cols
-        assert "timestamp_ns" in cols
-        assert "data_json" in cols
-        assert len(cols) == 9
-
-    def test_parquet_schema_spec(self):
-        spec = ParquetRow.parquet_schema_spec()
-        assert [name for name, _ in spec] == ParquetRow.column_names()
-        assert dict(spec)["episode_id"] == "string"
-        assert dict(spec)["message_index"] == "int64"

@@ -38,22 +38,22 @@ __all__ = [
     "configure_logging",
     "Converter",
     "MappingTemplate",
-    "ParquetWriter",
+    "WideParquetWriter",
     "Profiler",
     "ROS1Reader",
     "ROS2Reader",
     "RosReader",
     "build_mapping_template",
     "build_mapping_template_from_json",
-    "stream_parquet_rows",
+    "stream_wide_parquet_rows",
 ]
 
 
 def __getattr__(name: str):
-    if name in {"ParquetWriter", "stream_parquet_rows"}:
-        from .parquet import ParquetWriter, stream_parquet_rows
+    if name in {"WideParquetWriter", "stream_wide_parquet_rows"}:
+        from .parquet import WideParquetWriter, stream_wide_parquet_rows
 
-        if name == "ParquetWriter":
-            return ParquetWriter
-        return stream_parquet_rows
+        if name == "WideParquetWriter":
+            return WideParquetWriter
+        return stream_wide_parquet_rows
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

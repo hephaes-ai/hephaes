@@ -24,3 +24,8 @@ __pycache__/
 .coverage
 htmlcov/
 demo/output/
+
+# large test files
+demo/input/ros1.bag
+demo/input/sample.mcap
+demo/input/sample2.mcap

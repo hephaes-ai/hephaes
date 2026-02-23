@@ -1,8 +1,9 @@
-from typing import Any, Dict, List, Literal, get_args, get_origin
+from typing import Any, Dict, List, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, RootModel, field_validator, model_validator
 
 CompressionFormat = Literal["zstd", "lz4", "bz2", "none", "unknown"]
+ResampleMethod = Literal["ffill", "interpolate"]
 RosVersion = Literal["ROS1", "ROS2"]
 StorageFormat = Literal["bag", "mcap", "unknown"]
 
@@ -115,50 +116,9 @@ class BagMetadata(BaseModel):
     compression_format: CompressionFormat
 
 
-class ParquetRow(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    episode_id: str = Field(min_length=1)
-    bag_path: str = Field(min_length=1)
-    ros_version: RosVersion
-    message_index: int = Field(ge=0)
-    timestamp_ns: int = Field(ge=0)
-    topic: str = Field(min_length=1)
-    field: str = Field(min_length=1)
-    topic_type: str = Field(min_length=1)
-    data_json: str
-
-    @classmethod
-    def column_names(cls) -> list[str]:
-        return list(cls.model_fields.keys())
-
-    @classmethod
-    def parquet_schema_spec(cls) -> list[tuple[str, str]]:
-        return [
-            (name, _annotation_to_parquet_type(field.annotation))
-            for name, field in cls.model_fields.items()
-        ]
-
-
-def _annotation_to_parquet_type(annotation: Any) -> str:
-    if annotation is int:
-        return "int64"
-    if annotation is str:
-        return "string"
-
-    origin = get_origin(annotation)
-    if origin is Literal:
-        literal_values = get_args(annotation)
-        if literal_values and all(isinstance(value, str) for value in literal_values):
-            return "string"
-        if literal_values and all(isinstance(value, int) for value in literal_values):
-            return "int64"
-
-    raise TypeError(f"Unsupported parquet annotation: {annotation!r}")
-
-
 __all__ = [
     "CompressionFormat",
+    "ResampleMethod",
     "RosVersion",
     "StorageFormat",
     "Message",
@@ -170,5 +130,4 @@ __all__ = [
     "TemporalMetadata",
     "Topic",
     "BagMetadata",
-    "ParquetRow",
 ]

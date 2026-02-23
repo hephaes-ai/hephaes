@@ -1,4 +1,4 @@
-"""Tests for hephaes_core.parquet (ParquetWriter, stream_parquet_rows)."""
+"""Tests for hephaes_core.parquet (WideParquetWriter, stream_wide_parquet_rows)."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -9,151 +9,178 @@ pytest.importorskip("pyarrow")
 
 
 # ---------------------------------------------------------------------------
-# ParquetWriter
+# WideParquetWriter
 # ---------------------------------------------------------------------------
 
-class TestParquetWriter:
+class TestWideParquetWriter:
     def test_creates_parquet_file(self, tmp_path):
-        from hephaes_core.parquet import ParquetWriter
-        with ParquetWriter(output_dir=tmp_path, episode_id="ep001") as writer:
+        from hephaes_core.parquet import WideParquetWriter
+        with WideParquetWriter(output_dir=tmp_path, episode_id="ep001", field_names=["cmd_vel"]) as writer:
             pass
         assert (tmp_path / "ep001.parquet").exists()
 
     def test_path_attribute(self, tmp_path):
-        from hephaes_core.parquet import ParquetWriter
-        with ParquetWriter(output_dir=tmp_path, episode_id="ep001") as writer:
+        from hephaes_core.parquet import WideParquetWriter
+        with WideParquetWriter(output_dir=tmp_path, episode_id="ep001", field_names=["cmd_vel"]) as writer:
             assert writer.path == tmp_path / "ep001.parquet"
 
     def test_creates_output_dir_if_missing(self, tmp_path):
-        from hephaes_core.parquet import ParquetWriter
+        from hephaes_core.parquet import WideParquetWriter
         nested = tmp_path / "a" / "b" / "c"
-        with ParquetWriter(output_dir=nested, episode_id="ep1") as writer:
+        with WideParquetWriter(output_dir=nested, episode_id="ep1", field_names=["f"]) as writer:
             pass
         assert nested.exists()
 
-    def test_write_batch_creates_readable_file(self, tmp_path):
-        from hephaes_core.parquet import ParquetWriter
-        with ParquetWriter(output_dir=tmp_path, episode_id="ep1") as writer:
-            writer.write_batch(
+    def test_schema_has_dynamic_columns(self, tmp_path):
+        import pyarrow.parquet as pq
+        from hephaes_core.parquet import WideParquetWriter
+        field_names = ["cmd_vel", "odom", "lidar"]
+        with WideParquetWriter(output_dir=tmp_path, episode_id="ep1", field_names=field_names) as writer:
+            writer.write_table(
                 bag_path="/data/test.bag",
                 ros_version="ROS1",
-                message_indices=[0, 1],
-                timestamps=[1_000_000_000, 2_000_000_000],
-                topic_names=["/cmd_vel", "/cmd_vel"],
-                mapped_fields=["cmd_vel", "cmd_vel"],
-                topic_types=["geometry_msgs/Twist", "geometry_msgs/Twist"],
-                payload_json=['{"v": 1}', '{"v": 2}'],
+                timestamps=[1_000_000_000],
+                field_data={"cmd_vel": ['{"x": 1}'], "odom": [None], "lidar": [None]},
             )
-        assert (tmp_path / "ep1.parquet").stat().st_size > 0
+        schema = pq.read_schema(str(tmp_path / "ep1.parquet"))
+        col_names = schema.names
+        assert "episode_id" in col_names
+        assert "timestamp_ns" in col_names
+        for fname in field_names:
+            assert fname in col_names
 
-    def test_write_empty_batch_no_op(self, tmp_path):
-        from hephaes_core.parquet import ParquetWriter
-        with ParquetWriter(output_dir=tmp_path, episode_id="ep1") as writer:
-            # Should not raise
-            writer.write_batch(
+    def test_write_table_populates_correct_columns(self, tmp_path):
+        from hephaes_core.parquet import WideParquetWriter, stream_wide_parquet_rows
+        with WideParquetWriter(output_dir=tmp_path, episode_id="ep1", field_names=["cmd_vel", "odom"]) as writer:
+            writer.write_table(
                 bag_path="/data/test.bag",
                 ros_version="ROS1",
-                message_indices=[],
-                timestamps=[],
-                topic_names=[],
-                mapped_fields=[],
-                topic_types=[],
-                payload_json=[],
+                timestamps=[1_000_000_000, 2_000_000_000],
+                field_data={
+                    "cmd_vel": ['{"v": 1}', None],
+                    "odom": [None, '{"p": 2}'],
+                },
             )
+        rows = list(stream_wide_parquet_rows(tmp_path / "ep1.parquet"))
+        assert len(rows) == 2
+        assert rows[0]["cmd_vel"] == '{"v": 1}'
+        assert rows[0]["odom"] is None
+        assert rows[1]["cmd_vel"] is None
+        assert rows[1]["odom"] == '{"p": 2}'
+
+    def test_write_table_empty_no_op(self, tmp_path):
+        from hephaes_core.parquet import WideParquetWriter
+        with WideParquetWriter(output_dir=tmp_path, episode_id="ep1", field_names=["f"]) as writer:
+            writer.write_table(
+                bag_path="/data/test.bag",
+                ros_version="ROS1",
+                timestamps=[],
+                field_data={},
+            )
+
+    def test_absent_field_in_field_data_becomes_all_null(self, tmp_path):
+        from hephaes_core.parquet import WideParquetWriter, stream_wide_parquet_rows
+        with WideParquetWriter(output_dir=tmp_path, episode_id="ep1", field_names=["cmd_vel", "odom"]) as writer:
+            writer.write_table(
+                bag_path="/data/test.bag",
+                ros_version="ROS1",
+                timestamps=[1_000_000_000, 2_000_000_000],
+                field_data={"cmd_vel": ['{"v": 1}', '{"v": 2}']},
+                # "odom" absent from field_data
+            )
+        rows = list(stream_wide_parquet_rows(tmp_path / "ep1.parquet"))
+        assert rows[0]["odom"] is None
+        assert rows[1]["odom"] is None
 
     def test_context_manager_closes_writer(self, tmp_path):
-        from hephaes_core.parquet import ParquetWriter
-        writer = ParquetWriter(output_dir=tmp_path, episode_id="ep1")
+        from hephaes_core.parquet import WideParquetWriter
+        writer = WideParquetWriter(output_dir=tmp_path, episode_id="ep1", field_names=["f"])
         writer.__enter__()
         writer.__exit__(None, None, None)
-        # File should be properly written/closed
         assert (tmp_path / "ep1.parquet").exists()
 
-    def test_multiple_batches(self, tmp_path):
-        from hephaes_core.parquet import ParquetWriter, stream_parquet_rows
-        with ParquetWriter(output_dir=tmp_path, episode_id="ep1") as writer:
-            for i in range(3):
-                writer.write_batch(
-                    bag_path="/data/test.bag",
-                    ros_version="ROS1",
-                    message_indices=[i],
-                    timestamps=[i * 1_000_000_000],
-                    topic_names=["/t"],
-                    mapped_fields=["t"],
-                    topic_types=["std_msgs/String"],
-                    payload_json=[f'{{"i": {i}}}'],
-                )
-        rows = list(stream_parquet_rows(tmp_path / "ep1.parquet"))
-        assert len(rows) == 3
+    def test_fixed_metadata_columns_correct(self, tmp_path):
+        from hephaes_core.parquet import WideParquetWriter, stream_wide_parquet_rows
+        with WideParquetWriter(output_dir=tmp_path, episode_id="myep", field_names=["f"]) as writer:
+            writer.write_table(
+                bag_path="/bags/foo.bag",
+                ros_version="ROS2",
+                timestamps=[999],
+                field_data={"f": ['{}']},
+            )
+        rows = list(stream_wide_parquet_rows(tmp_path / "myep.parquet"))
+        assert rows[0]["episode_id"] == "myep"
+        assert rows[0]["bag_path"] == "/bags/foo.bag"
+        assert rows[0]["ros_version"] == "ROS2"
+        assert rows[0]["timestamp_ns"] == 999
 
 
 # ---------------------------------------------------------------------------
-# stream_parquet_rows
+# stream_wide_parquet_rows
 # ---------------------------------------------------------------------------
 
-class TestStreamParquetRows:
+class TestStreamWideParquetRows:
     def _write_test_file(self, path: Path, n_rows: int = 5) -> Path:
-        from hephaes_core.parquet import ParquetWriter
-        out = path / "test.parquet"
-        with ParquetWriter(output_dir=path, episode_id="test") as writer:
-            writer.write_batch(
+        from hephaes_core.parquet import WideParquetWriter
+        with WideParquetWriter(output_dir=path, episode_id="test", field_names=["f"]) as writer:
+            writer.write_table(
                 bag_path="/data/test.bag",
                 ros_version="ROS1",
-                message_indices=list(range(n_rows)),
                 timestamps=[i * 1_000_000_000 for i in range(n_rows)],
-                topic_names=["/t"] * n_rows,
-                mapped_fields=["t"] * n_rows,
-                topic_types=["std_msgs/String"] * n_rows,
-                payload_json=[f'{{"i": {i}}}' for i in range(n_rows)],
+                field_data={"f": [f'{{"i": {i}}}' for i in range(n_rows)]},
             )
         return path / "test.parquet"
 
     def test_yields_all_rows(self, tmp_path):
-        from hephaes_core.parquet import stream_parquet_rows
+        from hephaes_core.parquet import stream_wide_parquet_rows
         parquet_file = self._write_test_file(tmp_path, n_rows=5)
-        rows = list(stream_parquet_rows(parquet_file))
+        rows = list(stream_wide_parquet_rows(parquet_file))
         assert len(rows) == 5
 
     def test_row_contains_expected_keys(self, tmp_path):
-        from hephaes_core.parquet import stream_parquet_rows
+        from hephaes_core.parquet import stream_wide_parquet_rows
         parquet_file = self._write_test_file(tmp_path, n_rows=1)
-        rows = list(stream_parquet_rows(parquet_file))
+        rows = list(stream_wide_parquet_rows(parquet_file))
         row = rows[0]
         assert "episode_id" in row
         assert "bag_path" in row
         assert "timestamp_ns" in row
-        assert "data_json" in row
+        assert "f" in row
 
-    def test_row_values_correct(self, tmp_path):
-        from hephaes_core.parquet import stream_parquet_rows
-        parquet_file = self._write_test_file(tmp_path, n_rows=1)
-        rows = list(stream_parquet_rows(parquet_file))
-        assert rows[0]["episode_id"] == "test"
-        assert rows[0]["bag_path"] == "/data/test.bag"
-        assert rows[0]["ros_version"] == "ROS1"
+    def test_null_field_is_none_in_dict(self, tmp_path):
+        from hephaes_core.parquet import WideParquetWriter, stream_wide_parquet_rows
+        with WideParquetWriter(output_dir=tmp_path, episode_id="ep", field_names=["a", "b"]) as w:
+            w.write_table(
+                bag_path="/bag",
+                ros_version="ROS1",
+                timestamps=[1],
+                field_data={"a": ["{}"], "b": [None]},
+            )
+        rows = list(stream_wide_parquet_rows(tmp_path / "ep.parquet"))
+        assert rows[0]["b"] is None
 
     def test_batch_size_respected(self, tmp_path):
-        from hephaes_core.parquet import stream_parquet_rows
+        from hephaes_core.parquet import stream_wide_parquet_rows
         parquet_file = self._write_test_file(tmp_path, n_rows=10)
-        rows = list(stream_parquet_rows(parquet_file, batch_size=3))
+        rows = list(stream_wide_parquet_rows(parquet_file, batch_size=3))
         assert len(rows) == 10
 
     def test_invalid_batch_size_raises(self, tmp_path):
-        from hephaes_core.parquet import stream_parquet_rows
+        from hephaes_core.parquet import stream_wide_parquet_rows
         parquet_file = self._write_test_file(tmp_path, n_rows=1)
         with pytest.raises(ValueError, match="batch_size"):
-            list(stream_parquet_rows(parquet_file, batch_size=0))
+            list(stream_wide_parquet_rows(parquet_file, batch_size=0))
 
     def test_column_selection(self, tmp_path):
-        from hephaes_core.parquet import stream_parquet_rows
+        from hephaes_core.parquet import stream_wide_parquet_rows
         parquet_file = self._write_test_file(tmp_path, n_rows=2)
-        rows = list(stream_parquet_rows(parquet_file, columns=["episode_id", "topic"]))
+        rows = list(stream_wide_parquet_rows(parquet_file, columns=["episode_id", "timestamp_ns"]))
         assert len(rows) == 2
         for row in rows:
-            assert set(row.keys()) == {"episode_id", "topic"}
+            assert set(row.keys()) == {"episode_id", "timestamp_ns"}
 
     def test_string_path_accepted(self, tmp_path):
-        from hephaes_core.parquet import stream_parquet_rows
+        from hephaes_core.parquet import stream_wide_parquet_rows
         parquet_file = self._write_test_file(tmp_path, n_rows=2)
-        rows = list(stream_parquet_rows(str(parquet_file)))
+        rows = list(stream_wide_parquet_rows(str(parquet_file)))
         assert len(rows) == 2

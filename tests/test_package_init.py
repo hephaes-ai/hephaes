@@ -22,9 +22,9 @@ class TestPublicExports:
         from hephaes_core import MappingTemplate
         assert MappingTemplate is not None
 
-    def test_parquet_writer_exported(self):
-        from hephaes_core import ParquetWriter
-        assert ParquetWriter is not None
+    def test_wide_parquet_writer_exported(self):
+        from hephaes_core import WideParquetWriter
+        assert WideParquetWriter is not None
 
     def test_profiler_exported(self):
         from hephaes_core import Profiler
@@ -50,9 +50,9 @@ class TestPublicExports:
         from hephaes_core import build_mapping_template_from_json
         assert callable(build_mapping_template_from_json)
 
-    def test_stream_parquet_rows_exported(self):
-        from hephaes_core import stream_parquet_rows
-        assert callable(stream_parquet_rows)
+    def test_stream_wide_parquet_rows_exported(self):
+        from hephaes_core import stream_wide_parquet_rows
+        assert callable(stream_wide_parquet_rows)
 
     def test_configure_logging_exported(self):
         from hephaes_core import configure_logging
@@ -64,14 +64,14 @@ class TestPublicExports:
             "configure_logging",
             "Converter",
             "MappingTemplate",
-            "ParquetWriter",
+            "WideParquetWriter",
             "Profiler",
             "ROS1Reader",
             "ROS2Reader",
             "RosReader",
             "build_mapping_template",
             "build_mapping_template_from_json",
-            "stream_parquet_rows",
+            "stream_wide_parquet_rows",
         }
         assert expected.issubset(set(hephaes_core.__all__))
 
