@@ -37,15 +37,15 @@ class TestWideParquetWriter:
         field_names = ["cmd_vel", "odom", "lidar"]
         with WideParquetWriter(output_dir=tmp_path, episode_id="ep1", field_names=field_names) as writer:
             writer.write_table(
-                bag_path="/data/test.bag",
-                ros_version="ROS1",
                 timestamps=[1_000_000_000],
                 field_data={"cmd_vel": ['{"x": 1}'], "odom": [None], "lidar": [None]},
             )
         schema = pq.read_schema(str(tmp_path / "ep1.parquet"))
         col_names = schema.names
-        assert "episode_id" in col_names
         assert "timestamp_ns" in col_names
+        assert "episode_id" not in col_names
+        assert "bag_path" not in col_names
+        assert "ros_version" not in col_names
         for fname in field_names:
             assert fname in col_names
 
@@ -53,8 +53,6 @@ class TestWideParquetWriter:
         from hephaes_core.parquet import WideParquetWriter, stream_wide_parquet_rows
         with WideParquetWriter(output_dir=tmp_path, episode_id="ep1", field_names=["cmd_vel", "odom"]) as writer:
             writer.write_table(
-                bag_path="/data/test.bag",
-                ros_version="ROS1",
                 timestamps=[1_000_000_000, 2_000_000_000],
                 field_data={
                     "cmd_vel": ['{"v": 1}', None],
@@ -72,8 +70,6 @@ class TestWideParquetWriter:
         from hephaes_core.parquet import WideParquetWriter
         with WideParquetWriter(output_dir=tmp_path, episode_id="ep1", field_names=["f"]) as writer:
             writer.write_table(
-                bag_path="/data/test.bag",
-                ros_version="ROS1",
                 timestamps=[],
                 field_data={},
             )
@@ -82,8 +78,6 @@ class TestWideParquetWriter:
         from hephaes_core.parquet import WideParquetWriter, stream_wide_parquet_rows
         with WideParquetWriter(output_dir=tmp_path, episode_id="ep1", field_names=["cmd_vel", "odom"]) as writer:
             writer.write_table(
-                bag_path="/data/test.bag",
-                ros_version="ROS1",
                 timestamps=[1_000_000_000, 2_000_000_000],
                 field_data={"cmd_vel": ['{"v": 1}', '{"v": 2}']},
                 # "odom" absent from field_data
@@ -99,19 +93,14 @@ class TestWideParquetWriter:
         writer.__exit__(None, None, None)
         assert (tmp_path / "ep1.parquet").exists()
 
-    def test_fixed_metadata_columns_correct(self, tmp_path):
+    def test_fixed_columns_correct(self, tmp_path):
         from hephaes_core.parquet import WideParquetWriter, stream_wide_parquet_rows
         with WideParquetWriter(output_dir=tmp_path, episode_id="myep", field_names=["f"]) as writer:
             writer.write_table(
-                bag_path="/bags/foo.bag",
-                ros_version="ROS2",
                 timestamps=[999],
                 field_data={"f": ['{}']},
             )
         rows = list(stream_wide_parquet_rows(tmp_path / "myep.parquet"))
-        assert rows[0]["episode_id"] == "myep"
-        assert rows[0]["bag_path"] == "/bags/foo.bag"
-        assert rows[0]["ros_version"] == "ROS2"
         assert rows[0]["timestamp_ns"] == 999
 
 
@@ -124,8 +113,6 @@ class TestStreamWideParquetRows:
         from hephaes_core.parquet import WideParquetWriter
         with WideParquetWriter(output_dir=path, episode_id="test", field_names=["f"]) as writer:
             writer.write_table(
-                bag_path="/data/test.bag",
-                ros_version="ROS1",
                 timestamps=[i * 1_000_000_000 for i in range(n_rows)],
                 field_data={"f": [f'{{"i": {i}}}' for i in range(n_rows)]},
             )
@@ -142,8 +129,6 @@ class TestStreamWideParquetRows:
         parquet_file = self._write_test_file(tmp_path, n_rows=1)
         rows = list(stream_wide_parquet_rows(parquet_file))
         row = rows[0]
-        assert "episode_id" in row
-        assert "bag_path" in row
         assert "timestamp_ns" in row
         assert "f" in row
 
@@ -151,8 +136,6 @@ class TestStreamWideParquetRows:
         from hephaes_core.parquet import WideParquetWriter, stream_wide_parquet_rows
         with WideParquetWriter(output_dir=tmp_path, episode_id="ep", field_names=["a", "b"]) as w:
             w.write_table(
-                bag_path="/bag",
-                ros_version="ROS1",
                 timestamps=[1],
                 field_data={"a": ["{}"], "b": [None]},
             )
@@ -174,10 +157,10 @@ class TestStreamWideParquetRows:
     def test_column_selection(self, tmp_path):
         from hephaes_core.parquet import stream_wide_parquet_rows
         parquet_file = self._write_test_file(tmp_path, n_rows=2)
-        rows = list(stream_wide_parquet_rows(parquet_file, columns=["episode_id", "timestamp_ns"]))
+        rows = list(stream_wide_parquet_rows(parquet_file, columns=["timestamp_ns"]))
         assert len(rows) == 2
         for row in rows:
-            assert set(row.keys()) == {"episode_id", "timestamp_ns"}
+            assert set(row.keys()) == {"timestamp_ns"}
 
     def test_string_path_accepted(self, tmp_path):
         from hephaes_core.parquet import stream_wide_parquet_rows

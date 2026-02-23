@@ -1,8 +1,6 @@
 from pathlib import Path
 from typing import Any, Generator, Sequence
 
-from .models import RosVersion
-
 try:
     import pyarrow as pa  # type: ignore
     import pyarrow.parquet as pq  # type: ignore
@@ -23,8 +21,6 @@ def _require_pyarrow() -> None:
 
 
 class WideParquetWriter:
-    """Write a wide-format Parquet file where each mapped field is its own column."""
-
     def __init__(
         self,
         *,
@@ -35,7 +31,6 @@ class WideParquetWriter:
         _require_pyarrow()
         self._pa = pa
         self._pq = pq
-        self._episode_id = episode_id
         self._field_names = list(field_names)
 
         output_path = Path(output_dir)
@@ -43,9 +38,6 @@ class WideParquetWriter:
         self.path = output_path / f"{episode_id}.parquet"
 
         fixed_fields = [
-            pa.field("episode_id", pa.string()),
-            pa.field("bag_path", pa.string()),
-            pa.field("ros_version", pa.string()),
             pa.field("timestamp_ns", pa.int64()),
         ]
         dynamic_fields = [
@@ -58,8 +50,6 @@ class WideParquetWriter:
     def write_table(
         self,
         *,
-        bag_path: str,
-        ros_version: RosVersion,
         timestamps: list[int],
         field_data: dict[str, list[str | None]],
     ) -> None:
@@ -68,9 +58,6 @@ class WideParquetWriter:
             return
 
         arrays: dict[str, Any] = {
-            "episode_id": self._pa.array([self._episode_id] * row_count, type=pa.string()),
-            "bag_path": self._pa.array([bag_path] * row_count, type=pa.string()),
-            "ros_version": self._pa.array([ros_version] * row_count, type=pa.string()),
             "timestamp_ns": self._pa.array(timestamps, type=pa.int64()),
         }
         for name in self._field_names:
@@ -96,7 +83,6 @@ def stream_wide_parquet_rows(
     columns: Sequence[str] | None = None,
     batch_size: int = 1024,
 ) -> Generator[dict[str, Any], None, None]:
-    """Stream rows from a wide-format Parquet file as plain dicts."""
     if batch_size <= 0:
         raise ValueError("batch_size must be greater than 0")
 
