@@ -7,6 +7,8 @@ from typing import Any, BinaryIO, Generator
 
 from ._tfrecord_crc import _masked_crc32c
 
+_SEQUENCE_LENGTH_PREFIX = "__sequence_length__"
+
 
 def _decode_varint(data: bytes, offset: int) -> tuple[int, int]:
     shift = 0
@@ -48,12 +50,18 @@ def _iter_message_fields(payload: bytes):
         raise ValueError(f"Unsupported protobuf wire type in TFRecord Example: {wire_type}")
 
 
+def _decode_signed_int64(value: int) -> int:
+    if value >= 1 << 63:
+        return value - (1 << 64)
+    return value
+
+
 def _decode_packed_int64(payload: bytes) -> list[int]:
     values: list[int] = []
     offset = 0
     while offset < len(payload):
         value, offset = _decode_varint(payload, offset)
-        values.append(value)
+        values.append(_decode_signed_int64(value))
     return values
 
 
@@ -123,6 +131,23 @@ def _collapse_feature_values(kind: str, values: list[bytes] | list[int] | list[f
     return list(values)
 
 
+def _extract_sequence_lengths(
+    features: dict[str, tuple[str, list[bytes] | list[int] | list[float]]],
+) -> dict[str, int]:
+    sequence_lengths: dict[str, int] = {}
+
+    for feature_name, (kind, values) in features.items():
+        if not feature_name.startswith(_SEQUENCE_LENGTH_PREFIX):
+            continue
+        if kind != "int64" or len(values) != 1:
+            raise ValueError("Malformed TFRecord Example: invalid sequence metadata")
+
+        target_name = feature_name[len(_SEQUENCE_LENGTH_PREFIX):]
+        sequence_lengths[target_name] = int(values[0])
+
+    return sequence_lengths
+
+
 def _read_exact(handle: BinaryIO, size: int) -> bytes:
     data = handle.read(size)
     if len(data) != size:
@@ -169,7 +194,26 @@ def stream_tfrecord_rows(
                     raise ValueError("Malformed TFRecord file: payload checksum mismatch")
 
             features = _decode_example(payload)
-            yield {
-                feature_name: _collapse_feature_values(kind, values)
-                for feature_name, (kind, values) in features.items()
-            }
+            sequence_lengths = _extract_sequence_lengths(features)
+            row: dict[str, Any] = {}
+
+            for feature_name, (kind, values) in features.items():
+                if feature_name.startswith(_SEQUENCE_LENGTH_PREFIX):
+                    continue
+
+                if feature_name in sequence_lengths:
+                    row[feature_name] = list(values)
+                    continue
+
+                row[feature_name] = _collapse_feature_values(kind, values)
+
+            for feature_name, sequence_length in sequence_lengths.items():
+                if feature_name in row:
+                    continue
+                if sequence_length != 0:
+                    raise ValueError(
+                        "Malformed TFRecord Example: sequence metadata without payload"
+                    )
+                row[feature_name] = []
+
+            yield row

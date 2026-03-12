@@ -12,6 +12,7 @@ from ..models import OutputConfig, TFRecordOutputConfig
 from .base import BaseDatasetWriter, EpisodeContext, RecordBatch
 
 _FeatureValue = tuple[str, list[bytes] | list[int] | list[float]]
+_SEQUENCE_LENGTH_PREFIX = "__sequence_length__"
 
 
 def _encode_varint(value: int) -> bytes:
@@ -93,13 +94,18 @@ def _decode_encoded_bytes(value: dict[str, Any]) -> bytes:
     return base64.b64decode(value["value"])
 
 
+def _sequence_length_key(prefix: str) -> str:
+    return f"{_SEQUENCE_LENGTH_PREFIX}{prefix}"
+
+
 def _flatten_sequence_feature(
     prefix: str,
     values: list[Any],
     features: dict[str, _FeatureValue],
 ) -> None:
+    features[_sequence_length_key(prefix)] = ("int64", [len(values)])
+
     if not values:
-        features[prefix] = ("bytes", [_json_fallback_bytes(values)])
         return
 
     if all(_is_encoded_bytes_object(item) for item in values):
