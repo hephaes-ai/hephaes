@@ -1,6 +1,6 @@
-# hephaes
+# Hephaes
 
-Python package for robotics teams that need to turn raw ROS logs into consistent datasets. The package helps you:
+Python package for turning raw ROS/MCAP logs into standardized datasets with consistent schemas across runs. The package helps you:
 
 - ingest ROS1 `.bag` and ROS2 `.mcap` logs
 - inspect topics, rates, and recording time ranges
@@ -155,7 +155,7 @@ Notes:
 - Payloads are stored as JSON strings.
 - Raw byte payloads are wrapped as base64-encoded JSON objects shaped like `{"__bytes__": true, "encoding": "base64", "value": "..."}`.
 
-This makes the output easy to stream, inspect, and hand off to downstream ETL or ML pipelines while preserving source payload fidelity.
+This makes the output easy to stream, inspect, and hand off to downstream ETL, analysis or ML pipelines while preserving source payload fidelity.
 
 ## Direct Log Access
 
