@@ -1,6 +1,6 @@
 import logging
 
-__version__ = "0.1.1"
+__version__ = "0.2.0"
 
 _PACKAGE_LOGGER_NAME = "hephaes"
 _package_logger = logging.getLogger(_PACKAGE_LOGGER_NAME)

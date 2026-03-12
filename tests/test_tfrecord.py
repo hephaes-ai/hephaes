@@ -108,3 +108,60 @@ class TestTFRecordDatasetWriter:
                 "imu__accel": [0.25, 0.5, 1.0],
             }
         ]
+
+    def test_round_trips_negative_int_features(self, tmp_path):
+        context = EpisodeContext(
+            episode_id="ep_negative",
+            source_path=tmp_path / "source.mcap",
+            ros_version="ROS2",
+            field_names=["cmd_vel"],
+            resample=None,
+            output=TFRecordOutputConfig(),
+        )
+
+        with TFRecordDatasetWriter(
+            output_dir=tmp_path,
+            context=context,
+            config=TFRecordOutputConfig(),
+        ) as writer:
+            writer.write_batch(
+                RecordBatch(
+                    timestamps=[9],
+                    field_data={"cmd_vel": [{"reverse": -3}]},
+                )
+            )
+
+        rows = list(stream_tfrecord_rows(tmp_path / "ep_negative.tfrecord"))
+        assert rows == [
+            {"timestamp_ns": 9, "cmd_vel__present": 1, "cmd_vel__reverse": -3}
+        ]
+
+    def test_preserves_singleton_sequence_shape(self, tmp_path):
+        context = EpisodeContext(
+            episode_id="ep_singleton",
+            source_path=tmp_path / "source.mcap",
+            ros_version="ROS2",
+            field_names=["imu"],
+            resample=None,
+            output=TFRecordOutputConfig(),
+        )
+
+        with TFRecordDatasetWriter(
+            output_dir=tmp_path,
+            context=context,
+            config=TFRecordOutputConfig(),
+        ) as writer:
+            writer.write_batch(
+                RecordBatch(
+                    timestamps=[11, 12],
+                    field_data={
+                        "imu": [{"accel": [0.25]}, {"accel": []}],
+                    },
+                )
+            )
+
+        rows = list(stream_tfrecord_rows(tmp_path / "ep_singleton.tfrecord"))
+        assert rows == [
+            {"timestamp_ns": 11, "imu__present": 1, "imu__accel": [0.25]},
+            {"timestamp_ns": 12, "imu__present": 1, "imu__accel": []},
+        ]
