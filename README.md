@@ -104,11 +104,13 @@ converter = Converter(
     output_dir="dataset/processed",
     output=TFRecordOutputConfig(),
     resample=ResampleConfig(freq_hz=10.0, method="interpolate"),
+    robot_context={"robot_id": "alpha-01", "platform": "spot"},
     max_workers=1,
 )
 
 dataset_paths = converter.convert()
 print(dataset_paths[0])
+print(dataset_paths[0].with_suffix(".manifest.json"))
 ```
 
 ### 4. Stream the output rows
@@ -143,6 +145,7 @@ Each input log becomes one dataset file named like:
 episode_0001.parquet
 episode_0002.parquet
 episode_0003.tfrecord
+episode_0001.manifest.json
 ```
 
 The logical row schema is wide and simple:
@@ -165,6 +168,9 @@ Notes:
 - TFRecord stores flattened typed features derived from deserialized messages.
 - TFRecord uses `float_list`, `int64_list`, and `bytes_list` features, plus companion `<field>__present` flags for nulls.
 - Image-like payload bytes are written as raw `bytes_list` features alongside their metadata fields.
+- Each converted episode also gets a sidecar manifest at `<episode_id>.manifest.json` for indexing and provenance.
+- The manifest includes source metadata, temporal metadata, resolved mapping info, and optional user-supplied `robot_context`.
+- The `labels` and `privacy` sections are present by default; placeholder fields such as `auto_tags`, `vlm_description`, `objects_detected`, and `anonymization_method` remain `null` until those features are implemented.
 
 This makes the output easy to stream, inspect, and hand off to downstream ETL, analysis or ML pipelines while preserving source payload fidelity.
 

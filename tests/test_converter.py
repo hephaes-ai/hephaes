@@ -240,6 +240,100 @@ class TestConverter:
         assert rows[0]["cmd_vel__present"] == 1
         assert rows[0]["cmd_vel__v"] == 1
 
+    def test_convert_writes_manifest_with_defaults_and_robot_context(self, tmp_bag_file, tmp_path):
+        from hephaes.converter import Converter
+
+        mock_reader = make_mock_any_reader_with_payloads(
+            topics={"/cmd_vel": "geometry_msgs/Twist"},
+            messages=[
+                ("/cmd_vel", 1_000_000_000, {"v": 1}),
+                ("/cmd_vel", 2_000_000_000, {"v": 2}),
+            ],
+        )
+        with _patch_any_reader(mock_reader):
+            converter = Converter(
+                [str(tmp_bag_file)],
+                self._make_mapping(),
+                tmp_path,
+                max_workers=1,
+                output="tfrecord",
+                robot_context={"robot_id": "r2d2", "platform": "spot"},
+            )
+            results = converter.convert()
+
+        manifest_path = results[0].with_suffix(".manifest.json")
+        manifest = json.loads(manifest_path.read_text())
+
+        assert manifest_path.exists()
+        assert manifest["manifest_version"] == 1
+        assert manifest["episode_id"] == "episode_0001"
+        assert manifest["dataset"]["path"] == str(results[0])
+        assert manifest["dataset"]["format"] == "tfrecord"
+        assert manifest["dataset"]["rows_written"] == 2
+        assert manifest["dataset"]["field_names"] == ["cmd_vel"]
+        assert manifest["source"]["path"] == str(tmp_bag_file)
+        assert manifest["source"]["source_metadata"] is None
+        assert manifest["conversion"]["mapping_requested"] == {"cmd_vel": ["/cmd_vel"]}
+        assert manifest["conversion"]["mapping_resolved"] == {"cmd_vel": "/cmd_vel"}
+        assert manifest["robot_context"] == {"robot_id": "r2d2", "platform": "spot"}
+        assert manifest["labels"] == {
+            "auto_tags": None,
+            "vlm_description": None,
+            "objects_detected": None,
+        }
+        assert manifest["privacy"] == {
+            "is_anonymized": False,
+            "anonymization_method": None,
+        }
+
+    def test_convert_manifest_includes_ros2_source_metadata(self, tmp_mcap_file, tmp_path):
+        from hephaes.converter import Converter
+
+        metadata_yaml = tmp_path / "metadata.yaml"
+        metadata_yaml.write_text("rosbag2_bagfile_information:\n  version: 5\n")
+        mock_reader = make_mock_any_reader_with_payloads(
+            topics={"/cmd_vel": "geometry_msgs/Twist"},
+            messages=[("/cmd_vel", 1_000_000_000, {"v": 1})],
+        )
+
+        with _patch_any_reader(mock_reader):
+            converter = Converter(
+                [str(tmp_mcap_file)],
+                self._make_mapping(),
+                tmp_path,
+                max_workers=1,
+                output="tfrecord",
+            )
+            results = converter.convert()
+
+        manifest = json.loads(results[0].with_suffix(".manifest.json").read_text())
+        assert manifest["source"]["ros_version"] == "ROS2"
+        assert manifest["source"]["storage_format"] == "mcap"
+        assert manifest["source"]["source_metadata"] == {
+            "rosbag2_bagfile_information": {"version": 5}
+        }
+
+    def test_convert_can_disable_manifest_writes(self, tmp_bag_file, tmp_path):
+        from hephaes.converter import Converter
+
+        mock_reader = make_mock_any_reader_with_payloads(
+            topics={"/cmd_vel": "geometry_msgs/Twist"},
+            messages=[("/cmd_vel", 1_000_000_000, {"v": 1})],
+        )
+        with _patch_any_reader(mock_reader):
+            converter = Converter(
+                [str(tmp_bag_file)],
+                self._make_mapping(),
+                tmp_path,
+                max_workers=1,
+                output="tfrecord",
+                write_manifest=False,
+            )
+            results = converter.convert()
+
+        assert results[0].exists()
+        assert not results[0].with_suffix(".manifest.json").exists()
+
     def test_convert_tfrecord_no_resample_uses_union_timestamps_with_nulls(self, tmp_bag_file, tmp_path):
         from hephaes.converter import Converter
         from hephaes.tfrecord import stream_tfrecord_rows

@@ -18,6 +18,7 @@ from ._converter_helpers import (
     _TopicSamples,
 )
 from ._utils import determine_ros_version_from_path
+from .manifest import build_episode_manifest, write_episode_manifest
 from .models import (
     MappingTemplate,
     OutputConfig,
@@ -26,6 +27,7 @@ from .models import (
     TFRecordOutputConfig,
 )
 from .outputs import DEFAULT_WRITER_REGISTRY, EpisodeContext, RecordBatch, WriterRegistry
+from .profiler import extract_temporal_metadata
 from .reader import RosReader
 
 logger = logging.getLogger(__name__)
@@ -97,6 +99,17 @@ def _build_episode_context(
         resample=resample,
         output=output,
     )
+
+
+def _build_mapping_resolution(
+    *,
+    field_names: list[str],
+    topic_to_field: dict[str, str],
+) -> dict[str, str | None]:
+    resolved = {field_name: None for field_name in field_names}
+    for topic_name, field_name in topic_to_field.items():
+        resolved[field_name] = topic_name
+    return resolved
 
 
 def _flush_chunk(
@@ -353,6 +366,8 @@ def _convert_single_source(
     resample_dict: dict[str, Any] | None,
     chunk_rows: int,
     writer_registry: WriterRegistry | None,
+    write_manifest: bool,
+    robot_context: dict[str, Any] | None,
 ) -> str:
     mapping = MappingTemplate.model_validate(mapping_dict)
     output = _OUTPUT_CONFIG_ADAPTER.validate_python(output_dict)
@@ -368,6 +383,8 @@ def _convert_single_source(
 
         all_field_names = list(mapping.root.keys())
         use_normalized_payloads = output.format == "tfrecord"
+        reader_metadata = reader.metadata
+        temporal_metadata = extract_temporal_metadata(reader)
         context = _build_episode_context(
             episode_id=episode_id,
             bag_path=normalized_bag_path,
@@ -415,6 +432,26 @@ def _convert_single_source(
                     use_normalized_payloads=use_normalized_payloads,
                 )
 
+        dataset_path = writer.path
+        if write_manifest:
+            manifest = build_episode_manifest(
+                episode_id=episode_id,
+                dataset_path=dataset_path,
+                field_names=all_field_names,
+                rows_written=rows_written,
+                reader_metadata=reader_metadata,
+                temporal_metadata=temporal_metadata,
+                output=output,
+                resample=resample,
+                mapping_requested=mapping.root,
+                mapping_resolved=_build_mapping_resolution(
+                    field_names=all_field_names,
+                    topic_to_field=plan.topic_to_field,
+                ),
+                robot_context=robot_context,
+            )
+            write_episode_manifest(manifest, dataset_path=dataset_path)
+
         logger.info("Finished %s: wrote %s rows to %s", episode_id, rows_written, writer.path)
         return str(writer.path)
 
@@ -431,6 +468,8 @@ class Converter:
         max_workers: int | None = None,
         chunk_rows: int = 50_000,
         writer_registry: WriterRegistry | None = None,
+        write_manifest: bool = True,
+        robot_context: dict[str, Any] | None = None,
     ) -> None:
         if not isinstance(file_paths, list):
             raise TypeError("file_paths must be a list of file paths")
@@ -444,6 +483,10 @@ class Converter:
             raise TypeError("resample must be a ResampleConfig instance or None")
         if writer_registry is not None and not isinstance(writer_registry, WriterRegistry):
             raise TypeError("writer_registry must be a WriterRegistry instance or None")
+        if not isinstance(write_manifest, bool):
+            raise TypeError("write_manifest must be a bool")
+        if robot_context is not None and not isinstance(robot_context, dict):
+            raise TypeError("robot_context must be a dict or None")
 
         for file_path in file_paths:
             determine_ros_version_from_path(file_path)
@@ -456,6 +499,8 @@ class Converter:
         self.max_workers = max_workers
         self.chunk_rows = chunk_rows
         self.writer_registry = writer_registry or DEFAULT_WRITER_REGISTRY
+        self.write_manifest = write_manifest
+        self.robot_context = dict(robot_context) if robot_context is not None else None
 
     def convert(self) -> list[Path]:
         if not self.mapping.root:
@@ -485,6 +530,8 @@ class Converter:
                     resample_dict=resample_dict,
                     chunk_rows=self.chunk_rows,
                     writer_registry=self.writer_registry,
+                    write_manifest=self.write_manifest,
+                    robot_context=self.robot_context,
                 )
                 for index, bag_path in enumerate(self.file_paths)
             ]
@@ -499,6 +546,8 @@ class Converter:
                     resample_dict,
                     self.chunk_rows,
                     self.writer_registry,
+                    self.write_manifest,
+                    self.robot_context,
                 )
                 for index, bag_path in enumerate(self.file_paths)
             ]
