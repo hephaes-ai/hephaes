@@ -22,6 +22,11 @@ If you need the same dataset schema across different robots or recording setups,
 
 ## Installation
 
+Install from pypi:
+```bash
+pip install hephaes
+```
+
 Install from source:
 
 ```bash
