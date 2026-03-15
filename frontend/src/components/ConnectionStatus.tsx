@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { apiBaseUrl } from "../lib/config";
+import { ApiError, getHealth } from "../lib/api";
 import { useFeedback } from "../state/feedback";
 
 type HealthState =
@@ -19,15 +20,7 @@ export function ConnectionStatus() {
       setHealth({ status: "loading" });
 
       try {
-        const response = await fetch(`${apiBaseUrl}/health`, {
-          signal: abortController.signal,
-        });
-
-        if (!response.ok) {
-          throw new Error(`Health check failed with status ${response.status}`);
-        }
-
-        const payload = (await response.json()) as { app_name?: string; status?: string };
+        const payload = await getHealth(abortController.signal);
         setHealth({
           status: "healthy",
           appName: payload.app_name || "Backend online",
@@ -37,7 +30,10 @@ export function ConnectionStatus() {
           return;
         }
 
-        const message = error instanceof Error ? error.message : "Unable to reach backend";
+        const message =
+          error instanceof ApiError || error instanceof Error
+            ? error.message
+            : "Unable to reach backend";
         setHealth({ status: "error", message });
         pushFeedback({
           tone: "error",
