@@ -219,6 +219,43 @@ body {
   min-height: 11rem;
 }
 
+.detail-list {
+  display: grid;
+  gap: 0.9rem;
+  margin: 0;
+}
+
+.detail-list div {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.detail-list dt {
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #5a7362;
+}
+
+.detail-list dd {
+  margin: 0;
+  color: #163020;
+  word-break: break-word;
+}
+
+.detail-path {
+  font-size: 0.92rem;
+  color: #4b6454;
+}
+
+.detail-placeholder-list {
+  display: grid;
+  gap: 0.55rem;
+  margin: 1rem 0 0;
+  padding-left: 1.2rem;
+}
+
 .inventory-header {
   display: flex;
   align-items: flex-start;

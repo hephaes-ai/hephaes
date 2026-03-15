@@ -1,15 +1,11 @@
 import { type FormEvent, useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 
 import { AssetStatusBadge } from "../components/AssetStatusBadge";
-import { ApiError, listAssets, registerAsset, type AssetListItem } from "../lib/api";
+import { ApiError } from "../lib/api";
 import { formatDateTime, formatFileSize } from "../lib/format";
 import { useFeedback } from "../state/feedback";
-
-type InventoryState =
-  | { status: "loading"; assets: AssetListItem[]; error: string | null }
-  | { status: "ready"; assets: AssetListItem[]; error: string | null }
-  | { status: "error"; assets: AssetListItem[]; error: string };
+import { useInventory } from "../state/inventory";
 
 function isSupportedAssetPath(filePath: string) {
   const normalized = filePath.trim().toLowerCase();
@@ -17,57 +13,21 @@ function isSupportedAssetPath(filePath: string) {
 }
 
 export function InventoryPage() {
+  const location = useLocation();
   const [filePath, setFilePath] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [inventory, setInventory] = useState<InventoryState>({
-    status: "loading",
-    assets: [],
-    error: null,
-  });
+  const { inventory, loadInventory, registerAssetPath } = useInventory();
   const { pushFeedback } = useFeedback();
 
   useEffect(() => {
     const abortController = new AbortController();
-
-    async function loadInventory() {
-      setInventory((current) => ({
-        status: "loading",
-        assets: current.assets,
-        error: null,
-      }));
-
-      try {
-        const assets = await listAssets(abortController.signal);
-        setInventory({
-          status: "ready",
-          assets,
-          error: null,
-        });
-      } catch (error) {
-        if (abortController.signal.aborted) {
-          return;
-        }
-
-        const message =
-          error instanceof ApiError || error instanceof Error
-            ? error.message
-            : "Unable to load inventory";
-
-        setInventory({
-          status: "error",
-          assets: [],
-          error: message,
-        });
-      }
-    }
-
-    void loadInventory();
+    void loadInventory({ signal: abortController.signal });
 
     return () => {
       abortController.abort();
     };
-  }, []);
+  }, [loadInventory]);
 
   async function handleRegisterSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -87,12 +47,7 @@ export function InventoryPage() {
     setIsSubmitting(true);
 
     try {
-      const asset = await registerAsset({ file_path: trimmedPath });
-      setInventory((current) => ({
-        status: "ready",
-        assets: [asset, ...current.assets.filter((currentAsset) => currentAsset.id !== asset.id)],
-        error: null,
-      }));
+      const asset = await registerAssetPath(trimmedPath);
       setFilePath("");
       pushFeedback({
         tone: "info",
@@ -199,7 +154,11 @@ export function InventoryPage() {
                   {inventory.assets.map((asset) => (
                     <tr key={asset.id}>
                       <td>
-                        <Link to={`/assets/${asset.id}`} className="asset-link">
+                        <Link
+                          to={`/assets/${asset.id}`}
+                          state={{ returnTo: `${location.pathname}${location.search}` }}
+                          className="asset-link"
+                        >
                           {asset.file_name}
                         </Link>
                         <p className="asset-path">{asset.file_path}</p>
