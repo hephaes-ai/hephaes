@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Generator
 from pathlib import Path
 
+from fastapi import Request
 from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
@@ -34,3 +36,12 @@ def create_engine_and_session_factory(settings: Settings) -> tuple[Engine, sessi
 
 def initialize_database(engine: Engine) -> None:
     Base.metadata.create_all(bind=engine)
+
+
+def get_db_session(request: Request) -> Generator[Session, None, None]:
+    session_factory = request.app.state.session_factory
+    session = session_factory()
+    try:
+        yield session
+    finally:
+        session.close()
