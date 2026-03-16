@@ -1,32 +1,39 @@
 "use client";
 
+import * as React from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { ArrowLeft, Database, FileText, Tags } from "lucide-react";
+import { ArrowLeft, Database, Eye, RefreshCw, Waves } from "lucide-react";
 
 import { AssetStatusBadge } from "@/components/asset-status-badge";
+import { useFeedback } from "@/components/feedback-provider";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { getErrorMessage, BackendApiError } from "@/lib/api";
-import { formatDateTime, formatFileSize } from "@/lib/format";
-import { useAsset } from "@/hooks/use-backend";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { useAsset, useBackendCache } from "@/hooks/use-backend";
+import { BackendApiError, getErrorMessage, indexAsset, type TopicModality } from "@/lib/api";
+import { formatDateTime, formatDuration, formatFileSize, getIndexActionLabel } from "@/lib/format";
 
 function AssetDetailSkeleton() {
   return (
     <div className="space-y-6">
       <Skeleton className="h-8 w-32" />
       <Skeleton className="h-28 rounded-xl" />
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1.7fr)_minmax(0,1.1fr)]">
         <Skeleton className="h-72 rounded-xl" />
         <Skeleton className="h-72 rounded-xl" />
       </div>
-      <div className="grid gap-6 lg:grid-cols-3">
-        <Skeleton className="h-40 rounded-xl" />
-        <Skeleton className="h-40 rounded-xl" />
-        <Skeleton className="h-40 rounded-xl" />
-      </div>
+      <Skeleton className="h-80 rounded-xl" />
     </div>
   );
 }
@@ -35,36 +42,83 @@ export function AssetDetailPageFallback() {
   return <AssetDetailSkeleton />;
 }
 
-function PlaceholderCard({
+function formatLabel(value: string) {
+  return value.replace(/_/g, " ");
+}
+
+function formatModality(modality: TopicModality) {
+  if (modality === "scalar_series") {
+    return "Scalar series";
+  }
+
+  return `${modality.slice(0, 1).toUpperCase()}${modality.slice(1)}`;
+}
+
+function formatRate(rateHz: number) {
+  return `${rateHz.toFixed(rateHz >= 10 ? 0 : 1)} Hz`;
+}
+
+function InlineNotice({
   description,
-  icon,
+  title,
+  tone,
+}: {
+  description?: string;
+  title: string;
+  tone: "error" | "info";
+}) {
+  const className = tone === "info" ? "border-border bg-card" : "";
+
+  return (
+    <Alert className={className} variant={tone === "error" ? "destructive" : "default"}>
+      <AlertTitle>{title}</AlertTitle>
+      {description ? <AlertDescription>{description}</AlertDescription> : null}
+    </Alert>
+  );
+}
+
+function MetadataField({
+  label,
+  value,
+}: {
+  label: string;
+  value: React.ReactNode;
+}) {
+  return (
+    <div className="space-y-1">
+      <dt className="text-xs uppercase tracking-wide text-muted-foreground">{label}</dt>
+      <dd className="text-sm font-medium text-foreground">{value}</dd>
+    </div>
+  );
+}
+
+function MetadataEmptyState({
+  description,
   title,
 }: {
   description: string;
-  icon: React.ReactNode;
   title: string;
 }) {
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          {icon}
-          {title}
-        </CardTitle>
-        <CardDescription>{description}</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <div className="rounded-lg border border-dashed px-4 py-6 text-sm text-muted-foreground">
-          This section is intentionally reserved for a later phase.
-        </div>
-      </CardContent>
-    </Card>
+    <div className="rounded-lg border border-dashed px-4 py-8 text-sm text-muted-foreground">
+      <p className="font-medium text-foreground">{title}</p>
+      <p className="mt-2">{description}</p>
+    </div>
   );
 }
 
 export function AssetDetailPage({ assetId }: { assetId: string }) {
   const searchParams = useSearchParams();
+  const { notify } = useFeedback();
+  const { revalidateAssetLists } = useBackendCache();
   const { data, error, isLoading, mutate } = useAsset(assetId);
+  const [isRunningIndexAction, setIsRunningIndexAction] = React.useState(false);
+  const [requestMessage, setRequestMessage] = React.useState<{
+    description?: string;
+    title: string;
+    tone: "error" | "info";
+  } | null>(null);
+
   const returnHref = (() => {
     const from = searchParams.get("from");
     if (!from || !from.startsWith("/") || from.startsWith("//")) {
@@ -73,6 +127,23 @@ export function AssetDetailPage({ assetId }: { assetId: string }) {
 
     return from;
   })();
+
+  React.useEffect(() => {
+    if (!data) {
+      return;
+    }
+
+    if ((isRunningIndexAction ? "indexing" : data.asset.indexing_status) !== "indexing") {
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      void mutate();
+      void revalidateAssetLists();
+    }, 1500);
+
+    return () => window.clearInterval(intervalId);
+  }, [data, isRunningIndexAction, mutate, revalidateAssetLists]);
 
   if (isLoading) {
     return <AssetDetailSkeleton />;
@@ -108,7 +179,60 @@ export function AssetDetailPage({ assetId }: { assetId: string }) {
     return null;
   }
 
-  const { asset } = data;
+  const { asset, metadata } = data;
+  const effectiveStatus = isRunningIndexAction ? "indexing" : asset.indexing_status;
+  const isActionDisabled = isRunningIndexAction || asset.indexing_status === "indexing";
+  const modalityCounts = new Map<TopicModality, number>();
+
+  for (const topic of metadata?.topics ?? []) {
+    modalityCounts.set(topic.modality, (modalityCounts.get(topic.modality) ?? 0) + 1);
+  }
+
+  const modalitySummary = Array.from(modalityCounts.entries()).sort(([left], [right]) =>
+    left.localeCompare(right),
+  );
+  const rawMetadataEntries = Object.entries(metadata?.raw_metadata ?? {}).filter(([, value]) => {
+    if (value === null || value === undefined) {
+      return false;
+    }
+
+    if (typeof value === "string") {
+      return value.trim().length > 0;
+    }
+
+    return true;
+  });
+
+  async function onRunIndexAction() {
+    if (isActionDisabled) {
+      return;
+    }
+
+    setRequestMessage(null);
+    setIsRunningIndexAction(true);
+
+    try {
+      const result = await indexAsset(asset.id);
+      await mutate(result, { revalidate: false });
+      await revalidateAssetLists();
+    } catch (indexError) {
+      const message = getErrorMessage(indexError);
+
+      setRequestMessage({
+        description: message,
+        title: "Could not index asset",
+        tone: "error",
+      });
+      notify({
+        description: message,
+        title: "Indexing failed",
+        tone: "error",
+      });
+      await Promise.all([mutate(), revalidateAssetLists()]);
+    } finally {
+      setIsRunningIndexAction(false);
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -121,42 +245,73 @@ export function AssetDetailPage({ assetId }: { assetId: string }) {
 
       <Card>
         <CardHeader className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <div>
+          <div className="min-w-0 space-y-1">
             <CardTitle className="text-xl">{asset.file_name}</CardTitle>
-            <CardDescription className="mt-1 break-all">{asset.file_path}</CardDescription>
+            <CardDescription className="break-all">{asset.file_path}</CardDescription>
           </div>
-          <AssetStatusBadge status={asset.indexing_status} />
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
+            <AssetStatusBadge status={effectiveStatus} />
+            <Button
+              disabled={isActionDisabled}
+              onClick={onRunIndexAction}
+              size="sm"
+              type="button"
+              variant={asset.indexing_status === "failed" ? "destructive" : "outline"}
+            >
+              {effectiveStatus === "indexing" ? <RefreshCw className="size-3.5 animate-spin" /> : null}
+              {getIndexActionLabel(asset.indexing_status, isRunningIndexAction)}
+            </Button>
+          </div>
         </CardHeader>
       </Card>
 
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+      {requestMessage ? (
+        <InlineNotice
+          description={requestMessage.description}
+          title={requestMessage.title}
+          tone={requestMessage.tone}
+        />
+      ) : null}
+
+      {effectiveStatus === "pending" && !metadata ? (
+        <InlineNotice
+          description="Run indexing to extract duration, topic summaries, and visualization readiness for this asset."
+          title="This asset has not been indexed yet"
+          tone="info"
+        />
+      ) : null}
+
+      {effectiveStatus === "indexing" ? (
+        <InlineNotice
+          description="The detail page is polling for updates and will show extracted metadata as soon as indexing completes."
+          title="Indexing in progress"
+          tone="info"
+        />
+      ) : null}
+
+      {effectiveStatus === "failed" ? (
+        <InlineNotice
+          description={metadata?.indexing_error ?? "The backend could not extract metadata for this asset."}
+          title="The latest indexing run failed"
+          tone="error"
+        />
+      ) : null}
+
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1.7fr)_minmax(0,1.1fr)]">
         <Card>
           <CardHeader>
             <CardTitle>Asset details</CardTitle>
-            <CardDescription>
-              This page reflects the current response from <code>GET /assets/{asset.id}</code>.
-            </CardDescription>
+            <CardDescription>Current registry details from the backend.</CardDescription>
           </CardHeader>
           <CardContent>
             <dl className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-1">
-                <dt className="text-xs uppercase tracking-wide text-muted-foreground">File type</dt>
-                <dd className="text-sm font-medium uppercase text-foreground">{asset.file_type}</dd>
-              </div>
-              <div className="space-y-1">
-                <dt className="text-xs uppercase tracking-wide text-muted-foreground">File size</dt>
-                <dd className="text-sm font-medium text-foreground">{formatFileSize(asset.file_size)}</dd>
-              </div>
-              <div className="space-y-1">
-                <dt className="text-xs uppercase tracking-wide text-muted-foreground">Registered</dt>
-                <dd className="text-sm font-medium text-foreground">{formatDateTime(asset.registered_time)}</dd>
-              </div>
-              <div className="space-y-1">
-                <dt className="text-xs uppercase tracking-wide text-muted-foreground">Last indexed</dt>
-                <dd className="text-sm font-medium text-foreground">
-                  {formatDateTime(asset.last_indexed_time, "Not indexed yet")}
-                </dd>
-              </div>
+              <MetadataField label="File type" value={<span className="uppercase">{asset.file_type}</span>} />
+              <MetadataField label="File size" value={formatFileSize(asset.file_size)} />
+              <MetadataField label="Registered" value={formatDateTime(asset.registered_time)} />
+              <MetadataField
+                label="Last indexed"
+                value={formatDateTime(asset.last_indexed_time, "Not indexed yet")}
+              />
               <div className="space-y-1 sm:col-span-2">
                 <dt className="text-xs uppercase tracking-wide text-muted-foreground">Asset ID</dt>
                 <dd className="break-all text-sm font-medium text-foreground">{asset.id}</dd>
@@ -167,35 +322,158 @@ export function AssetDetailPage({ assetId }: { assetId: string }) {
 
         <Card>
           <CardHeader>
-            <CardTitle>Phase 1 summary</CardTitle>
-            <CardDescription>
-              The detail route is intentionally lean in this phase and focuses on validating backend shape.
-            </CardDescription>
+            <CardTitle className="flex items-center gap-2">
+              <Database className="size-4" />
+              Indexed metadata
+            </CardTitle>
+            <CardDescription>Persisted metadata from the latest indexing run.</CardDescription>
           </CardHeader>
-          <CardContent className="space-y-3 text-sm text-muted-foreground">
-            <p>The asset is being displayed directly from the backend registry without any frontend-only mock data.</p>
-            <p>Later phases will expand this view with metadata, tags, conversions, jobs, and visualization tools.</p>
+          <CardContent className="space-y-5">
+            {metadata ? (
+              <>
+                <dl className="grid gap-4 sm:grid-cols-2">
+                  <MetadataField label="Duration" value={formatDuration(metadata.duration)} />
+                  <MetadataField label="Default episode" value={metadata.default_episode?.label ?? "Not available"} />
+                  <MetadataField label="Start time" value={formatDateTime(metadata.start_time)} />
+                  <MetadataField label="End time" value={formatDateTime(metadata.end_time)} />
+                  <MetadataField label="Topic count" value={metadata.topic_count} />
+                  <MetadataField label="Message count" value={metadata.message_count} />
+                  <MetadataField
+                    label="Visual data"
+                    value={
+                      metadata.visualization_summary?.has_visualizable_streams ? "Available" : "Not available"
+                    }
+                  />
+                  <MetadataField
+                    label="Viewer lanes"
+                    value={metadata.visualization_summary?.default_lane_count ?? "Not available"}
+                  />
+                </dl>
+
+                <div className="space-y-2">
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">Sensor types</p>
+                  {metadata.sensor_types.length > 0 ? (
+                    <div className="flex flex-wrap gap-2">
+                      {metadata.sensor_types.map((sensorType) => (
+                        <Badge key={sensorType} variant="outline">
+                          {sensorType}
+                        </Badge>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">No sensor categories were reported.</p>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">Modality mix</p>
+                  {modalitySummary.length > 0 ? (
+                    <div className="flex flex-wrap gap-2">
+                      {modalitySummary.map(([modality, count]) => (
+                        <Badge key={modality} variant="secondary">
+                          {formatModality(modality)} {count}
+                        </Badge>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">Modality summaries will appear after indexing.</p>
+                  )}
+                </div>
+
+                {rawMetadataEntries.length > 0 ? (
+                  <div className="space-y-2">
+                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Profile details</p>
+                    <div className="flex flex-wrap gap-2">
+                      {rawMetadataEntries.map(([key, value]) => (
+                        <Badge key={key} variant="outline">
+                          {formatLabel(key)}: {String(value)}
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+              </>
+            ) : effectiveStatus === "failed" ? (
+              <MetadataEmptyState
+                description="Retry indexing after fixing the source file or backend issue to regenerate metadata."
+                title="No indexed metadata is available yet"
+              />
+            ) : effectiveStatus === "indexing" ? (
+              <MetadataEmptyState
+                description="The metadata panels will populate automatically once the backend finishes indexing."
+                title="Metadata is on the way"
+              />
+            ) : (
+              <MetadataEmptyState
+                description="Use the index action above to extract duration, topic summaries, and visualization readiness."
+                title="Metadata has not been generated"
+              />
+            )}
           </CardContent>
         </Card>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-3">
-        <PlaceholderCard
-          description="Reserved for extracted metadata once indexing persistence is available."
-          icon={<Database className="size-4" />}
-          title="Metadata"
-        />
-        <PlaceholderCard
-          description="Reserved for asset tags and tag-management actions."
-          icon={<Tags className="size-4" />}
-          title="Tags"
-        />
-        <PlaceholderCard
-          description="Reserved for conversion history and output tracking."
-          icon={<FileText className="size-4" />}
-          title="Conversions"
-        />
-      </div>
+      <Card>
+        <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <CardTitle className="flex items-center gap-2">
+              <Waves className="size-4" />
+              Topic summary
+            </CardTitle>
+            <CardDescription>Indexed topics, modalities, and stream rates.</CardDescription>
+          </div>
+          {metadata?.visualization_summary ? (
+            <Badge
+              className={
+                metadata.visualization_summary.has_visualizable_streams
+                  ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-900 dark:text-emerald-200"
+                  : ""
+              }
+              variant={metadata.visualization_summary.has_visualizable_streams ? "outline" : "secondary"}
+            >
+              <Eye className="size-3.5" />
+              {metadata.visualization_summary.has_visualizable_streams
+                ? `${metadata.visualization_summary.default_lane_count} visual lane${metadata.visualization_summary.default_lane_count === 1 ? "" : "s"} ready`
+                : "No visual streams"}
+            </Badge>
+          ) : null}
+        </CardHeader>
+        <CardContent>
+          {metadata?.topics.length ? (
+            <div className="overflow-x-auto">
+              <Table className="min-w-[720px]">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Topic</TableHead>
+                    <TableHead>Message type</TableHead>
+                    <TableHead>Messages</TableHead>
+                    <TableHead>Rate</TableHead>
+                    <TableHead>Modality</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {metadata.topics.map((topic) => (
+                    <TableRow key={topic.name}>
+                      <TableCell className="font-medium">{topic.name}</TableCell>
+                      <TableCell className="text-muted-foreground">{topic.message_type}</TableCell>
+                      <TableCell>{topic.message_count}</TableCell>
+                      <TableCell>{formatRate(topic.rate_hz)}</TableCell>
+                      <TableCell>
+                        <Badge variant="outline">{formatModality(topic.modality)}</Badge>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          ) : (
+            <MetadataEmptyState
+              description="Topic summaries appear here after a successful indexing run."
+              title="No indexed topics to show"
+            />
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

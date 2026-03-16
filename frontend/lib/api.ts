@@ -1,4 +1,5 @@
 export type IndexingStatus = "pending" | "indexing" | "indexed" | "failed";
+export type TopicModality = "image" | "points" | "scalar_series" | "other";
 
 export interface HealthResponse {
   app_name: string;
@@ -26,9 +27,42 @@ export interface AssetSummary {
   registered_time: string;
 }
 
+export interface IndexedTopicSummary {
+  message_count: number;
+  message_type: string;
+  modality: TopicModality;
+  name: string;
+  rate_hz: number;
+}
+
+export interface DefaultEpisodeSummary {
+  duration: number;
+  episode_id: string;
+  label: string;
+}
+
+export interface VisualizationSummary {
+  default_lane_count: number;
+  has_visualizable_streams: boolean;
+}
+
+export interface AssetMetadata {
+  default_episode: DefaultEpisodeSummary | null;
+  duration: number | null;
+  end_time: string | null;
+  indexing_error: string | null;
+  message_count: number;
+  raw_metadata: Record<string, unknown>;
+  sensor_types: string[];
+  start_time: string | null;
+  topic_count: number;
+  topics: IndexedTopicSummary[];
+  visualization_summary: VisualizationSummary | null;
+}
+
 export interface AssetDetailResponse {
   asset: AssetSummary;
-  metadata?: unknown | null;
+  metadata: AssetMetadata | null;
 }
 
 export interface AssetRegistrationRequest {
@@ -45,6 +79,12 @@ export interface DialogAssetRegistrationResponse {
   canceled: boolean;
   registered_assets: AssetSummary[];
   skipped: AssetRegistrationSkip[];
+}
+
+export interface ReindexAllResponse {
+  failed_assets: AssetSummary[];
+  indexed_assets: AssetSummary[];
+  total_requested: number;
 }
 
 export class BackendApiError extends Error {
@@ -184,6 +224,18 @@ export function listAssets(query?: AssetListQuery | null) {
 
 export function getAssetDetail(assetId: string) {
   return request<AssetDetailResponse>(`/assets/${assetId}`);
+}
+
+export function indexAsset(assetId: string) {
+  return request<AssetDetailResponse>(`/assets/${assetId}/index`, {
+    method: "POST",
+  });
+}
+
+export function reindexAllAssets() {
+  return request<ReindexAllResponse>("/assets/reindex-all", {
+    method: "POST",
+  });
 }
 
 export function registerAsset(payload: AssetRegistrationRequest) {
