@@ -6,14 +6,12 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowRight,
   ArrowUpDown,
-  CalendarRange,
   ChevronDown,
   ChevronUp,
   FileSearch2,
   FolderOpen,
   RefreshCw,
   Search,
-  SlidersHorizontal,
   X,
 } from "lucide-react";
 
@@ -22,7 +20,7 @@ import { useFeedback } from "@/components/feedback-provider";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -405,6 +403,7 @@ export function InventoryPage() {
   const [formMessage, setFormMessage] = React.useState<FormMessage | null>(null);
   const [isChoosingFiles, setIsChoosingFiles] = React.useState(false);
   const [searchInput, setSearchInput] = React.useState(appliedSearch);
+  const [isBrowsePanelOpen, setIsBrowsePanelOpen] = React.useState(() => searchParams.toString().length > 0);
   const [selectedAssetIds, setSelectedAssetIds] = React.useState<Set<string>>(new Set());
 
   React.useEffect(() => {
@@ -531,6 +530,7 @@ export function InventoryPage() {
   function resetBrowseState() {
     setSearchInput("");
     setSelectedAssetIds(new Set());
+    setIsBrowsePanelOpen(false);
 
     React.startTransition(() => {
       router.replace(pathname, { scroll: false });
@@ -767,10 +767,6 @@ export function InventoryPage() {
                 <FolderOpen className="size-4" />
                 Registered assets
               </CardTitle>
-              <CardDescription>
-                Search, status, type, and duration filters use <code>GET /assets</code>. File size and date-added
-                refinements are applied client-side on the current result set.
-              </CardDescription>
             </div>
             <div className="flex items-center gap-2">
               <Badge className="h-6" variant="secondary">
@@ -786,6 +782,21 @@ export function InventoryPage() {
                   {selectedCount} selected
                 </Badge>
               ) : null}
+              {selectedCount > 0 ? (
+                <Button onClick={() => setSelectedAssetIds(new Set())} size="sm" type="button" variant="ghost">
+                  Clear selection
+                </Button>
+              ) : null}
+              <Button
+                aria-expanded={isBrowsePanelOpen}
+                onClick={() => setIsBrowsePanelOpen((current) => !current)}
+                size="sm"
+                type="button"
+                variant="outline"
+              >
+                Search & filters{hasAppliedFilters ? ` (${activeFilterChips.length})` : ""}
+                <ChevronDown className={cn("size-4 transition-transform", isBrowsePanelOpen && "rotate-180")} />
+              </Button>
               <Button
                 className="shrink-0"
                 onClick={() => {
@@ -804,208 +815,199 @@ export function InventoryPage() {
             </div>
           </div>
 
-          <div className="space-y-4 rounded-xl border bg-muted/20 p-4">
-            <form className="flex flex-col gap-3 lg:flex-row" onSubmit={onSearchSubmit}>
-              <div className="flex-1">
-                <Label className="mb-2 text-xs uppercase tracking-wide text-muted-foreground" htmlFor="asset-search">
-                  Search
-                </Label>
-                <div className="flex gap-2">
-                  <Input
-                    id="asset-search"
-                    onChange={(event) => setSearchInput(event.target.value)}
-                    placeholder="Search by file name"
-                    value={searchInput}
-                  />
-                  <Button size="sm" type="submit" variant="outline">
-                    <Search className="size-4" />
-                    Search
-                  </Button>
-                  {(searchInput.length > 0 || appliedSearch.length > 0) && (
-                    <Button onClick={onClearSearch} size="sm" type="button" variant="ghost">
-                      <X className="size-4" />
-                      Clear
-                    </Button>
-                  )}
-                </div>
-              </div>
-            </form>
+          <div
+            className={cn(
+              "grid transition-all duration-200 ease-out",
+              isBrowsePanelOpen ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0",
+            )}
+          >
+            <div className="overflow-hidden">
+              <div className="space-y-4 rounded-xl border bg-muted/20 p-4">
+                <form className="flex flex-col gap-3 lg:flex-row" onSubmit={onSearchSubmit}>
+                  <div className="flex-1">
+                    <Label className="mb-2 text-xs uppercase tracking-wide text-muted-foreground" htmlFor="asset-search">
+                      Search
+                    </Label>
+                    <div className="flex gap-2">
+                      <Input
+                        id="asset-search"
+                        onChange={(event) => setSearchInput(event.target.value)}
+                        placeholder="Search by file name"
+                        value={searchInput}
+                      />
+                      <Button size="sm" type="submit" variant="outline">
+                        <Search className="size-4" />
+                        Search
+                      </Button>
+                      {(searchInput.length > 0 || appliedSearch.length > 0) && (
+                        <Button onClick={onClearSearch} size="sm" type="button" variant="ghost">
+                          <X className="size-4" />
+                          Clear
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                </form>
 
-            <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-              <div className="space-y-2">
-                <Label className="text-xs uppercase tracking-wide text-muted-foreground">File type</Label>
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    onClick={() => updateBrowseState({ type: null })}
-                    size="sm"
-                    type="button"
-                    variant={activeType ? "outline" : "secondary"}
-                  >
-                    All
-                  </Button>
-                  {availableFileTypes.map((fileType) => (
-                    <Button
-                      key={fileType}
-                      onClick={() => onToggleTypeFilter(fileType)}
-                      size="sm"
-                      type="button"
-                      variant={activeType === fileType ? "secondary" : "outline"}
-                    >
-                      {fileType.toUpperCase()}
-                    </Button>
-                  ))}
-                </div>
-              </div>
+                <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+                  <div className="space-y-2">
+                    <Label className="text-xs uppercase tracking-wide text-muted-foreground">File type</Label>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        onClick={() => updateBrowseState({ type: null })}
+                        size="sm"
+                        type="button"
+                        variant={activeType ? "outline" : "secondary"}
+                      >
+                        All
+                      </Button>
+                      {availableFileTypes.map((fileType) => (
+                        <Button
+                          key={fileType}
+                          onClick={() => onToggleTypeFilter(fileType)}
+                          size="sm"
+                          type="button"
+                          variant={activeType === fileType ? "secondary" : "outline"}
+                        >
+                          {fileType.toUpperCase()}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
 
-              <div className="space-y-2">
-                <Label className="text-xs uppercase tracking-wide text-muted-foreground">Indexing status</Label>
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    onClick={() => updateBrowseState({ status: null })}
-                    size="sm"
-                    type="button"
-                    variant={activeStatus ? "outline" : "secondary"}
-                  >
-                    All
-                  </Button>
-                  {STATUS_OPTIONS.map((status) => (
-                    <Button
-                      key={status}
-                      onClick={() => onToggleStatusFilter(status)}
-                      size="sm"
-                      type="button"
-                      variant={activeStatus === status ? "secondary" : "outline"}
-                    >
-                      {formatFilterValue(status)}
-                    </Button>
-                  ))}
+                  <div className="space-y-2">
+                    <Label className="text-xs uppercase tracking-wide text-muted-foreground">Indexing status</Label>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        onClick={() => updateBrowseState({ status: null })}
+                        size="sm"
+                        type="button"
+                        variant={activeStatus ? "outline" : "secondary"}
+                      >
+                        All
+                      </Button>
+                      {STATUS_OPTIONS.map((status) => (
+                        <Button
+                          key={status}
+                          onClick={() => onToggleStatusFilter(status)}
+                          size="sm"
+                          type="button"
+                          variant={activeStatus === status ? "secondary" : "outline"}
+                        >
+                          {formatFilterValue(status)}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
                 </div>
+
+                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                  <div className="space-y-2">
+                    <Label className="text-xs uppercase tracking-wide text-muted-foreground" htmlFor="min-duration">
+                      Min duration (s)
+                    </Label>
+                    <Input
+                      id="min-duration"
+                      min="0"
+                      onChange={(event) => updateBrowseState({ min_duration: event.target.value })}
+                      placeholder="Any"
+                      step="1"
+                      type="number"
+                      value={minDuration}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs uppercase tracking-wide text-muted-foreground" htmlFor="max-duration">
+                      Max duration (s)
+                    </Label>
+                    <Input
+                      id="max-duration"
+                      min="0"
+                      onChange={(event) => updateBrowseState({ max_duration: event.target.value })}
+                      placeholder="Any"
+                      step="1"
+                      type="number"
+                      value={maxDuration}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs uppercase tracking-wide text-muted-foreground" htmlFor="size-min">
+                      Min size (MB)
+                    </Label>
+                    <Input
+                      id="size-min"
+                      min="0"
+                      onChange={(event) => updateBrowseState({ size_min_mb: event.target.value })}
+                      placeholder="Any"
+                      step="0.1"
+                      type="number"
+                      value={sizeMinMb}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs uppercase tracking-wide text-muted-foreground" htmlFor="size-max">
+                      Max size (MB)
+                    </Label>
+                    <Input
+                      id="size-max"
+                      min="0"
+                      onChange={(event) => updateBrowseState({ size_max_mb: event.target.value })}
+                      placeholder="Any"
+                      step="0.1"
+                      type="number"
+                      value={sizeMaxMb}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs uppercase tracking-wide text-muted-foreground" htmlFor="registered-after">
+                      Added after
+                    </Label>
+                    <Input
+                      id="registered-after"
+                      onChange={(event) => updateBrowseState({ registered_after: event.target.value })}
+                      type="date"
+                      value={registeredAfter}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs uppercase tracking-wide text-muted-foreground" htmlFor="registered-before">
+                      Added before
+                    </Label>
+                    <Input
+                      id="registered-before"
+                      onChange={(event) => updateBrowseState({ registered_before: event.target.value })}
+                      type="date"
+                      value={registeredBefore}
+                    />
+                  </div>
+                </div>
+
+                {hasAppliedFilters ? (
+                  <div className="flex flex-wrap items-center gap-2">
+                    {activeFilterChips.map((filter) => (
+                      <Button
+                        key={filter.key}
+                        onClick={() => {
+                          if (filter.key === "search") {
+                            setSearchInput("");
+                          }
+                          updateBrowseState({ [filter.key]: null });
+                        }}
+                        size="xs"
+                        type="button"
+                        variant="outline"
+                      >
+                        {filter.label}
+                        <X className="size-3" />
+                      </Button>
+                    ))}
+                    <Button onClick={resetBrowseState} size="xs" type="button" variant="ghost">
+                      Clear all
+                    </Button>
+                  </div>
+                ) : null}
               </div>
             </div>
-
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-              <div className="space-y-2">
-                <Label className="text-xs uppercase tracking-wide text-muted-foreground" htmlFor="min-duration">
-                  Min duration (s)
-                </Label>
-                <Input
-                  id="min-duration"
-                  min="0"
-                  onChange={(event) => updateBrowseState({ min_duration: event.target.value })}
-                  placeholder="Any"
-                  step="1"
-                  type="number"
-                  value={minDuration}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label className="text-xs uppercase tracking-wide text-muted-foreground" htmlFor="max-duration">
-                  Max duration (s)
-                </Label>
-                <Input
-                  id="max-duration"
-                  min="0"
-                  onChange={(event) => updateBrowseState({ max_duration: event.target.value })}
-                  placeholder="Any"
-                  step="1"
-                  type="number"
-                  value={maxDuration}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label className="text-xs uppercase tracking-wide text-muted-foreground" htmlFor="size-min">
-                  Min size (MB)
-                </Label>
-                <Input
-                  id="size-min"
-                  min="0"
-                  onChange={(event) => updateBrowseState({ size_min_mb: event.target.value })}
-                  placeholder="Any"
-                  step="0.1"
-                  type="number"
-                  value={sizeMinMb}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label className="text-xs uppercase tracking-wide text-muted-foreground" htmlFor="size-max">
-                  Max size (MB)
-                </Label>
-                <Input
-                  id="size-max"
-                  min="0"
-                  onChange={(event) => updateBrowseState({ size_max_mb: event.target.value })}
-                  placeholder="Any"
-                  step="0.1"
-                  type="number"
-                  value={sizeMaxMb}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label className="text-xs uppercase tracking-wide text-muted-foreground" htmlFor="registered-after">
-                  Added after
-                </Label>
-                <Input
-                  id="registered-after"
-                  onChange={(event) => updateBrowseState({ registered_after: event.target.value })}
-                  type="date"
-                  value={registeredAfter}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label className="text-xs uppercase tracking-wide text-muted-foreground" htmlFor="registered-before">
-                  Added before
-                </Label>
-                <Input
-                  id="registered-before"
-                  onChange={(event) => updateBrowseState({ registered_before: event.target.value })}
-                  type="date"
-                  value={registeredBefore}
-                />
-              </div>
-            </div>
-
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge className="h-6 gap-1" variant="outline">
-                  <CalendarRange className="size-3.5" />
-                  Date added filters stay on the client
-                </Badge>
-                <Badge className="h-6 gap-1" variant="outline">
-                  <SlidersHorizontal className="size-3.5" />
-                  Duration sort will unlock once list rows include duration
-                </Badge>
-              </div>
-              {selectedCount > 0 ? (
-                <Button onClick={() => setSelectedAssetIds(new Set())} size="sm" type="button" variant="ghost">
-                  Clear selection
-                </Button>
-              ) : null}
-            </div>
-
-            {hasAppliedFilters ? (
-              <div className="flex flex-wrap items-center gap-2">
-                {activeFilterChips.map((filter) => (
-                  <Button
-                    key={filter.key}
-                    onClick={() => {
-                      if (filter.key === "search") {
-                        setSearchInput("");
-                      }
-                      updateBrowseState({ [filter.key]: null });
-                    }}
-                    size="xs"
-                    type="button"
-                    variant="outline"
-                  >
-                    {filter.label}
-                    <X className="size-3" />
-                  </Button>
-                ))}
-                <Button onClick={resetBrowseState} size="xs" type="button" variant="ghost">
-                  Clear all
-                </Button>
-              </div>
-            ) : null}
           </div>
         </CardHeader>
 
@@ -1052,9 +1054,6 @@ export function InventoryPage() {
 
           {!isLoading && !assetsResponse.error && visibleAssets.length > 0 ? (
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <p className="text-xs text-muted-foreground">
-                Sort directly from the table headers. Selection is scoped to the current result set.
-              </p>
               <Button asChild size="sm" variant="ghost">
                 <Link href={buildAssetDetailHref(visibleAssets[0].id, inventoryHref)}>
                   Open latest result
