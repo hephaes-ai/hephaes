@@ -26,7 +26,6 @@ export function ThemeToggle() {
         size="sm"
       />
       <Moon className={`size-3.5 transition-colors duration-200 ${isDarkMode ? "text-foreground" : "text-muted-foreground/60"}`} />
-      <span className="hidden sm:inline">{mounted ? (isDarkMode ? "Dark" : "Light") : "Theme"}</span>
     </div>
   );
 }

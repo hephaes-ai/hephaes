@@ -10,7 +10,6 @@ import { useFeedback } from "@/components/feedback-provider";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
@@ -232,66 +231,49 @@ export function InventoryPage() {
   return (
     <div className="space-y-8">
       <section className="space-y-2">
-        <div className="flex flex-wrap items-center gap-3">
-          <h1 className="text-2xl font-semibold tracking-tight">Asset inventory</h1>
-          <span className="rounded-full border px-2 py-0.5 text-xs text-muted-foreground">
-            {assets?.length ?? 0} registered
-          </span>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="space-y-2">
+            <div className="flex flex-wrap items-center gap-3">
+              <h1 className="text-2xl font-semibold tracking-tight">Asset inventory</h1>
+              <span className="rounded-full border px-2 py-0.5 text-xs text-muted-foreground">
+                {assets?.length ?? 0} registered
+              </span>
+            </div>
+            <p className="max-w-3xl text-sm text-muted-foreground">
+              Connect the frontend to the live backend by adding local ROS bag files, reviewing the inventory,
+              and opening backend-driven detail pages.
+            </p>
+          </div>
+          <Button
+            className="shrink-0"
+            onClick={onChooseFiles}
+            size="sm"
+            type="button"
+            variant="outline"
+          >
+            <FileSearch2 className="size-4" />
+            {isChoosingFiles ? "Opening..." : "Add files"}
+          </Button>
         </div>
-        <p className="max-w-3xl text-sm text-muted-foreground">
-          Connect the frontend to the live backend by registering a local ROS bag file path, reviewing the
-          inventory, and opening backend-driven detail pages.
-        </p>
       </section>
 
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,20rem)_minmax(0,1fr)]">
-        <Card>
-          <CardHeader>
+      {formMessage ? <FormNotice message={formMessage} /> : null}
+
+      <Card className="flex-1">
+        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
             <CardTitle className="flex items-center gap-2">
-              <FileSearch2 className="size-4" />
-              Add files to inventory
+              <FolderOpen className="size-4" />
+              Registered assets
             </CardTitle>
             <CardDescription>
-              Use the native file explorer to choose one or more <code>.bag</code> or <code>.mcap</code> files.
+              The main inventory view is loaded directly from <code>GET /assets</code>.
             </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="choose-files">Open file explorer</Label>
-              <Button
-                className="w-full"
-                id="choose-files"
-                onClick={onChooseFiles}
-                type="button"
-              >
-                {isChoosingFiles ? "Opening file explorer..." : "Choose files"}
-              </Button>
-            </div>
-
-            <p className="text-xs leading-5 text-muted-foreground">
-              The backend opens a native file picker locally, then registers the selected files in the asset
-              registry.
+          </div>
+          <div className="flex items-center gap-2">
+            <p className="hidden text-xs text-muted-foreground md:block">
+              Add files from the button above, then refresh any time.
             </p>
-
-            {formMessage ? (
-              <div className="mt-4">
-                <FormNotice message={formMessage} />
-              </div>
-            ) : null}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-            <div>
-              <CardTitle className="flex items-center gap-2">
-                <FolderOpen className="size-4" />
-                Registered assets
-              </CardTitle>
-              <CardDescription>
-                The list below is loaded directly from <code>GET /assets</code>.
-              </CardDescription>
-            </div>
             <Button
               className="shrink-0"
               onClick={() => {
@@ -304,41 +286,41 @@ export function InventoryPage() {
               <RefreshCw className="size-4" />
               Refresh
             </Button>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {error ? (
-              <Alert variant="destructive">
-                <AlertTitle>Could not load assets</AlertTitle>
-                <AlertDescription>{getErrorMessage(error)}</AlertDescription>
-              </Alert>
-            ) : null}
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {error ? (
+            <Alert variant="destructive">
+              <AlertTitle>Could not load assets</AlertTitle>
+              <AlertDescription>{getErrorMessage(error)}</AlertDescription>
+            </Alert>
+          ) : null}
 
-            {isLoading ? <AssetsTableSkeleton /> : null}
+          {isLoading ? <AssetsTableSkeleton /> : null}
 
-            {!isLoading && !error && assets && assets.length > 0 ? <AssetsTable assets={assets} /> : null}
+          {!isLoading && !error && assets && assets.length > 0 ? <AssetsTable assets={assets} /> : null}
 
-            {!isLoading && !error && assets?.length === 0 ? (
-              <div className="rounded-xl border border-dashed px-6 py-12 text-center">
-                <h2 className="text-sm font-medium text-foreground">No assets registered yet</h2>
-                <p className="mt-2 text-sm text-muted-foreground">
-                  Register a local file path to populate the inventory and verify the backend end-to-end.
-                </p>
-              </div>
-            ) : null}
+          {!isLoading && !error && assets?.length === 0 ? (
+            <div className="rounded-xl border border-dashed px-6 py-16 text-center">
+              <h2 className="text-sm font-medium text-foreground">No assets registered yet</h2>
+              <p className="mt-2 text-sm text-muted-foreground">
+                Use the add files button above to open the file explorer and populate the inventory.
+              </p>
+            </div>
+          ) : null}
 
-            {!isLoading && !error && assets && assets.length > 0 ? (
-              <div className="flex items-center justify-end">
-                <Button asChild size="sm" variant="ghost">
-                  <Link href={assets.length > 0 ? `/assets/${assets[0].id}` : "/"}>
-                    Open latest asset
-                    <ArrowRight className="size-4" />
-                  </Link>
-                </Button>
-              </div>
-            ) : null}
-          </CardContent>
-        </Card>
-      </div>
+          {!isLoading && !error && assets && assets.length > 0 ? (
+            <div className="flex items-center justify-end">
+              <Button asChild size="sm" variant="ghost">
+                <Link href={assets.length > 0 ? `/assets/${assets[0].id}` : "/"}>
+                  Open latest asset
+                  <ArrowRight className="size-4" />
+                </Link>
+              </Button>
+            </div>
+          ) : null}
+        </CardContent>
+      </Card>
     </div>
   );
 }

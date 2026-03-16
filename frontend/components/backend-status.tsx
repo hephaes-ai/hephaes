@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { useHealth } from "@/hooks/use-backend";
 
 export function BackendStatus() {
-  const { data, error, isLoading } = useHealth();
+  const { error, isLoading } = useHealth();
 
   if (error) {
     return (
@@ -27,7 +27,7 @@ export function BackendStatus() {
   return (
     <Badge className="gap-1.5 border-emerald-500/30 bg-emerald-500/10 text-emerald-900 dark:text-emerald-200" variant="outline">
       <span className="size-1.5 rounded-full bg-emerald-500" />
-      {data?.app_name ?? "Backend"} online
+      Connected
     </Badge>
   );
 }
