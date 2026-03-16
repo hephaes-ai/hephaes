@@ -9,6 +9,7 @@ Make jobs and outputs first-class UI concepts so indexing and conversion workflo
 - [backend-phase5.md](/Users/danielyoo/workspace/hephaes/design/backend-phase5.md)
 - [backend-phase6.md](/Users/danielyoo/workspace/hephaes/design/backend-phase6.md)
 - [backend-phase7.md](/Users/danielyoo/workspace/hephaes/design/backend-phase7.md) for richer asset detail aggregation
+- [frontend-ui-guidelines.md](/Users/danielyoo/workspace/hephaes/design/frontend-ui-guidelines.md)
 
 ## Product Scope
 
@@ -22,6 +23,8 @@ Implement:
 - output display for completed conversions
 - links from jobs back to related assets
 - conversion history on the asset detail page
+
+Jobs and output views should remain clean and operationally focused. Prefer shadcn tables, badges, drawers, alerts, and tabs over bespoke dashboard styling.
 
 ## Recommended UI Surfaces
 

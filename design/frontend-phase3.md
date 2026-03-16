@@ -7,6 +7,7 @@ Add indexing workflows and a more useful asset detail experience once backend me
 ## Depends On
 
 - [backend-phase2.md](/Users/danielyoo/workspace/hephaes/design/backend-phase2.md)
+- [frontend-ui-guidelines.md](/Users/danielyoo/workspace/hephaes/design/frontend-ui-guidelines.md)
 
 ## Product Scope
 
@@ -17,6 +18,8 @@ Implement:
 - retry action for failed assets
 - status badges for unindexed, indexing, indexed, and failed assets
 - metadata sections in the asset detail view
+- topic and modality summaries in the asset detail view
+- visualization availability indicators for indexed assets when supported streams exist
 - user-visible indexing errors
 
 ## Recommended UI Surfaces
@@ -32,7 +35,8 @@ Implement:
 - base file information
 - indexing status and last indexing time
 - extracted metadata panels
-- topic-related metadata sections when available
+- topic and modality summary sections when available
+- visualization readiness summary when the backend reports visualizable streams
 - index and reindex actions
 
 ## State and Data Guidance
@@ -45,6 +49,7 @@ Recommended behavior:
 - refetch or poll affected asset data while indexing is in progress
 - surface per-asset failures clearly
 - avoid duplicate submissions while an indexing request is already in flight
+- continue using minimal shadcn-based status, badge, button, and alert patterns instead of custom visual treatments
 
 ## Backend Endpoints Used
 
@@ -59,5 +64,5 @@ By the end of phase 3, a user should be able to:
 
 - trigger indexing from inventory or detail views
 - see indexing progress reflected in the UI
-- inspect extracted metadata on the detail page
+- inspect extracted metadata and indexed topic summaries on the detail page
 - retry failed indexing runs

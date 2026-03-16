@@ -8,6 +8,7 @@ Turn the inventory page into a practical browsing tool with search, filtering, s
 
 - [backend-phase1.md](/Users/danielyoo/workspace/hephaes/design/backend-phase1.md)
 - [backend-phase3.md](/Users/danielyoo/workspace/hephaes/design/backend-phase3.md) for richer filtering support
+- [frontend-ui-guidelines.md](/Users/danielyoo/workspace/hephaes/design/frontend-ui-guidelines.md)
 
 ## Product Scope
 
@@ -27,6 +28,8 @@ Expand the inventory view to support:
 - selection groundwork for future bulk actions
 
 Duration and tag filters should be designed into the UI, but they can remain disabled or hidden until the backend supports them.
+
+Continue using shadcn components for search, filter, sort, and selection controls wherever suitable, and keep the browsing UI compact and visually quiet.
 
 ## Recommended UI Surfaces
 

@@ -7,6 +7,7 @@ Add tag management and complete the bulk-selection interaction model.
 ## Depends On
 
 - [backend-phase4.md](/Users/danielyoo/workspace/hephaes/design/backend-phase4.md)
+- [frontend-ui-guidelines.md](/Users/danielyoo/workspace/hephaes/design/frontend-ui-guidelines.md)
 
 ## Product Scope
 
@@ -19,6 +20,8 @@ Implement:
 - tags in the asset detail view
 - filtering by tag
 - stronger bulk selection UX
+
+Tag interactions should stay lightweight and minimal. Prefer shadcn popovers, dialogs, badges, and command-style pickers over custom-heavy controls.
 
 ## Recommended UI Surfaces
 

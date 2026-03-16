@@ -1,27 +1,21 @@
-# Frontend
+# Next.js template
 
-Local React frontend for the Hephaes app.
+This is a Next.js template with shadcn/ui.
 
-## Install
+## Adding components
 
-From the `frontend/` directory:
+To add components to your app, run the following command:
 
 ```bash
-npm install
+npx shadcn@latest add button
 ```
 
-## Run
+This will place the ui components in the `components` directory.
 
-From the `frontend/` directory:
+## Using components
 
-```bash
-npm run dev
-```
+To use the components in your app, import them as follows:
 
-The app will use `http://127.0.0.1:8000` as the backend by default.
-
-If you need a different backend URL, create a `.env` file in `frontend/` and set:
-
-```bash
-VITE_API_BASE_URL=http://127.0.0.1:8000
+```tsx
+import { Button } from "@/components/ui/button";
 ```

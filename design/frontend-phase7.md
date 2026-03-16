@@ -8,6 +8,7 @@ Polish the local app state model and keep the frontend architecture open for sav
 
 - all prior frontend phases
 - [backend-phase7.md](/Users/danielyoo/workspace/hephaes/design/backend-phase7.md)
+- [frontend-ui-guidelines.md](/Users/danielyoo/workspace/hephaes/design/frontend-ui-guidelines.md)
 
 ## Product Scope
 
@@ -23,6 +24,7 @@ This phase is where the app should be made ready for:
 
 - upload-based ingestion
 - optional directory-scan ingestion
+- visualization and playback workflows
 - saved searches
 - saved selections or collections
 - dataset-building workflows
@@ -36,6 +38,8 @@ Preserve and restore:
 - active filters
 - selected sort order
 - recent inventory view state when returning from detail pages
+- recent visualization context when returning from detail pages or the visualization page
+- theme preference
 
 Recommended long-term state split:
 
@@ -64,6 +68,7 @@ Include:
 - consistent loading indicators
 - clear success and error messages
 - duplicate-submission prevention
+- theme consistency across light and dark mode
 - strong empty states for:
   - no assets registered
   - no search results
@@ -78,6 +83,7 @@ Design the inventory and selection model so later actions can be launched from:
 - filtered results
 - search results
 - selected assets
+- visualization-ready assets or episodes
 - saved searches
 - saved collections
 

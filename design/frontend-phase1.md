@@ -16,6 +16,7 @@ This phase should fully consume the Backend Phase 1 functionality that already e
 ## Depends On
 
 - [backend-phase1.md](/Users/danielyoo/workspace/hephaes/design/backend-phase1.md)
+- [frontend-ui-guidelines.md](/Users/danielyoo/workspace/hephaes/design/frontend-ui-guidelines.md)
 
 ## Product Scope
 
@@ -23,10 +24,12 @@ Implement the smallest useful frontend shell with:
 
 - app bootstrap in `frontend/`
 - a top-level app layout
+- shadcn/ui setup for shared primitives
 - backend connectivity check
 - an inventory page
 - a registration form
 - an asset detail page
+- a global dark mode toggle
 - basic empty, loading, and error states
 
 Phase 1 should use file-path registration because that is what the backend currently supports.
@@ -39,11 +42,18 @@ The frontend in this phase should be able to exercise every user-facing capabili
 - open an individual asset detail view
 - surface backend validation errors to the user
 
+This phase should establish the shared frontend UI conventions:
+
+- use shadcn components whenever a suitable primitive exists
+- keep layouts minimal, clean, and low-chrome
+- make light and dark themes available from the app shell from the beginning
+
 ## Recommended UI Surfaces
 
 ### App shell
 
 - top navigation or app header
+- dark mode toggle in the header or equivalent global control area
 - primary route outlet
 - lightweight global feedback area for success and error messages
 
@@ -78,6 +88,7 @@ Recommended architecture for this phase:
 - one API client module for backend calls
 - one data-fetching layer for caching and refetching
 - local component state for form inputs and transient UI state
+- local persistence for theme preference
 
 Even if search and filters are not implemented yet, design the inventory page so URL-based state can be added later without a rewrite.
 
@@ -99,6 +110,7 @@ By the end of phase 1, a user should be able to:
 - register a `.bag` or `.mcap` file by path
 - see that asset appear in the inventory
 - open the asset detail view
+- switch between light and dark themes from the UI
 - observe backend-driven validation errors such as duplicate registration or invalid paths
 - use the UI as a real verification surface for all Backend Phase 1 routes
 
@@ -116,6 +128,8 @@ If the frontend uncovers awkward API response shapes, missing fields, or rough U
 - Choose and set up the frontend stack for the local app.
 - Add the minimal tooling needed to run the frontend locally against the backend.
 - Decide how the frontend will read the backend base URL in development.
+- Install and configure shadcn/ui for the project.
+- Establish a minimal global design token approach that works in both light and dark themes.
 
 ### App bootstrap
 
@@ -125,6 +139,8 @@ If the frontend uncovers awkward API response shapes, missing fields, or rough U
   - asset detail page
 - Add a lightweight global feedback mechanism for success and error messages.
 - Add a backend connectivity check that uses `GET /health`.
+- Add a dark mode toggle and theme provider at the app shell level.
+- Persist the selected theme locally while allowing a sensible system default on first load.
 
 ### API integration
 
@@ -139,6 +155,7 @@ If the frontend uncovers awkward API response shapes, missing fields, or rough U
 ### Inventory page
 
 - Build the inventory page layout.
+- Prefer shadcn inputs, buttons, table, badges, and skeleton states instead of custom base controls where possible.
 - Add a registration form for local file-path submission.
 - Validate that the form cannot submit an empty path.
 - Submit the form to `POST /assets/register`.
@@ -164,6 +181,7 @@ If the frontend uncovers awkward API response shapes, missing fields, or rough U
 - Display indexing status and last indexed time.
 - Add placeholder sections for metadata, tags, and conversions so the layout can grow in later phases.
 - Add loading and not-found states for the detail page.
+- Keep the layout visually restrained so later phases can add actions and metadata without redesigning the page.
 
 ### State and navigation
 
@@ -171,6 +189,7 @@ If the frontend uncovers awkward API response shapes, missing fields, or rough U
 - Structure the inventory page so URL-based search and filter state can be added later.
 - Ensure navigation from inventory to detail and back feels stable.
 - Preserve enough inventory state that the user can return without losing the basic list context.
+- Keep theme state global and independent from page navigation.
 
 ### Local verification
 

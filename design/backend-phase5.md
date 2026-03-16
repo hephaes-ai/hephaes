@@ -22,6 +22,7 @@ Recommended job types:
 
 - `index`
 - `convert`
+- `prepare_visualization`
 
 Recommended job statuses:
 
@@ -60,6 +61,7 @@ This phase powers:
 - a jobs page
 - progress and status indicators
 - retry and failure messaging later
+- preview-generation or cache-warming flows for visualization later
 
 ## Deliverable
 
@@ -68,3 +70,4 @@ By the end of phase 5, you should be able to:
 - create a job record when indexing or conversion starts
 - track queued, running, success, and failure states
 - show job status in the frontend without guessing from asset rows alone
+- keep the job system generic enough for future visualization-preparation work

@@ -8,6 +8,7 @@ Expose conversion as a complete user workflow from asset selection through submi
 
 - [backend-phase5.md](/Users/danielyoo/workspace/hephaes/design/backend-phase5.md)
 - [backend-phase6.md](/Users/danielyoo/workspace/hephaes/design/backend-phase6.md)
+- [frontend-ui-guidelines.md](/Users/danielyoo/workspace/hephaes/design/frontend-ui-guidelines.md)
 
 ## Product Scope
 
@@ -19,6 +20,8 @@ Implement:
 - a review step or summary panel
 - submission feedback
 - initial job-status handoff after submission
+
+The conversion flow should use shadcn dialogs, sheets, forms, and summary cards where possible, while keeping the review UI simple and uncluttered.
 
 ## Recommended UI Surfaces
 

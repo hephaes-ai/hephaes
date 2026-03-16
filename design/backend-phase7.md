@@ -52,6 +52,7 @@ Potential routes:
 - `POST /assets/upload`
 - `POST /assets/register`
 - `POST /assets/scan-directory`
+- `GET /assets/{asset_id}/episodes`
 
 ## Asset Detail Expansion
 
@@ -59,6 +60,8 @@ At this point, `GET /assets/{asset_id}` should be an aggregated endpoint that ca
 
 - base asset info
 - extracted metadata
+- topic inventory and visualization summary
+- episode list or default episode summary
 - tags
 - related jobs
 - prior conversions
@@ -73,3 +76,4 @@ By the end of phase 7, you should have:
 - a managed path for uploaded files
 - optional directory scanning for advanced users
 - a richer asset detail endpoint for the frontend
+- an episode discovery surface that the frontend can use to launch visualization

@@ -17,6 +17,9 @@ Suggested fields:
 - `topic_count`
 - `message_count`
 - `sensor_types_json`
+- `topics_json`
+- `default_episode_json`
+- `visualization_summary_json`
 - `raw_metadata_json`
 - `created_at`
 - `updated_at`
@@ -35,6 +38,8 @@ When indexing runs, the backend should:
 - load the file from local disk
 - call into `hephaes` for metadata extraction when possible
 - persist extracted metadata in `asset_metadata`
+- persist topic summaries and modality hints needed for later visualization
+- record a default episode summary for raw one-file recordings so the frontend can treat an indexed asset as visualizable without extra inference
 - update `assets.indexing_status`
 - update `assets.last_indexed_time`
 - record failure details if indexing fails
@@ -73,6 +78,24 @@ Suggested detail response shape:
     "topic_count": 12,
     "message_count": 10455,
     "sensor_types": ["camera", "imu"],
+    "topics": [
+      {
+        "name": "/camera/front/image_raw",
+        "message_type": "sensor_msgs/Image",
+        "message_count": 930,
+        "rate_hz": 10.0,
+        "modality": "image"
+      }
+    ],
+    "default_episode": {
+      "episode_id": "asset-uuid:default",
+      "label": "Episode 1",
+      "duration": 93.2
+    },
+    "visualization_summary": {
+      "has_visualizable_streams": true,
+      "default_lane_count": 3
+    },
     "raw_metadata": {}
   }
 }
@@ -90,6 +113,8 @@ Suggested internal shape:
 
 This service should be designed so it can later run in-process, in a background task, or in a worker without changing the API contract.
 
+It should also produce normalized topic and episode summaries that later phases can expose through visualization and playback APIs without re-indexing the asset.
+
 ## Deliverable
 
 By the end of phase 2, you should be able to:
@@ -98,3 +123,4 @@ By the end of phase 2, you should be able to:
 - reindex all pending or stale assets
 - store metadata in SQLite
 - return a useful asset detail response for the frontend detail page
+- tell the frontend whether an indexed asset has streams that can be visualized later
