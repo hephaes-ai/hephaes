@@ -8,6 +8,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 IndexingStatus = Literal["pending", "indexing", "indexed", "failed"]
+RegistrationSkipReason = Literal["duplicate", "invalid_path"]
 
 
 class AssetRegistrationRequest(BaseModel):
@@ -43,6 +44,22 @@ class AssetListItem(AssetSummary):
 
 class AssetRegistrationResponse(AssetSummary):
     model_config = ConfigDict(extra="forbid", from_attributes=True)
+
+
+class AssetRegistrationSkip(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    detail: str = Field(min_length=1)
+    file_path: str = Field(min_length=1)
+    reason: RegistrationSkipReason
+
+
+class DialogAssetRegistrationResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    canceled: bool
+    registered_assets: list[AssetRegistrationResponse]
+    skipped: list[AssetRegistrationSkip]
 
 
 class AssetDetailResponse(BaseModel):
