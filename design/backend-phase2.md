@@ -124,3 +124,69 @@ By the end of phase 2, you should be able to:
 - store metadata in SQLite
 - return a useful asset detail response for the frontend detail page
 - tell the frontend whether an indexed asset has streams that can be visualized later
+
+## Tasks
+
+### Database schema
+
+- Add an `asset_metadata` model in [backend/app/db/models.py](/Users/danielyoo/workspace/hephaes/backend/app/db/models.py) keyed by `asset_id`.
+- Include fields for duration, start and end time, topic count, message count, sensor types, topics, default episode summary, visualization summary, raw metadata, and timestamps.
+- Use JSON-capable columns where practical for flexible structures such as topic lists and raw metadata.
+- Add the relationship or lookup path needed so an asset and its metadata can be loaded together cleanly.
+- Ensure database initialization creates the new table automatically alongside `assets`.
+
+### Metadata extraction
+
+- Decide on the phase 2 extraction entrypoint from `hephaes`, likely using the profiling utilities in `src/hephaes/`.
+- Extract temporal metadata such as duration, start time, end time, and message count from the selected asset file.
+- Extract topic summaries including topic name, message type, message count, and rate.
+- Derive simple modality hints such as image or non-image where possible so later visualization phases have a usable summary.
+- Build a default episode summary for a single raw file so later frontend flows can treat the asset as one visualizable episode by default.
+- Preserve a raw metadata payload for future debugging and schema evolution.
+
+### Indexing service
+
+- Create [backend/app/services/indexing.py](/Users/danielyoo/workspace/hephaes/backend/app/services/indexing.py).
+- Implement `IndexingService.index_asset(asset_id)` for one-asset indexing.
+- Implement `IndexingService.reindex_all_pending_assets()` for bulk indexing of pending or stale assets.
+- Resolve the asset record to its local file path before calling into `hephaes`.
+- Set `assets.indexing_status` to `indexing` before work starts.
+- Persist metadata and update `last_indexed_time` when indexing succeeds.
+- Set `assets.indexing_status` to `failed` when indexing fails and capture enough failure detail to debug the run.
+- Keep the service API clean enough that later job-based execution can wrap it without changing route contracts.
+
+### API schemas
+
+- Update [backend/app/schemas/assets.py](/Users/danielyoo/workspace/hephaes/backend/app/schemas/assets.py) with response models for asset metadata and indexed topic summaries.
+- Extend the asset detail response so it returns both the base asset and metadata.
+- Add response models for single-asset indexing and bulk reindexing if the routes return anything beyond the updated asset detail.
+- Keep schema names specific enough that tag, job, and visualization fields can be added later without a rename churn.
+
+### API routes
+
+- Update [backend/app/api/assets.py](/Users/danielyoo/workspace/hephaes/backend/app/api/assets.py) to add `POST /assets/{asset_id}/index`.
+- Update [backend/app/api/assets.py](/Users/danielyoo/workspace/hephaes/backend/app/api/assets.py) to add `POST /assets/reindex-all`.
+- Route both indexing endpoints through the dedicated indexing service instead of embedding the logic in the route handlers.
+- Update `GET /assets/{asset_id}` so it loads and returns persisted metadata when available.
+- Return clear failure responses for missing assets, invalid files, and indexing errors.
+
+### State handling
+
+- Decide how failed indexing details should be stored in phase 2, either on the metadata row or on the asset row if that is simpler for the MVP.
+- Avoid leaving an asset stuck in `indexing` when an exception interrupts the flow.
+- Make reindex behavior explicit for already indexed assets so the route contract stays predictable.
+
+### Tests
+
+- Add backend tests covering successful indexing of a registered asset.
+- Add tests for `GET /assets/{asset_id}` returning metadata after indexing.
+- Add tests for reindexing multiple pending assets.
+- Add tests for indexing failure behavior, including status transitions and error handling.
+- Mock or isolate `hephaes` profiling work where needed so the backend tests stay fast and deterministic.
+
+### Local verification
+
+- Run the backend locally and index a real `.bag` or `.mcap` asset through the new route.
+- Confirm that the `asset_metadata` row is persisted in SQLite.
+- Confirm that `GET /assets/{asset_id}` returns the new metadata payload shape.
+- Confirm that the asset status changes from `pending` to `indexing` to `indexed`, or to `failed` when extraction breaks.
