@@ -5,6 +5,16 @@ export interface HealthResponse {
   status: string;
 }
 
+export interface AssetListQuery {
+  max_duration?: number;
+  min_duration?: number;
+  search?: string;
+  start_after?: string;
+  start_before?: string;
+  status?: IndexingStatus;
+  type?: string;
+}
+
 export interface AssetSummary {
   file_name: string;
   file_path: string;
@@ -18,6 +28,7 @@ export interface AssetSummary {
 
 export interface AssetDetailResponse {
   asset: AssetSummary;
+  metadata?: unknown | null;
 }
 
 export interface AssetRegistrationRequest {
@@ -60,13 +71,27 @@ function buildBackendUrl(path: string) {
 }
 
 function parseErrorDetail(payload: unknown, status: number) {
-  if (
-    typeof payload === "object" &&
-    payload !== null &&
-    "detail" in payload &&
-    typeof payload.detail === "string"
-  ) {
-    return payload.detail;
+  if (typeof payload === "object" && payload !== null && "detail" in payload) {
+    if (typeof payload.detail === "string") {
+      return payload.detail;
+    }
+
+    if (Array.isArray(payload.detail)) {
+      return payload.detail
+        .map((item) => {
+          if (
+            typeof item === "object" &&
+            item !== null &&
+            "msg" in item &&
+            typeof item.msg === "string"
+          ) {
+            return item.msg;
+          }
+
+          return JSON.stringify(item);
+        })
+        .join(" ");
+    }
   }
 
   if (typeof payload === "string" && payload.trim().length > 0) {
@@ -74,6 +99,36 @@ function parseErrorDetail(payload: unknown, status: number) {
   }
 
   return `Request failed with status ${status}.`;
+}
+
+function normalizeQueryValue(value: number | string | undefined) {
+  if (value === undefined) {
+    return null;
+  }
+
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? String(value) : null;
+  }
+
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+export function serializeAssetListQuery(query?: AssetListQuery | null) {
+  if (!query) {
+    return "";
+  }
+
+  const params = new URLSearchParams();
+
+  for (const [key, value] of Object.entries(query)) {
+    const normalizedValue = normalizeQueryValue(value);
+    if (normalizedValue) {
+      params.set(key, normalizedValue);
+    }
+  }
+
+  return params.toString();
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -122,8 +177,9 @@ export function getHealth() {
   return request<HealthResponse>("/health");
 }
 
-export function listAssets() {
-  return request<AssetSummary[]>("/assets");
+export function listAssets(query?: AssetListQuery | null) {
+  const queryString = serializeAssetListQuery(query);
+  return request<AssetSummary[]>(queryString ? `/assets?${queryString}` : "/assets");
 }
 
 export function getAssetDetail(assetId: string) {
