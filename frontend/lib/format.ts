@@ -36,3 +36,40 @@ export function formatDateTime(value: string | null | undefined, fallback = "Not
 export function formatIndexingStatus(status: IndexingStatus) {
   return `${status.slice(0, 1).toUpperCase()}${status.slice(1)}`;
 }
+
+export function formatDuration(seconds: number | null | undefined, fallback = "Not available") {
+  if (seconds === null || seconds === undefined || !Number.isFinite(seconds)) {
+    return fallback;
+  }
+
+  if (seconds < 60) {
+    return `${seconds.toFixed(seconds >= 10 ? 0 : 1)} s`;
+  }
+
+  const totalSeconds = Math.round(seconds);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const remainingSeconds = totalSeconds % 60;
+
+  if (hours > 0) {
+    return `${hours}h ${minutes}m ${remainingSeconds}s`;
+  }
+
+  return `${minutes}m ${remainingSeconds}s`;
+}
+
+export function getIndexActionLabel(status: IndexingStatus, isRunning = false) {
+  if (isRunning || status === "indexing") {
+    return "Indexing...";
+  }
+
+  if (status === "failed") {
+    return "Retry";
+  }
+
+  if (status === "indexed") {
+    return "Reindex";
+  }
+
+  return "Index";
+}

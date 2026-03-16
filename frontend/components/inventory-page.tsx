@@ -33,10 +33,10 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { useAssets } from "@/hooks/use-backend";
+import { useAssets, useBackendCache } from "@/hooks/use-backend";
 import type { AssetListQuery, AssetRegistrationSkip, AssetSummary, IndexingStatus } from "@/lib/api";
-import { getErrorMessage, registerAssetsFromDialog } from "@/lib/api";
-import { formatDateTime, formatFileSize } from "@/lib/format";
+import { getErrorMessage, indexAsset, registerAssetsFromDialog, reindexAllAssets } from "@/lib/api";
+import { formatDateTime, formatFileSize, getIndexActionLabel } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 type InventorySort =
@@ -212,20 +212,44 @@ function InventoryEmptyState({
   );
 }
 
+function getBulkIndexActionLabel(assets: AssetSummary[], pendingAssetIds: Set<string>) {
+  const actionableAssets = assets.filter(
+    (asset) => asset.indexing_status !== "indexing" && !pendingAssetIds.has(asset.id),
+  );
+
+  if (actionableAssets.length === 0) {
+    return "Index selected";
+  }
+
+  if (actionableAssets.every((asset) => asset.indexing_status === "failed")) {
+    return "Retry selected";
+  }
+
+  if (actionableAssets.every((asset) => asset.indexing_status === "indexed")) {
+    return "Reindex selected";
+  }
+
+  return "Index selected";
+}
+
 function AssetsTable({
   assets,
   inventoryHref,
+  onRunAssetAction,
   onSelectAll,
   onSelectAsset,
   onSort,
+  pendingAssetIds,
   selectedAssetIds,
   sort,
 }: {
   assets: AssetSummary[];
   inventoryHref: string;
+  onRunAssetAction: (asset: AssetSummary) => void;
   onSelectAll: (checked: boolean | "indeterminate") => void;
   onSelectAsset: (assetId: string, checked: boolean | "indeterminate") => void;
   onSort: (column: SortColumn) => void;
+  pendingAssetIds: Set<string>;
   selectedAssetIds: Set<string>;
   sort: ReturnType<typeof parseSort>;
 }) {
@@ -240,6 +264,10 @@ function AssetsTable({
   }
 
   function onRowKeyDown(event: React.KeyboardEvent<HTMLTableRowElement>, assetId: string) {
+    if (event.target instanceof Element && event.target.closest("[data-stop-row-click='true']")) {
+      return;
+    }
+
     if (event.key !== "Enter" && event.key !== " ") {
       return;
     }
@@ -297,11 +325,14 @@ function AssetsTable({
               />
             </TableHead>
             <TableHead>Last indexed</TableHead>
+            <TableHead className="w-28 text-right">Action</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {assets.map((asset) => {
             const isSelected = selectedAssetIds.has(asset.id);
+            const isRunningAction = pendingAssetIds.has(asset.id);
+            const effectiveStatus: IndexingStatus = isRunningAction ? "indexing" : asset.indexing_status;
 
             return (
               <TableRow
@@ -331,10 +362,24 @@ function AssetsTable({
                 <TableCell className="uppercase text-muted-foreground">{asset.file_type}</TableCell>
                 <TableCell>{formatFileSize(asset.file_size)}</TableCell>
                 <TableCell>
-                  <AssetStatusBadge status={asset.indexing_status} />
+                  <AssetStatusBadge status={effectiveStatus} />
                 </TableCell>
                 <TableCell>{formatDateTime(asset.registered_time)}</TableCell>
                 <TableCell>{formatDateTime(asset.last_indexed_time, "Not indexed yet")}</TableCell>
+                <TableCell className="text-right">
+                  <div className="flex justify-end" data-stop-row-click="true">
+                    <Button
+                      disabled={isRunningAction || asset.indexing_status === "indexing"}
+                      onClick={() => onRunAssetAction(asset)}
+                      size="sm"
+                      type="button"
+                      variant={asset.indexing_status === "failed" ? "destructive" : "outline"}
+                    >
+                      {isRunningAction ? <RefreshCw className="size-3.5 animate-spin" /> : null}
+                      {getIndexActionLabel(asset.indexing_status, isRunningAction)}
+                    </Button>
+                  </div>
+                </TableCell>
               </TableRow>
             );
           })}
@@ -388,6 +433,7 @@ export function InventoryPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { notify } = useFeedback();
+  const { revalidateAssetLists } = useBackendCache();
 
   const appliedSearch = searchParams.get("search")?.trim() ?? "";
   const activeType = searchParams.get("type")?.trim() ?? "";
@@ -404,6 +450,9 @@ export function InventoryPage() {
   const [isChoosingFiles, setIsChoosingFiles] = React.useState(false);
   const [searchInput, setSearchInput] = React.useState(appliedSearch);
   const [isBrowsePanelOpen, setIsBrowsePanelOpen] = React.useState(() => searchParams.toString().length > 0);
+  const [isBulkIndexingSelection, setIsBulkIndexingSelection] = React.useState(false);
+  const [isIndexingPendingAssets, setIsIndexingPendingAssets] = React.useState(false);
+  const [pendingAssetIds, setPendingAssetIds] = React.useState<Set<string>>(new Set());
   const [selectedAssetIds, setSelectedAssetIds] = React.useState<Set<string>>(new Set());
 
   React.useEffect(() => {
@@ -554,11 +603,7 @@ export function InventoryPage() {
       }
 
       if (result.registered_assets.length > 0) {
-        await assetsResponse.mutate();
-
-        if (hasServerFilters) {
-          await allAssetsResponse.mutate();
-        }
+        await revalidateAssetLists();
       }
 
       const registeredCount = result.registered_assets.length;
@@ -719,6 +764,13 @@ export function InventoryPage() {
 
   const hasAppliedFilters = activeFilterChips.length > 0;
   const selectedCount = selectedAssetIds.size;
+  const selectedVisibleAssets = visibleAssets.filter((asset) => selectedAssetIds.has(asset.id));
+  const actionableSelectedAssets = selectedVisibleAssets.filter(
+    (asset) => asset.indexing_status !== "indexing" && !pendingAssetIds.has(asset.id),
+  );
+  const pendingOrFailedAssetCount = allAssets.filter(
+    (asset) => asset.indexing_status === "pending" || asset.indexing_status === "failed",
+  ).length;
   const resultsCountLabel = `${visibleAssets.length} result${visibleAssets.length === 1 ? "" : "s"}`;
   const totalCountLabel =
     typeof totalRegisteredCount === "number" ? `${totalRegisteredCount} registered` : "Loading total";
@@ -727,6 +779,188 @@ export function InventoryPage() {
   const isLoading = assetsResponse.isLoading;
   const isInventoryEmpty = !hasAppliedFilters && totalRegisteredCount === 0;
   const showNoResults = !isLoading && !assetsResponse.error && !isInventoryEmpty && visibleAssets.length === 0;
+  const shouldPollAssets =
+    isBulkIndexingSelection ||
+    isIndexingPendingAssets ||
+    pendingAssetIds.size > 0 ||
+    assets.some((asset) => asset.indexing_status === "indexing") ||
+    allAssets.some((asset) => asset.indexing_status === "indexing");
+
+  React.useEffect(() => {
+    if (!shouldPollAssets) {
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      void assetsResponse.mutate();
+      if (hasServerFilters) {
+        void allAssetsResponse.mutate();
+      }
+    }, 1500);
+
+    return () => window.clearInterval(intervalId);
+  }, [allAssetsResponse, assetsResponse, hasServerFilters, shouldPollAssets]);
+
+  async function refreshAssetLists() {
+    await revalidateAssetLists();
+  }
+
+  async function onRunAssetAction(asset: AssetSummary) {
+    if (asset.indexing_status === "indexing" || pendingAssetIds.has(asset.id)) {
+      return;
+    }
+
+    setFormMessage(null);
+    setPendingAssetIds((current) => new Set(current).add(asset.id));
+
+    try {
+      await indexAsset(asset.id);
+      await refreshAssetLists();
+    } catch (indexError) {
+      const message = getErrorMessage(indexError);
+
+      setFormMessage({
+        description: `${asset.file_name}: ${message}`,
+        title: "Indexing failed",
+        tone: "error",
+      });
+      notify({
+        description: `${asset.file_name}: ${message}`,
+        title: "Could not index asset",
+        tone: "error",
+      });
+      await refreshAssetLists();
+    } finally {
+      setPendingAssetIds((current) => {
+        const next = new Set(current);
+        next.delete(asset.id);
+        return next;
+      });
+    }
+  }
+
+  async function onRunBulkIndex() {
+    if (actionableSelectedAssets.length === 0) {
+      return;
+    }
+
+    setFormMessage(null);
+    setIsBulkIndexingSelection(true);
+
+    try {
+      setPendingAssetIds((current) => {
+        const next = new Set(current);
+        for (const asset of actionableSelectedAssets) {
+          next.add(asset.id);
+        }
+        return next;
+      });
+
+      let indexedCount = 0;
+      const failureMessages: string[] = [];
+
+      for (const asset of actionableSelectedAssets) {
+        try {
+          await indexAsset(asset.id);
+          indexedCount += 1;
+        } catch (indexError) {
+          failureMessages.push(`${asset.file_name}: ${getErrorMessage(indexError)}`);
+        } finally {
+          setPendingAssetIds((current) => {
+            const next = new Set(current);
+            next.delete(asset.id);
+            return next;
+          });
+          await refreshAssetLists();
+        }
+      }
+
+      if (indexedCount > 0 && failureMessages.length === 0) {
+        return;
+      }
+
+      if (indexedCount > 0 && failureMessages.length > 0) {
+        const description = `${indexedCount} asset${indexedCount === 1 ? "" : "s"} indexed. ${failureMessages[0]}${failureMessages.length > 1 ? ` ${failureMessages.length - 1} more failed.` : ""}`;
+
+        setFormMessage({
+          description,
+          title: "Selection indexed with warnings",
+          tone: "info",
+        });
+        notify({
+          description,
+          title: "Partial indexing complete",
+          tone: "info",
+        });
+        return;
+      }
+
+      const description = failureMessages[0] ?? "No selected assets could be indexed.";
+      setFormMessage({
+        description,
+        title: "Selected assets failed to index",
+        tone: "error",
+      });
+      notify({
+        description,
+        title: "Bulk indexing failed",
+        tone: "error",
+      });
+    } finally {
+      setIsBulkIndexingSelection(false);
+    }
+  }
+
+  async function onIndexPendingAssets() {
+    setFormMessage(null);
+    setIsIndexingPendingAssets(true);
+
+    try {
+      const result = await reindexAllAssets();
+      await refreshAssetLists();
+
+      if (result.total_requested === 0) {
+        notify({
+          description: "There were no pending or failed assets to index.",
+          title: "Nothing to index",
+          tone: "info",
+        });
+        return;
+      }
+
+      if (result.failed_assets.length > 0) {
+        const description = `${result.indexed_assets.length} asset${result.indexed_assets.length === 1 ? "" : "s"} indexed. ${result.failed_assets.length} asset${result.failed_assets.length === 1 ? "" : "s"} failed.`;
+
+        setFormMessage({
+          description,
+          title: "Pending indexing completed with warnings",
+          tone: "info",
+        });
+        notify({
+          description,
+          title: "Index pending finished",
+          tone: "info",
+        });
+        return;
+      }
+    } catch (indexError) {
+      const message = getErrorMessage(indexError);
+
+      setFormMessage({
+        description: message,
+        title: "Could not index pending assets",
+        tone: "error",
+      });
+      notify({
+        description: message,
+        title: "Index pending failed",
+        tone: "error",
+      });
+      await refreshAssetLists();
+    } finally {
+      setIsIndexingPendingAssets(false);
+    }
+  }
 
   return (
     <div className="space-y-8">
@@ -746,6 +980,7 @@ export function InventoryPage() {
           </div>
           <Button
             className="shrink-0"
+            disabled={isChoosingFiles}
             onClick={onChooseFiles}
             size="sm"
             type="button"
@@ -782,6 +1017,32 @@ export function InventoryPage() {
                   {selectedCount} selected
                 </Badge>
               ) : null}
+              {pendingOrFailedAssetCount > 0 || isIndexingPendingAssets ? (
+                <Button
+                  disabled={isIndexingPendingAssets}
+                  onClick={onIndexPendingAssets}
+                  size="sm"
+                  type="button"
+                  variant="outline"
+                >
+                  {isIndexingPendingAssets ? <RefreshCw className="size-3.5 animate-spin" /> : null}
+                  Index pending
+                </Button>
+              ) : null}
+              {selectedCount > 0 ? (
+                <Button
+                  disabled={actionableSelectedAssets.length === 0}
+                  onClick={onRunBulkIndex}
+                  size="sm"
+                  type="button"
+                  variant="outline"
+                >
+                  {actionableSelectedAssets.length === 0 ? null : isBulkIndexingSelection ? (
+                    <RefreshCw className="size-3.5 animate-spin" />
+                  ) : null}
+                  {getBulkIndexActionLabel(selectedVisibleAssets, pendingAssetIds)}
+                </Button>
+              ) : null}
               {selectedCount > 0 ? (
                 <Button onClick={() => setSelectedAssetIds(new Set())} size="sm" type="button" variant="ghost">
                   Clear selection
@@ -800,10 +1061,7 @@ export function InventoryPage() {
               <Button
                 className="shrink-0"
                 onClick={() => {
-                  void assetsResponse.mutate();
-                  if (hasServerFilters) {
-                    void allAssetsResponse.mutate();
-                  }
+                  void revalidateAssetLists();
                 }}
                 size="sm"
                 type="button"
@@ -1025,9 +1283,11 @@ export function InventoryPage() {
             <AssetsTable
               assets={visibleAssets}
               inventoryHref={inventoryHref}
+              onRunAssetAction={onRunAssetAction}
               onSelectAll={onSelectAll}
               onSelectAsset={onSelectAsset}
               onSort={onSort}
+              pendingAssetIds={pendingAssetIds}
               selectedAssetIds={selectedAssetIds}
               sort={sort}
             />
