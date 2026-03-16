@@ -78,3 +78,73 @@ By the end of phase 2, a user should be able to:
 - sort inventory results
 - keep inventory state while navigating within the app
 - prepare selected assets for later bulk workflows
+
+## Tasks
+
+### Inventory state model
+
+- Refactor the inventory page state so search, filters, sort, and pagination can be managed independently from the table rendering.
+- Move durable browsing state into the URL where practical so the inventory view can be shared, refreshed, and revisited without losing context.
+- Keep temporary UI state such as open popovers, drawers, and row selection local to the page.
+- Preserve inventory browsing state when navigating from the inventory to an asset detail page and back.
+
+### Search and filter controls
+
+- Add a compact search input for file-name search.
+- Prefer shadcn input, select, popover, drawer, command, badge, and button primitives wherever a suitable control already exists.
+- Add controls for:
+  - file type
+  - indexing status
+  - file size range
+  - date added
+  - duration when available
+- Make filters easy to clear individually and all at once.
+- Show active filter chips or an equivalent compact summary of the current filter state.
+- Keep the controls visually quiet and minimal so the table remains the primary surface.
+- Design duration and metadata-backed filters so they can be disabled or hidden cleanly until backend support is available.
+
+### Sorting behavior
+
+- Add sorting controls for file name, date added, file size, and duration when available.
+- Support ascending and descending order.
+- Make the active sort state visible without adding heavy visual chrome.
+- Ensure sort state stays synchronized with URL state and data fetching.
+
+### Inventory results table
+
+- Keep the registered assets table as the main content area of the page.
+- Extend the table layout to support search, filtering, and sorting without becoming visually crowded.
+- Use stable shadcn table, checkbox, badge, skeleton, empty-state, and dropdown primitives where possible instead of custom foundations.
+- Add a no-results state that distinguishes filtered-empty from truly empty inventory.
+- Add pagination, lazy loading, or virtualization if needed once the data volume justifies it.
+
+### Selection groundwork
+
+- Add row selection checkboxes.
+- Add a select-all mechanism scoped to the current result set or page.
+- Show a lightweight selected-count indicator.
+- Structure the selection state so later phases can attach bulk actions without redesigning the inventory view.
+- Keep selection affordances subtle and consistent with the minimal UI direction.
+
+### Data integration
+
+- Continue fetching inventory data from `GET /assets`.
+- Implement client-side search, filter, and sort behavior first if backend query support is not yet available.
+- Avoid coupling the UI too tightly to client-only filtering so server-side query support can replace it later without a rewrite.
+- Keep the asset list query/cache layer separate from presentational components.
+
+### Navigation and UX polish
+
+- Ensure returning from an asset detail page restores the user’s inventory browsing context.
+- Keep loading, empty, and no-results states clean and low-noise.
+- Make control spacing and density feel intentional and uncluttered in both light and dark themes.
+- Continue following the shared frontend UI guidelines so phase 2 remains shadcn-first and visually restrained.
+
+### Local verification
+
+- Run the frontend against the real local backend.
+- Confirm search by file name works on the registered asset list.
+- Confirm each supported filter can be applied and cleared.
+- Confirm sorting updates the visible result order correctly.
+- Confirm inventory state survives navigation to an asset detail page and back.
+- Confirm the table remains the dominant page surface and the controls stay compact in both light and dark mode.
