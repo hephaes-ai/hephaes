@@ -1,5 +1,11 @@
-import { InventoryPage } from "@/components/inventory-page";
+import { Suspense } from "react";
+
+import { InventoryPage, InventoryPageFallback } from "@/components/inventory-page";
 
 export default function Page() {
-  return <InventoryPage />;
+  return (
+    <Suspense fallback={<InventoryPageFallback />}>
+      <InventoryPage />
+    </Suspense>
+  );
 }

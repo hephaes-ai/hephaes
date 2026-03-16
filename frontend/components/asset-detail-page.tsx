@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { ArrowLeft, Database, FileText, Tags } from "lucide-react";
 
 import { AssetStatusBadge } from "@/components/asset-status-badge";
@@ -28,6 +29,10 @@ function AssetDetailSkeleton() {
       </div>
     </div>
   );
+}
+
+export function AssetDetailPageFallback() {
+  return <AssetDetailSkeleton />;
 }
 
 function PlaceholderCard({
@@ -58,7 +63,16 @@ function PlaceholderCard({
 }
 
 export function AssetDetailPage({ assetId }: { assetId: string }) {
+  const searchParams = useSearchParams();
   const { data, error, isLoading, mutate } = useAsset(assetId);
+  const returnHref = (() => {
+    const from = searchParams.get("from");
+    if (!from || !from.startsWith("/") || from.startsWith("//")) {
+      return "/";
+    }
+
+    return from;
+  })();
 
   if (isLoading) {
     return <AssetDetailSkeleton />;
@@ -70,7 +84,7 @@ export function AssetDetailPage({ assetId }: { assetId: string }) {
     return (
       <div className="space-y-4">
         <Button asChild size="sm" variant="ghost">
-          <Link href="/">
+          <Link href={returnHref}>
             <ArrowLeft className="size-4" />
             Back to inventory
           </Link>
@@ -99,7 +113,7 @@ export function AssetDetailPage({ assetId }: { assetId: string }) {
   return (
     <div className="space-y-6">
       <Button asChild size="sm" variant="ghost">
-        <Link href="/">
+        <Link href={returnHref}>
           <ArrowLeft className="size-4" />
           Back to inventory
         </Link>

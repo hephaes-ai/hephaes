@@ -2,11 +2,11 @@
 
 import useSWR from "swr";
 
-import { getAssetDetail, getHealth, listAssets } from "@/lib/api";
+import { getAssetDetail, getHealth, listAssets, serializeAssetListQuery, type AssetListQuery } from "@/lib/api";
 
 export const backendKeys = {
   asset: (assetId: string) => ["asset", assetId] as const,
-  assets: ["assets"] as const,
+  assets: (query?: AssetListQuery | null) => ["assets", serializeAssetListQuery(query)] as const,
   health: ["health"] as const,
 };
 
@@ -18,8 +18,8 @@ export function useHealth() {
   });
 }
 
-export function useAssets() {
-  return useSWR(backendKeys.assets, () => listAssets());
+export function useAssets(query?: AssetListQuery | null) {
+  return useSWR(query === null ? null : backendKeys.assets(query), () => listAssets(query));
 }
 
 export function useAsset(assetId: string) {

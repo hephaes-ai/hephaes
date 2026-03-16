@@ -1,4 +1,6 @@
-import { AssetDetailPage } from "@/components/asset-detail-page";
+import { Suspense } from "react";
+
+import { AssetDetailPage, AssetDetailPageFallback } from "@/components/asset-detail-page";
 
 interface AssetPageProps {
   params: Promise<{
@@ -9,5 +11,9 @@ interface AssetPageProps {
 export default async function Page({ params }: AssetPageProps) {
   const { assetId } = await params;
 
-  return <AssetDetailPage assetId={assetId} />;
+  return (
+    <Suspense fallback={<AssetDetailPageFallback />}>
+      <AssetDetailPage assetId={assetId} />
+    </Suspense>
+  );
 }

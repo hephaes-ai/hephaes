@@ -2,14 +2,30 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { ArrowRight, FileSearch2, FolderOpen, RefreshCw } from "lucide-react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import {
+  ArrowRight,
+  ArrowUpDown,
+  CalendarRange,
+  ChevronDown,
+  ChevronUp,
+  FileSearch2,
+  FolderOpen,
+  RefreshCw,
+  Search,
+  SlidersHorizontal,
+  X,
+} from "lucide-react";
 
 import { AssetStatusBadge } from "@/components/asset-status-badge";
 import { useFeedback } from "@/components/feedback-provider";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
@@ -19,15 +35,34 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import type { AssetRegistrationSkip, AssetSummary } from "@/lib/api";
+import { useAssets } from "@/hooks/use-backend";
+import type { AssetListQuery, AssetRegistrationSkip, AssetSummary, IndexingStatus } from "@/lib/api";
 import { getErrorMessage, registerAssetsFromDialog } from "@/lib/api";
 import { formatDateTime, formatFileSize } from "@/lib/format";
-import { useAssets } from "@/hooks/use-backend";
+import { cn } from "@/lib/utils";
+
+type InventorySort =
+  | "file_name-asc"
+  | "file_name-desc"
+  | "file_size-asc"
+  | "file_size-desc"
+  | "registered-desc"
+  | "registered-asc";
+type SortColumn = "file_name" | "file_size" | "registered";
+type SortDirection = "asc" | "desc";
+
+const DEFAULT_SORT: InventorySort = "registered-desc";
+const STATUS_OPTIONS: IndexingStatus[] = ["pending", "indexing", "indexed", "failed"];
 
 interface FormMessage {
   description?: string;
   title: string;
   tone: "error" | "info" | "success";
+}
+
+interface ActiveFilterChip {
+  key: string;
+  label: string;
 }
 
 function FormNotice({ message }: { message: FormMessage }) {
@@ -59,11 +94,151 @@ function summarizeSkipped(skipped: AssetRegistrationSkip[]) {
   return `${firstSkip.detail} ${skipped.length - 1} more file${skipped.length - 1 === 1 ? "" : "s"} were skipped.`;
 }
 
-function AssetsTable({ assets }: { assets: AssetSummary[] }) {
+function isValidSort(value: string | null): value is InventorySort {
+  return (
+    value === "file_name-asc" ||
+    value === "file_name-desc" ||
+    value === "file_size-asc" ||
+    value === "file_size-desc" ||
+    value === "registered-desc" ||
+    value === "registered-asc"
+  );
+}
+
+function parseSort(value: string | null) {
+  const normalizedValue = isValidSort(value) ? value : DEFAULT_SORT;
+  const [column, direction] = normalizedValue.split("-") as [SortColumn, SortDirection];
+
+  return {
+    column,
+    direction,
+    value: normalizedValue,
+  };
+}
+
+function buildAssetDetailHref(assetId: string, inventoryHref: string) {
+  return `/assets/${assetId}?from=${encodeURIComponent(inventoryHref)}`;
+}
+
+function parseNonNegativeNumber(value: string | null) {
+  if (!value) {
+    return null;
+  }
+
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return null;
+  }
+
+  return parsed;
+}
+
+function parseMegabytesToBytes(value: string | null) {
+  const megabytes = parseNonNegativeNumber(value);
+  return megabytes === null ? null : megabytes * 1024 * 1024;
+}
+
+function parseDateBoundary(value: string | null, boundary: "start" | "end") {
+  if (!value) {
+    return null;
+  }
+
+  const date = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  if (boundary === "end") {
+    date.setHours(23, 59, 59, 999);
+  }
+
+  return date;
+}
+
+function formatFilterValue(value: string) {
+  return value.replace(/_/g, " ");
+}
+
+function isValidIndexingStatus(value: string): value is IndexingStatus {
+  return STATUS_OPTIONS.includes(value as IndexingStatus);
+}
+
+function SortButton({
+  active,
+  direction,
+  disabled = false,
+  label,
+  onClick,
+}: {
+  active: boolean;
+  direction: SortDirection;
+  disabled?: boolean;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      className={cn(
+        "inline-flex items-center gap-1 rounded-md px-1 py-1 text-left text-xs font-semibold tracking-wide text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-40",
+        active && "text-foreground",
+      )}
+      disabled={disabled}
+      onClick={onClick}
+      type="button"
+    >
+      {label}
+      {active ? (
+        direction === "asc" ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />
+      ) : (
+        <ArrowUpDown className="size-3.5" />
+      )}
+    </button>
+  );
+}
+
+function InventoryEmptyState({
+  action,
+  description,
+  title,
+}: {
+  action?: React.ReactNode;
+  description: string;
+  title: string;
+}) {
+  return (
+    <div className="rounded-xl border border-dashed px-6 py-16 text-center">
+      <h2 className="text-sm font-medium text-foreground">{title}</h2>
+      <p className="mx-auto mt-2 max-w-2xl text-sm text-muted-foreground">{description}</p>
+      {action ? <div className="mt-4 flex justify-center">{action}</div> : null}
+    </div>
+  );
+}
+
+function AssetsTable({
+  assets,
+  inventoryHref,
+  onSelectAll,
+  onSelectAsset,
+  onSort,
+  selectedAssetIds,
+  sort,
+}: {
+  assets: AssetSummary[];
+  inventoryHref: string;
+  onSelectAll: (checked: boolean | "indeterminate") => void;
+  onSelectAsset: (assetId: string, checked: boolean | "indeterminate") => void;
+  onSort: (column: SortColumn) => void;
+  selectedAssetIds: Set<string>;
+  sort: ReturnType<typeof parseSort>;
+}) {
   const router = useRouter();
 
+  const selectedCount = assets.filter((asset) => selectedAssetIds.has(asset.id)).length;
+  const allVisibleSelected = assets.length > 0 && selectedCount === assets.length;
+  const someVisibleSelected = selectedCount > 0 && selectedCount < assets.length;
+
   function openAsset(assetId: string) {
-    router.push(`/assets/${assetId}`);
+    router.push(buildAssetDetailHref(assetId, inventoryHref));
   }
 
   function onRowKeyDown(event: React.KeyboardEvent<HTMLTableRowElement>, assetId: string) {
@@ -75,46 +250,99 @@ function AssetsTable({ assets }: { assets: AssetSummary[] }) {
     openAsset(assetId);
   }
 
+  function onRowClick(event: React.MouseEvent<HTMLTableRowElement>, assetId: string) {
+    if (event.target instanceof Element && event.target.closest("[data-stop-row-click='true']")) {
+      return;
+    }
+
+    openAsset(assetId);
+  }
+
   return (
-    <Table>
-      <TableHeader>
-        <TableRow>
-          <TableHead>File name</TableHead>
-          <TableHead>File type</TableHead>
-          <TableHead>File size</TableHead>
-          <TableHead>Indexing status</TableHead>
-          <TableHead>Registration date</TableHead>
-          <TableHead>Last indexed</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {assets.map((asset) => (
-          <TableRow
-            key={asset.id}
-            aria-label={`Open ${asset.file_name}`}
-            className="cursor-pointer"
-            onClick={() => openAsset(asset.id)}
-            onKeyDown={(event) => onRowKeyDown(event, asset.id)}
-            role="link"
-            tabIndex={0}
-          >
-            <TableCell className="max-w-0 min-w-56">
-              <div className="space-y-1">
-                <div className="font-medium text-foreground">{asset.file_name}</div>
-                <div className="truncate text-xs text-muted-foreground">{asset.file_path}</div>
+    <div className="overflow-x-auto">
+      <Table className="min-w-[860px]">
+        <TableHeader>
+          <TableRow>
+            <TableHead className="w-12">
+              <div className="flex items-center justify-center" data-stop-row-click="true">
+                <Checkbox
+                  aria-label="Select all visible assets"
+                  checked={allVisibleSelected ? true : someVisibleSelected ? "indeterminate" : false}
+                  onCheckedChange={onSelectAll}
+                />
               </div>
-            </TableCell>
-            <TableCell className="uppercase text-muted-foreground">{asset.file_type}</TableCell>
-            <TableCell>{formatFileSize(asset.file_size)}</TableCell>
-            <TableCell>
-              <AssetStatusBadge status={asset.indexing_status} />
-            </TableCell>
-            <TableCell>{formatDateTime(asset.registered_time)}</TableCell>
-            <TableCell>{formatDateTime(asset.last_indexed_time, "Not indexed yet")}</TableCell>
+            </TableHead>
+            <TableHead className="min-w-72">
+              <SortButton
+                active={sort.column === "file_name"}
+                direction={sort.direction}
+                label="File name"
+                onClick={() => onSort("file_name")}
+              />
+            </TableHead>
+            <TableHead>File type</TableHead>
+            <TableHead>
+              <SortButton
+                active={sort.column === "file_size"}
+                direction={sort.direction}
+                label="File size"
+                onClick={() => onSort("file_size")}
+              />
+            </TableHead>
+            <TableHead>Indexing status</TableHead>
+            <TableHead>
+              <SortButton
+                active={sort.column === "registered"}
+                direction={sort.direction}
+                label="Date added"
+                onClick={() => onSort("registered")}
+              />
+            </TableHead>
+            <TableHead>Last indexed</TableHead>
           </TableRow>
-        ))}
-      </TableBody>
-    </Table>
+        </TableHeader>
+        <TableBody>
+          {assets.map((asset) => {
+            const isSelected = selectedAssetIds.has(asset.id);
+
+            return (
+              <TableRow
+                key={asset.id}
+                aria-label={`Open ${asset.file_name}`}
+                className={cn("cursor-pointer", isSelected && "bg-muted/35")}
+                onClick={(event) => onRowClick(event, asset.id)}
+                onKeyDown={(event) => onRowKeyDown(event, asset.id)}
+                role="link"
+                tabIndex={0}
+              >
+                <TableCell>
+                  <div className="flex items-center justify-center" data-stop-row-click="true">
+                    <Checkbox
+                      aria-label={`Select ${asset.file_name}`}
+                      checked={isSelected}
+                      onCheckedChange={(checked) => onSelectAsset(asset.id, checked)}
+                    />
+                  </div>
+                </TableCell>
+                <TableCell className="max-w-0">
+                  <div className="space-y-1">
+                    <div className="font-medium text-foreground">{asset.file_name}</div>
+                    <div className="truncate text-xs text-muted-foreground">{asset.file_path}</div>
+                  </div>
+                </TableCell>
+                <TableCell className="uppercase text-muted-foreground">{asset.file_type}</TableCell>
+                <TableCell>{formatFileSize(asset.file_size)}</TableCell>
+                <TableCell>
+                  <AssetStatusBadge status={asset.indexing_status} />
+                </TableCell>
+                <TableCell>{formatDateTime(asset.registered_time)}</TableCell>
+                <TableCell>{formatDateTime(asset.last_indexed_time, "Not indexed yet")}</TableCell>
+              </TableRow>
+            );
+          })}
+        </TableBody>
+      </Table>
+    </div>
   );
 }
 
@@ -122,8 +350,10 @@ function AssetsTableSkeleton() {
   return (
     <div className="space-y-3">
       {Array.from({ length: 5 }).map((_, index) => (
-        <div key={index} className="grid gap-3 rounded-lg border px-4 py-3 md:grid-cols-6">
-          <Skeleton className="h-10 md:col-span-2" />
+        <div key={index} className="grid gap-3 rounded-lg border px-4 py-3 md:grid-cols-[40px_2fr_0.7fr_0.9fr_1fr_1fr_1fr]">
+          <Skeleton className="h-10" />
+          <Skeleton className="h-10" />
+          <Skeleton className="h-10" />
           <Skeleton className="h-10" />
           <Skeleton className="h-10" />
           <Skeleton className="h-10" />
@@ -134,11 +364,178 @@ function AssetsTableSkeleton() {
   );
 }
 
+export function InventoryPageFallback() {
+  return (
+    <div className="space-y-8">
+      <section className="space-y-2">
+        <Skeleton className="h-8 w-40" />
+        <Skeleton className="h-5 w-96 max-w-full" />
+      </section>
+
+      <Card>
+        <CardHeader className="space-y-4">
+          <Skeleton className="h-6 w-40" />
+          <Skeleton className="h-24 rounded-xl" />
+        </CardHeader>
+        <CardContent>
+          <AssetsTableSkeleton />
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 export function InventoryPage() {
+  const pathname = usePathname();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const { notify } = useFeedback();
-  const { data: assets, error, isLoading, mutate } = useAssets();
+
+  const appliedSearch = searchParams.get("search")?.trim() ?? "";
+  const activeType = searchParams.get("type")?.trim() ?? "";
+  const activeStatus = searchParams.get("status")?.trim() ?? "";
+  const minDuration = searchParams.get("min_duration")?.trim() ?? "";
+  const maxDuration = searchParams.get("max_duration")?.trim() ?? "";
+  const sizeMinMb = searchParams.get("size_min_mb")?.trim() ?? "";
+  const sizeMaxMb = searchParams.get("size_max_mb")?.trim() ?? "";
+  const registeredAfter = searchParams.get("registered_after")?.trim() ?? "";
+  const registeredBefore = searchParams.get("registered_before")?.trim() ?? "";
+  const sort = parseSort(searchParams.get("sort"));
+
   const [formMessage, setFormMessage] = React.useState<FormMessage | null>(null);
   const [isChoosingFiles, setIsChoosingFiles] = React.useState(false);
+  const [searchInput, setSearchInput] = React.useState(appliedSearch);
+  const [selectedAssetIds, setSelectedAssetIds] = React.useState<Set<string>>(new Set());
+
+  React.useEffect(() => {
+    setSearchInput(appliedSearch);
+  }, [appliedSearch]);
+
+  const normalizedMinDuration = parseNonNegativeNumber(minDuration) ?? undefined;
+  const normalizedMaxDuration = parseNonNegativeNumber(maxDuration) ?? undefined;
+  const normalizedStatus = isValidIndexingStatus(activeStatus) ? activeStatus : undefined;
+
+  const serverQueryCandidate: AssetListQuery = {
+    max_duration: normalizedMaxDuration,
+    min_duration: normalizedMinDuration,
+    search: appliedSearch || undefined,
+    status: normalizedStatus,
+    type: activeType || undefined,
+  };
+  const serverQuery = Object.values(serverQueryCandidate).some((value) => value !== undefined)
+    ? serverQueryCandidate
+    : undefined;
+  const hasServerFilters = Boolean(serverQuery);
+
+  const assetsResponse = useAssets(serverQuery);
+  const allAssetsResponse = useAssets(hasServerFilters ? undefined : null);
+
+  const assets = assetsResponse.data ?? [];
+  const allAssets = hasServerFilters ? (allAssetsResponse.data ?? assets) : assets;
+  const totalRegisteredCount = hasServerFilters ? allAssetsResponse.data?.length : assets.length;
+
+  const availableFileTypes = Array.from(new Set(allAssets.map((asset) => asset.file_type))).sort((left, right) =>
+    left.localeCompare(right, undefined, { sensitivity: "base" }),
+  );
+
+  const minSizeBytes = parseMegabytesToBytes(sizeMinMb);
+  const maxSizeBytes = parseMegabytesToBytes(sizeMaxMb);
+  const registeredAfterDate = parseDateBoundary(registeredAfter, "start");
+  const registeredBeforeDate = parseDateBoundary(registeredBefore, "end");
+
+  const locallyFilteredAssets = assets.filter((asset) => {
+    if (minSizeBytes !== null && asset.file_size < minSizeBytes) {
+      return false;
+    }
+
+    if (maxSizeBytes !== null && asset.file_size > maxSizeBytes) {
+      return false;
+    }
+
+    if (registeredAfterDate || registeredBeforeDate) {
+      const registeredTime = new Date(asset.registered_time);
+      if (Number.isNaN(registeredTime.getTime())) {
+        return false;
+      }
+
+      if (registeredAfterDate && registeredTime < registeredAfterDate) {
+        return false;
+      }
+
+      if (registeredBeforeDate && registeredTime > registeredBeforeDate) {
+        return false;
+      }
+    }
+
+    return true;
+  });
+
+  const visibleAssets = [...locallyFilteredAssets].sort((left, right) => {
+    if (sort.column === "file_name") {
+      const comparison = left.file_name.localeCompare(right.file_name, undefined, {
+        sensitivity: "base",
+      });
+      return sort.direction === "asc" ? comparison : -comparison;
+    }
+
+    if (sort.column === "file_size") {
+      const comparison = left.file_size - right.file_size;
+      return sort.direction === "asc" ? comparison : -comparison;
+    }
+
+    const leftTime = new Date(left.registered_time).getTime();
+    const rightTime = new Date(right.registered_time).getTime();
+    const comparison = leftTime - rightTime;
+    return sort.direction === "asc" ? comparison : -comparison;
+  });
+
+  React.useEffect(() => {
+    const visibleIds = new Set(visibleAssets.map((asset) => asset.id));
+
+    setSelectedAssetIds((current) => {
+      let changed = false;
+      const next = new Set<string>();
+
+      for (const assetId of current) {
+        if (visibleIds.has(assetId)) {
+          next.add(assetId);
+        } else {
+          changed = true;
+        }
+      }
+
+      return changed ? next : current;
+    });
+  }, [visibleAssets]);
+
+  function updateBrowseState(updates: Record<string, string | null>) {
+    const nextParams = new URLSearchParams(searchParams.toString());
+
+    for (const [key, value] of Object.entries(updates)) {
+      const normalizedValue = value?.trim() ?? "";
+      if (!normalizedValue) {
+        nextParams.delete(key);
+      } else {
+        nextParams.set(key, normalizedValue);
+      }
+    }
+
+    const nextQueryString = nextParams.toString();
+    const nextHref = nextQueryString ? `${pathname}?${nextQueryString}` : pathname;
+
+    React.startTransition(() => {
+      router.replace(nextHref, { scroll: false });
+    });
+  }
+
+  function resetBrowseState() {
+    setSearchInput("");
+    setSelectedAssetIds(new Set());
+
+    React.startTransition(() => {
+      router.replace(pathname, { scroll: false });
+    });
+  }
 
   async function onChooseFiles() {
     setIsChoosingFiles(true);
@@ -157,18 +554,11 @@ export function InventoryPage() {
       }
 
       if (result.registered_assets.length > 0) {
-        await mutate(
-          (currentAssets) => {
-            const mergedAssets = [...result.registered_assets, ...(currentAssets ?? [])];
-            const uniqueAssets = new Map(mergedAssets.map((asset) => [asset.id, asset]));
-            return Array.from(uniqueAssets.values());
-          },
-          { revalidate: false },
-        );
+        await assetsResponse.mutate();
 
-        React.startTransition(() => {
-          void mutate();
-        });
+        if (hasServerFilters) {
+          await allAssetsResponse.mutate();
+        }
       }
 
       const registeredCount = result.registered_assets.length;
@@ -228,6 +618,116 @@ export function InventoryPage() {
     }
   }
 
+  function onSearchSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    updateBrowseState({ search: searchInput });
+  }
+
+  function onClearSearch() {
+    setSearchInput("");
+    updateBrowseState({ search: null });
+  }
+
+  function onToggleTypeFilter(fileType: string) {
+    updateBrowseState({ type: activeType === fileType ? null : fileType });
+  }
+
+  function onToggleStatusFilter(status: IndexingStatus) {
+    updateBrowseState({ status: activeStatus === status ? null : status });
+  }
+
+  function onSort(column: SortColumn) {
+    const nextSortValue =
+      sort.column === column
+        ? (`${column}-${sort.direction === "asc" ? "desc" : "asc"}` as InventorySort)
+        : ((column === "registered" ? "registered-desc" : `${column}-asc`) as InventorySort);
+
+    updateBrowseState({
+      sort: nextSortValue === DEFAULT_SORT ? null : nextSortValue,
+    });
+  }
+
+  function onSelectAsset(assetId: string, checked: boolean | "indeterminate") {
+    setSelectedAssetIds((current) => {
+      const next = new Set(current);
+
+      if (checked === true) {
+        next.add(assetId);
+      } else {
+        next.delete(assetId);
+      }
+
+      return next;
+    });
+  }
+
+  function onSelectAll(checked: boolean | "indeterminate") {
+    setSelectedAssetIds((current) => {
+      const next = new Set(current);
+
+      if (checked === true || checked === "indeterminate") {
+        for (const asset of visibleAssets) {
+          next.add(asset.id);
+        }
+      } else {
+        for (const asset of visibleAssets) {
+          next.delete(asset.id);
+        }
+      }
+
+      return next;
+    });
+  }
+
+  const activeFilterChips: ActiveFilterChip[] = [];
+
+  if (appliedSearch) {
+    activeFilterChips.push({ key: "search", label: `Search: ${appliedSearch}` });
+  }
+
+  if (activeType) {
+    activeFilterChips.push({ key: "type", label: `Type: ${formatFilterValue(activeType)}` });
+  }
+
+  if (activeStatus) {
+    activeFilterChips.push({ key: "status", label: `Status: ${formatFilterValue(activeStatus)}` });
+  }
+
+  if (minDuration) {
+    activeFilterChips.push({ key: "min_duration", label: `Min duration: ${minDuration} s` });
+  }
+
+  if (maxDuration) {
+    activeFilterChips.push({ key: "max_duration", label: `Max duration: ${maxDuration} s` });
+  }
+
+  if (sizeMinMb) {
+    activeFilterChips.push({ key: "size_min_mb", label: `Min size: ${sizeMinMb} MB` });
+  }
+
+  if (sizeMaxMb) {
+    activeFilterChips.push({ key: "size_max_mb", label: `Max size: ${sizeMaxMb} MB` });
+  }
+
+  if (registeredAfter) {
+    activeFilterChips.push({ key: "registered_after", label: `Added after: ${registeredAfter}` });
+  }
+
+  if (registeredBefore) {
+    activeFilterChips.push({ key: "registered_before", label: `Added before: ${registeredBefore}` });
+  }
+
+  const hasAppliedFilters = activeFilterChips.length > 0;
+  const selectedCount = selectedAssetIds.size;
+  const resultsCountLabel = `${visibleAssets.length} result${visibleAssets.length === 1 ? "" : "s"}`;
+  const totalCountLabel =
+    typeof totalRegisteredCount === "number" ? `${totalRegisteredCount} registered` : "Loading total";
+  const inventoryHref = searchParams.toString() ? `${pathname}?${searchParams.toString()}` : pathname;
+
+  const isLoading = assetsResponse.isLoading;
+  const isInventoryEmpty = !hasAppliedFilters && totalRegisteredCount === 0;
+  const showNoResults = !isLoading && !assetsResponse.error && !isInventoryEmpty && visibleAssets.length === 0;
+
   return (
     <div className="space-y-8">
       <section className="space-y-2">
@@ -236,12 +736,12 @@ export function InventoryPage() {
             <div className="flex flex-wrap items-center gap-3">
               <h1 className="text-2xl font-semibold tracking-tight">Asset inventory</h1>
               <span className="rounded-full border px-2 py-0.5 text-xs text-muted-foreground">
-                {assets?.length ?? 0} registered
+                {totalCountLabel}
               </span>
             </div>
             <p className="max-w-3xl text-sm text-muted-foreground">
-              Connect the frontend to the live backend by adding local ROS bag files, reviewing the inventory,
-              and opening backend-driven detail pages.
+              Browse the live backend inventory with compact search, filters, and table sorting while keeping the
+              registered assets table as the main surface.
             </p>
           </div>
           <Button
@@ -260,60 +760,304 @@ export function InventoryPage() {
       {formMessage ? <FormNotice message={formMessage} /> : null}
 
       <Card className="flex-1">
-        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <CardTitle className="flex items-center gap-2">
-              <FolderOpen className="size-4" />
-              Registered assets
-            </CardTitle>
-            <CardDescription>
-              The main inventory view is loaded directly from <code>GET /assets</code>.
-            </CardDescription>
+        <CardHeader className="space-y-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <FolderOpen className="size-4" />
+                Registered assets
+              </CardTitle>
+              <CardDescription>
+                Search, status, type, and duration filters use <code>GET /assets</code>. File size and date-added
+                refinements are applied client-side on the current result set.
+              </CardDescription>
+            </div>
+            <div className="flex items-center gap-2">
+              <Badge className="h-6" variant="secondary">
+                {resultsCountLabel}
+              </Badge>
+              {typeof totalRegisteredCount === "number" && totalRegisteredCount !== visibleAssets.length ? (
+                <Badge className="h-6" variant="outline">
+                  of {totalRegisteredCount}
+                </Badge>
+              ) : null}
+              {selectedCount > 0 ? (
+                <Badge className="h-6" variant="outline">
+                  {selectedCount} selected
+                </Badge>
+              ) : null}
+              <Button
+                className="shrink-0"
+                onClick={() => {
+                  void assetsResponse.mutate();
+                  if (hasServerFilters) {
+                    void allAssetsResponse.mutate();
+                  }
+                }}
+                size="sm"
+                type="button"
+                variant="outline"
+              >
+                <RefreshCw className="size-4" />
+                Refresh
+              </Button>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <p className="hidden text-xs text-muted-foreground md:block">
-              Add files from the button above, then refresh any time.
-            </p>
-            <Button
-              className="shrink-0"
-              onClick={() => {
-                void mutate();
-              }}
-              size="sm"
-              type="button"
-              variant="outline"
-            >
-              <RefreshCw className="size-4" />
-              Refresh
-            </Button>
+
+          <div className="space-y-4 rounded-xl border bg-muted/20 p-4">
+            <form className="flex flex-col gap-3 lg:flex-row" onSubmit={onSearchSubmit}>
+              <div className="flex-1">
+                <Label className="mb-2 text-xs uppercase tracking-wide text-muted-foreground" htmlFor="asset-search">
+                  Search
+                </Label>
+                <div className="flex gap-2">
+                  <Input
+                    id="asset-search"
+                    onChange={(event) => setSearchInput(event.target.value)}
+                    placeholder="Search by file name"
+                    value={searchInput}
+                  />
+                  <Button size="sm" type="submit" variant="outline">
+                    <Search className="size-4" />
+                    Search
+                  </Button>
+                  {(searchInput.length > 0 || appliedSearch.length > 0) && (
+                    <Button onClick={onClearSearch} size="sm" type="button" variant="ghost">
+                      <X className="size-4" />
+                      Clear
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </form>
+
+            <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+              <div className="space-y-2">
+                <Label className="text-xs uppercase tracking-wide text-muted-foreground">File type</Label>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    onClick={() => updateBrowseState({ type: null })}
+                    size="sm"
+                    type="button"
+                    variant={activeType ? "outline" : "secondary"}
+                  >
+                    All
+                  </Button>
+                  {availableFileTypes.map((fileType) => (
+                    <Button
+                      key={fileType}
+                      onClick={() => onToggleTypeFilter(fileType)}
+                      size="sm"
+                      type="button"
+                      variant={activeType === fileType ? "secondary" : "outline"}
+                    >
+                      {fileType.toUpperCase()}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-xs uppercase tracking-wide text-muted-foreground">Indexing status</Label>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    onClick={() => updateBrowseState({ status: null })}
+                    size="sm"
+                    type="button"
+                    variant={activeStatus ? "outline" : "secondary"}
+                  >
+                    All
+                  </Button>
+                  {STATUS_OPTIONS.map((status) => (
+                    <Button
+                      key={status}
+                      onClick={() => onToggleStatusFilter(status)}
+                      size="sm"
+                      type="button"
+                      variant={activeStatus === status ? "secondary" : "outline"}
+                    >
+                      {formatFilterValue(status)}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+              <div className="space-y-2">
+                <Label className="text-xs uppercase tracking-wide text-muted-foreground" htmlFor="min-duration">
+                  Min duration (s)
+                </Label>
+                <Input
+                  id="min-duration"
+                  min="0"
+                  onChange={(event) => updateBrowseState({ min_duration: event.target.value })}
+                  placeholder="Any"
+                  step="1"
+                  type="number"
+                  value={minDuration}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-xs uppercase tracking-wide text-muted-foreground" htmlFor="max-duration">
+                  Max duration (s)
+                </Label>
+                <Input
+                  id="max-duration"
+                  min="0"
+                  onChange={(event) => updateBrowseState({ max_duration: event.target.value })}
+                  placeholder="Any"
+                  step="1"
+                  type="number"
+                  value={maxDuration}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-xs uppercase tracking-wide text-muted-foreground" htmlFor="size-min">
+                  Min size (MB)
+                </Label>
+                <Input
+                  id="size-min"
+                  min="0"
+                  onChange={(event) => updateBrowseState({ size_min_mb: event.target.value })}
+                  placeholder="Any"
+                  step="0.1"
+                  type="number"
+                  value={sizeMinMb}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-xs uppercase tracking-wide text-muted-foreground" htmlFor="size-max">
+                  Max size (MB)
+                </Label>
+                <Input
+                  id="size-max"
+                  min="0"
+                  onChange={(event) => updateBrowseState({ size_max_mb: event.target.value })}
+                  placeholder="Any"
+                  step="0.1"
+                  type="number"
+                  value={sizeMaxMb}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-xs uppercase tracking-wide text-muted-foreground" htmlFor="registered-after">
+                  Added after
+                </Label>
+                <Input
+                  id="registered-after"
+                  onChange={(event) => updateBrowseState({ registered_after: event.target.value })}
+                  type="date"
+                  value={registeredAfter}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-xs uppercase tracking-wide text-muted-foreground" htmlFor="registered-before">
+                  Added before
+                </Label>
+                <Input
+                  id="registered-before"
+                  onChange={(event) => updateBrowseState({ registered_before: event.target.value })}
+                  type="date"
+                  value={registeredBefore}
+                />
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge className="h-6 gap-1" variant="outline">
+                  <CalendarRange className="size-3.5" />
+                  Date added filters stay on the client
+                </Badge>
+                <Badge className="h-6 gap-1" variant="outline">
+                  <SlidersHorizontal className="size-3.5" />
+                  Duration sort will unlock once list rows include duration
+                </Badge>
+              </div>
+              {selectedCount > 0 ? (
+                <Button onClick={() => setSelectedAssetIds(new Set())} size="sm" type="button" variant="ghost">
+                  Clear selection
+                </Button>
+              ) : null}
+            </div>
+
+            {hasAppliedFilters ? (
+              <div className="flex flex-wrap items-center gap-2">
+                {activeFilterChips.map((filter) => (
+                  <Button
+                    key={filter.key}
+                    onClick={() => {
+                      if (filter.key === "search") {
+                        setSearchInput("");
+                      }
+                      updateBrowseState({ [filter.key]: null });
+                    }}
+                    size="xs"
+                    type="button"
+                    variant="outline"
+                  >
+                    {filter.label}
+                    <X className="size-3" />
+                  </Button>
+                ))}
+                <Button onClick={resetBrowseState} size="xs" type="button" variant="ghost">
+                  Clear all
+                </Button>
+              </div>
+            ) : null}
           </div>
         </CardHeader>
+
         <CardContent className="space-y-4">
-          {error ? (
+          {assetsResponse.error ? (
             <Alert variant="destructive">
               <AlertTitle>Could not load assets</AlertTitle>
-              <AlertDescription>{getErrorMessage(error)}</AlertDescription>
+              <AlertDescription>{getErrorMessage(assetsResponse.error)}</AlertDescription>
             </Alert>
           ) : null}
 
           {isLoading ? <AssetsTableSkeleton /> : null}
 
-          {!isLoading && !error && assets && assets.length > 0 ? <AssetsTable assets={assets} /> : null}
-
-          {!isLoading && !error && assets?.length === 0 ? (
-            <div className="rounded-xl border border-dashed px-6 py-16 text-center">
-              <h2 className="text-sm font-medium text-foreground">No assets registered yet</h2>
-              <p className="mt-2 text-sm text-muted-foreground">
-                Use the add files button above to open the file explorer and populate the inventory.
-              </p>
-            </div>
+          {!isLoading && !assetsResponse.error && visibleAssets.length > 0 ? (
+            <AssetsTable
+              assets={visibleAssets}
+              inventoryHref={inventoryHref}
+              onSelectAll={onSelectAll}
+              onSelectAsset={onSelectAsset}
+              onSort={onSort}
+              selectedAssetIds={selectedAssetIds}
+              sort={sort}
+            />
           ) : null}
 
-          {!isLoading && !error && assets && assets.length > 0 ? (
-            <div className="flex items-center justify-end">
+          {!isLoading && !assetsResponse.error && isInventoryEmpty ? (
+            <InventoryEmptyState
+              description="Use the add files button above to open the file explorer and populate the inventory."
+              title="No assets registered yet"
+            />
+          ) : null}
+
+          {showNoResults ? (
+            <InventoryEmptyState
+              action={
+                <Button onClick={resetBrowseState} size="sm" type="button" variant="outline">
+                  Clear filters
+                </Button>
+              }
+              description="No assets matched the current search, filters, and local refinements. Clear one or more filters to broaden the result set."
+              title="No matching assets"
+            />
+          ) : null}
+
+          {!isLoading && !assetsResponse.error && visibleAssets.length > 0 ? (
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <p className="text-xs text-muted-foreground">
+                Sort directly from the table headers. Selection is scoped to the current result set.
+              </p>
               <Button asChild size="sm" variant="ghost">
-                <Link href={assets.length > 0 ? `/assets/${assets[0].id}` : "/"}>
-                  Open latest asset
+                <Link href={buildAssetDetailHref(visibleAssets[0].id, inventoryHref)}>
+                  Open latest result
                   <ArrowRight className="size-4" />
                 </Link>
               </Button>
