@@ -205,7 +205,8 @@ def test_get_asset_detail_returns_registered_asset(client: TestClient, sample_as
             "registered_time": register_response.json()["registered_time"],
             "indexing_status": "pending",
             "last_indexed_time": None,
-        }
+        },
+        "metadata": None,
     }
 
 
