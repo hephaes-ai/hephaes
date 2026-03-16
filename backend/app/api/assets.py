@@ -4,13 +4,15 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
 from backend.app.db.models import Asset
 from backend.app.db.session import get_db_session
 from backend.app.schemas.assets import (
     AssetDetailResponse,
+    AssetListQueryParams,
     AssetMetadataResponse,
     DefaultEpisodeSummary,
     DialogAssetRegistrationResponse,
@@ -25,6 +27,7 @@ from backend.app.schemas.assets import (
 from backend.app.services.assets import (
     AssetAlreadyRegisteredError,
     AssetDialogUnavailableError,
+    AssetListFilters,
     AssetNotFoundError,
     InvalidAssetPathError,
     get_asset_or_raise,
@@ -36,6 +39,34 @@ from backend.app.services.indexing import AssetIndexingError, IndexingService
 
 router = APIRouter(prefix="/assets", tags=["assets"])
 DbSession = Annotated[Session, Depends(get_db_session)]
+
+
+def parse_list_assets_query(
+    search: Annotated[str | None, Query()] = None,
+    file_type: Annotated[str | None, Query(alias="type")] = None,
+    status_value: Annotated[str | None, Query(alias="status")] = None,
+    min_duration: Annotated[str | None, Query()] = None,
+    max_duration: Annotated[str | None, Query()] = None,
+    start_after: Annotated[str | None, Query()] = None,
+    start_before: Annotated[str | None, Query()] = None,
+) -> AssetListQueryParams:
+    try:
+        return AssetListQueryParams.model_validate(
+            {
+                "search": search,
+                "type": file_type,
+                "status": status_value,
+                "min_duration": min_duration,
+                "max_duration": max_duration,
+                "start_after": start_after,
+                "start_before": start_before,
+            }
+        )
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=exc.errors(),
+        ) from exc
 
 
 def build_asset_detail_response(asset: Asset) -> AssetDetailResponse:
@@ -146,8 +177,22 @@ def reindex_all_route(session: DbSession) -> ReindexAllResponse:
 
 
 @router.get("", response_model=list[AssetListItem])
-def list_assets_route(session: DbSession) -> list[AssetListItem]:
-    assets = list_assets(session)
+def list_assets_route(
+    query: Annotated[AssetListQueryParams, Depends(parse_list_assets_query)],
+    session: DbSession,
+) -> list[AssetListItem]:
+    assets = list_assets(
+        session,
+        filters=AssetListFilters(
+            search=query.search,
+            file_type=query.file_type,
+            status=query.status,
+            min_duration=query.min_duration,
+            max_duration=query.max_duration,
+            start_after=query.start_after,
+            start_before=query.start_before,
+        ),
+    )
     return [AssetListItem.model_validate(asset) for asset in assets]
 
 

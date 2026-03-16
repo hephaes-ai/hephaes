@@ -7,13 +7,14 @@ import shutil
 import subprocess
 import sys
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from backend.app.db.models import Asset
+from backend.app.db.models import Asset, AssetMetadata
 
 
 class AssetServiceError(Exception):
@@ -62,6 +63,31 @@ class DialogAssetRegistrationResult:
     canceled: bool
     registered_assets: list[Asset]
     skipped: list[AssetRegistrationSkip]
+
+
+@dataclass(frozen=True)
+class AssetListFilters:
+    """Normalized filters for listing registered assets."""
+
+    search: str | None = None
+    file_type: str | None = None
+    status: str | None = None
+    min_duration: float | None = None
+    max_duration: float | None = None
+    start_after: datetime | None = None
+    start_before: datetime | None = None
+
+    @property
+    def requires_metadata_join(self) -> bool:
+        return any(
+            value is not None
+            for value in (
+                self.min_duration,
+                self.max_duration,
+                self.start_after,
+                self.start_before,
+            )
+        )
 
 
 TK_FILE_DIALOG_SCRIPT = """
@@ -287,8 +313,29 @@ def register_assets_from_dialog(session: Session) -> DialogAssetRegistrationResu
     )
 
 
-def list_assets(session: Session) -> list[Asset]:
-    statement = select(Asset).order_by(Asset.registered_time.desc(), Asset.id.desc())
+def list_assets(session: Session, *, filters: AssetListFilters | None = None) -> list[Asset]:
+    filters = filters or AssetListFilters()
+    statement = select(Asset)
+
+    if filters.requires_metadata_join:
+        statement = statement.outerjoin(AssetMetadata, AssetMetadata.asset_id == Asset.id)
+
+    if filters.search is not None:
+        statement = statement.where(func.lower(Asset.file_name).contains(filters.search.lower()))
+    if filters.file_type is not None:
+        statement = statement.where(func.lower(Asset.file_type) == filters.file_type.lower())
+    if filters.status is not None:
+        statement = statement.where(Asset.indexing_status == filters.status)
+    if filters.min_duration is not None:
+        statement = statement.where(AssetMetadata.duration >= filters.min_duration)
+    if filters.max_duration is not None:
+        statement = statement.where(AssetMetadata.duration <= filters.max_duration)
+    if filters.start_after is not None:
+        statement = statement.where(AssetMetadata.start_time >= filters.start_after)
+    if filters.start_before is not None:
+        statement = statement.where(AssetMetadata.start_time <= filters.start_before)
+
+    statement = statement.order_by(Asset.registered_time.desc(), Asset.id.desc())
     return list(session.scalars(statement).all())
 
 

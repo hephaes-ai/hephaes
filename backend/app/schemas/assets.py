@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 IndexingStatus = Literal["pending", "indexing", "indexed", "failed"]
 TopicModality = Literal["image", "points", "scalar_series", "other"]
@@ -24,6 +24,72 @@ class AssetRegistrationRequest(BaseModel):
         if not stripped:
             raise ValueError("file_path must be non-empty")
         return stripped
+
+
+class AssetListQueryParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    search: str | None = None
+    file_type: str | None = Field(default=None, alias="type")
+    status: IndexingStatus | None = None
+    min_duration: float | None = Field(default=None, ge=0)
+    max_duration: float | None = Field(default=None, ge=0)
+    start_after: datetime | None = None
+    start_before: datetime | None = None
+
+    @field_validator(
+        "search",
+        "file_type",
+        "status",
+        "min_duration",
+        "max_duration",
+        "start_after",
+        "start_before",
+        mode="before",
+    )
+    @classmethod
+    def normalize_empty_values(cls, value: object) -> object:
+        if not isinstance(value, str):
+            return value
+
+        stripped = value.strip()
+        if not stripped:
+            return None
+        return stripped
+
+    @field_validator("file_type", mode="after")
+    @classmethod
+    def normalize_file_type(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return value.lower()
+
+    @field_validator("start_after", "start_before", mode="after")
+    @classmethod
+    def normalize_datetimes_to_utc(cls, value: datetime | None) -> datetime | None:
+        if value is None:
+            return None
+        if value.tzinfo is None:
+            return value.replace(tzinfo=UTC)
+        return value.astimezone(UTC)
+
+    @model_validator(mode="after")
+    def validate_ranges(self) -> "AssetListQueryParams":
+        if (
+            self.min_duration is not None
+            and self.max_duration is not None
+            and self.min_duration > self.max_duration
+        ):
+            raise ValueError("min_duration must be less than or equal to max_duration")
+
+        if (
+            self.start_after is not None
+            and self.start_before is not None
+            and self.start_after > self.start_before
+        ):
+            raise ValueError("start_after must be less than or equal to start_before")
+
+        return self
 
 
 class AssetSummary(BaseModel):
