@@ -1,0 +1,85 @@
+"""Conversion routes for backend-managed hephaes workflows."""
+
+from __future__ import annotations
+
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.orm import Session
+
+from backend.app.db.models import Conversion
+from backend.app.db.session import get_db_session
+from backend.app.schemas.conversions import (
+    ConversionCreateRequest,
+    ConversionDetailResponse,
+    ConversionSummaryResponse,
+)
+from backend.app.schemas.jobs import JobResponse
+from backend.app.services.conversions import (
+    ConversionExecutionError,
+    ConversionNotFoundError,
+    ConversionService,
+    ConversionValidationError,
+    get_conversion_or_raise,
+    list_conversions,
+)
+
+router = APIRouter(prefix="/conversions", tags=["conversions"])
+DbSession = Annotated[Session, Depends(get_db_session)]
+
+
+def build_conversion_summary_response(conversion: Conversion) -> ConversionSummaryResponse:
+    return ConversionSummaryResponse(
+        id=conversion.id,
+        job_id=conversion.job_id,
+        status=conversion.status,
+        asset_ids=list(conversion.source_asset_ids_json),
+        config=dict(conversion.config_json),
+        output_path=conversion.output_path,
+        error_message=conversion.error_message,
+        created_at=conversion.created_at,
+        updated_at=conversion.updated_at,
+    )
+
+
+def build_conversion_detail_response(conversion: Conversion) -> ConversionDetailResponse:
+    if conversion.job is None:  # pragma: no cover - defensive integrity guard
+        raise ValueError(f"conversion is missing linked job: {conversion.id}")
+
+    return ConversionDetailResponse(
+        **build_conversion_summary_response(conversion).model_dump(),
+        output_files=list(conversion.output_files_json),
+        job=JobResponse.model_validate(conversion.job),
+    )
+
+
+@router.post("", response_model=ConversionDetailResponse, status_code=status.HTTP_201_CREATED)
+def create_conversion_route(payload: ConversionCreateRequest, session: DbSession) -> ConversionDetailResponse:
+    service = ConversionService(session)
+
+    try:
+        conversion = service.run_conversion(payload)
+    except ConversionValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
+    except ConversionExecutionError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
+
+    return build_conversion_detail_response(conversion)
+
+
+@router.get("", response_model=list[ConversionSummaryResponse])
+def list_conversions_route(session: DbSession) -> list[ConversionSummaryResponse]:
+    return [
+        build_conversion_summary_response(conversion)
+        for conversion in list_conversions(session)
+    ]
+
+
+@router.get("/{conversion_id}", response_model=ConversionDetailResponse)
+def get_conversion_route(conversion_id: str, session: DbSession) -> ConversionDetailResponse:
+    try:
+        conversion = get_conversion_or_raise(session, conversion_id)
+    except ConversionNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+    return build_conversion_detail_response(conversion)

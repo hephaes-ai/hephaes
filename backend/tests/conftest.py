@@ -12,6 +12,11 @@ def backend_db_path(tmp_path: Path) -> Path:
 
 
 @pytest.fixture()
+def backend_outputs_dir(tmp_path: Path) -> Path:
+    return tmp_path / "outputs"
+
+
+@pytest.fixture()
 def sample_asset_file(tmp_path: Path) -> Path:
     asset_path = tmp_path / "sample_asset.mcap"
     asset_path.write_bytes(b"hephaes-backend-test\n")
@@ -19,8 +24,9 @@ def sample_asset_file(tmp_path: Path) -> Path:
 
 
 @pytest.fixture()
-def client(monkeypatch: pytest.MonkeyPatch, backend_db_path: Path):
+def client(monkeypatch: pytest.MonkeyPatch, backend_db_path: Path, backend_outputs_dir: Path):
     monkeypatch.setenv("HEPHAES_BACKEND_DB_PATH", str(backend_db_path))
+    monkeypatch.setenv("HEPHAES_BACKEND_OUTPUTS_DIR", str(backend_outputs_dir))
 
     from backend.app.config import get_settings
 
