@@ -183,3 +183,49 @@ class Job(Base):
     )
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    conversion: Mapped["Conversion | None"] = relationship(
+        back_populates="job",
+        cascade="all, delete-orphan",
+        uselist=False,
+    )
+
+
+class Conversion(Base):
+    """Durable record for a backend-managed hephaes conversion run."""
+
+    __tablename__ = "conversions"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('queued', 'running', 'succeeded', 'failed')",
+            name="ck_conversions_status_valid",
+        ),
+        UniqueConstraint("job_id", name="uq_conversions_job_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    job_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("jobs.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="queued", index=True)
+    source_asset_ids_json: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    config_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    output_path: Mapped[str | None] = mapped_column(String, nullable=True)
+    output_files_json: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+        index=True,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+        onupdate=utc_now,
+    )
+
+    job: Mapped[Job] = relationship(back_populates="conversion")
