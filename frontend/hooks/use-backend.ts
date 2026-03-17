@@ -4,8 +4,10 @@ import * as React from "react";
 import useSWR, { useSWRConfig } from "swr";
 
 import {
+  getConversion,
   getAssetDetail,
   getHealth,
+  listConversions,
   listAssets,
   listTags,
   serializeAssetListQuery,
@@ -15,6 +17,8 @@ import {
 export const backendKeys = {
   asset: (assetId: string) => ["asset", assetId] as const,
   assets: (query?: AssetListQuery | null) => ["assets", serializeAssetListQuery(query)] as const,
+  conversion: (conversionId: string) => ["conversion", conversionId] as const,
+  conversions: ["conversions"] as const,
   health: ["health"] as const,
   tags: ["tags"] as const,
 };
@@ -33,6 +37,14 @@ export function useAssets(query?: AssetListQuery | null) {
 
 export function useAsset(assetId: string) {
   return useSWR(assetId ? backendKeys.asset(assetId) : null, () => getAssetDetail(assetId));
+}
+
+export function useConversions() {
+  return useSWR(backendKeys.conversions, () => listConversions());
+}
+
+export function useConversion(conversionId: string) {
+  return useSWR(conversionId ? backendKeys.conversion(conversionId) : null, () => getConversion(conversionId));
 }
 
 export function useTags() {
@@ -70,10 +82,27 @@ export function useBackendCache() {
     await mutate(backendKeys.tags);
   }, [mutate]);
 
+  const revalidateConversions = React.useCallback(async () => {
+    await mutate(backendKeys.conversions);
+  }, [mutate]);
+
+  const revalidateConversionDetail = React.useCallback(
+    async (conversionId: string) => {
+      if (!conversionId) {
+        return;
+      }
+
+      await mutate(backendKeys.conversion(conversionId));
+    },
+    [mutate],
+  );
+
   return {
     revalidateAssetDetail,
     revalidateAssetEverywhere,
     revalidateAssetLists,
+    revalidateConversionDetail,
+    revalidateConversions,
     revalidateTags,
   };
 }

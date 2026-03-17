@@ -3,9 +3,10 @@
 import * as React from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { ArrowLeft, Database, Eye, RefreshCw, Waves } from "lucide-react";
+import { ArrowLeft, ArrowRightLeft, Database, Eye, RefreshCw, Waves } from "lucide-react";
 
 import { AssetStatusBadge } from "@/components/asset-status-badge";
+import { ConversionDialog } from "@/components/conversion-dialog";
 import { useFeedback } from "@/components/feedback-provider";
 import { TagActionPanel, TagBadgeList } from "@/components/tag-controls";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -129,6 +130,7 @@ export function AssetDetailPage({ assetId }: { assetId: string }) {
   const { revalidateAssetLists, revalidateTags } = useBackendCache();
   const { data, error, isLoading, mutate } = useAsset(assetId);
   const tagsResponse = useTags();
+  const [isConversionDialogOpen, setIsConversionDialogOpen] = React.useState(false);
   const [isRunningIndexAction, setIsRunningIndexAction] = React.useState(false);
   const [isUpdatingTags, setIsUpdatingTags] = React.useState(false);
   const [requestMessage, setRequestMessage] = React.useState<{
@@ -382,6 +384,10 @@ async function onCreateAndAttachTag(name: string) {
           </div>
           <div className="flex shrink-0 flex-wrap items-center gap-2">
             <AssetStatusBadge status={effectiveStatus} />
+            <Button onClick={() => setIsConversionDialogOpen(true)} size="sm" type="button" variant="outline">
+              <ArrowRightLeft className="size-3.5" />
+              Convert
+            </Button>
             <Button
               disabled={isActionDisabled}
               onClick={onRunIndexAction}
@@ -633,6 +639,12 @@ async function onCreateAndAttachTag(name: string) {
           )}
         </CardContent>
       </Card>
+
+      <ConversionDialog
+        assets={[asset]}
+        onOpenChange={setIsConversionDialogOpen}
+        open={isConversionDialogOpen}
+      />
     </div>
   );
 }
