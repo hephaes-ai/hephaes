@@ -6,6 +6,7 @@ import json
 import shutil
 import subprocess
 import sys
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -14,7 +15,10 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
-from backend.app.db.models import Asset, AssetMetadata, Tag
+from backend.app.config import get_settings
+from backend.app.db.models import Asset, AssetMetadata, Conversion, Job, Tag
+
+SUPPORTED_ASSET_FILE_TYPES = {"bag", "mcap"}
 
 
 class AssetServiceError(Exception):
@@ -35,6 +39,18 @@ class AssetDialogUnavailableError(AssetServiceError):
 
 class AssetNotFoundError(AssetServiceError):
     """Raised when an asset cannot be found in the registry."""
+
+
+class InvalidAssetUploadError(AssetServiceError):
+    """Raised when an uploaded file is invalid or unsupported."""
+
+
+class InvalidAssetDirectoryError(AssetServiceError):
+    """Raised when a directory-scan request points at an invalid location."""
+
+
+class EpisodeDiscoveryUnavailableError(AssetServiceError):
+    """Raised when episode summaries are not available for an asset."""
 
 
 @dataclass(frozen=True)
@@ -63,6 +79,30 @@ class DialogAssetRegistrationResult:
     canceled: bool
     registered_assets: list[Asset]
     skipped: list[AssetRegistrationSkip]
+
+
+@dataclass(frozen=True)
+class DirectoryScanResult:
+    """Result of scanning a directory and attempting asset registration."""
+
+    discovered_file_count: int
+    recursive: bool
+    registered_assets: list[Asset]
+    scanned_directory: str
+    skipped: list[AssetRegistrationSkip]
+
+
+@dataclass(frozen=True)
+class AssetEpisodeSummary:
+    """Episode summary derived from indexed asset metadata."""
+
+    default_lane_count: int
+    duration: float
+    end_time: datetime | None
+    episode_id: str
+    has_visualizable_streams: bool
+    label: str
+    start_time: datetime | None
 
 
 @dataclass(frozen=True)
@@ -175,6 +215,39 @@ def infer_file_type(path: Path) -> str:
     if suffix.startswith("."):
         suffix = suffix[1:]
     return suffix or "unknown"
+
+
+def _validate_supported_file_type(file_name: str) -> str:
+    file_type = infer_file_type(Path(file_name))
+    if file_type not in SUPPORTED_ASSET_FILE_TYPES:
+        supported_types = ", ".join(sorted(SUPPORTED_ASSET_FILE_TYPES))
+        raise InvalidAssetUploadError(
+            f"unsupported asset type: {file_name} (supported: {supported_types})"
+        )
+    return file_type
+
+
+def normalize_uploaded_file_name(file_name: str) -> str:
+    trimmed = file_name.strip()
+    if not trimmed:
+        raise InvalidAssetUploadError("uploaded file name must be non-empty")
+
+    normalized_name = Path(trimmed).name
+    if normalized_name in {"", ".", ".."}:
+        raise InvalidAssetUploadError("uploaded file name is invalid")
+
+    _validate_supported_file_type(normalized_name)
+    return normalized_name
+
+
+def _iter_supported_asset_files(directory: Path, *, recursive: bool) -> Iterable[Path]:
+    candidates = directory.rglob("*") if recursive else directory.iterdir()
+    for candidate in sorted(candidates):
+        if not candidate.is_file():
+            continue
+        if infer_file_type(candidate) not in SUPPORTED_ASSET_FILE_TYPES:
+            continue
+        yield candidate
 
 
 def _parse_dialog_output(stdout: str) -> list[str]:
@@ -318,6 +391,80 @@ def register_assets_from_dialog(session: Session) -> DialogAssetRegistrationResu
     )
 
 
+def upload_asset(
+    session: Session,
+    *,
+    content: bytes,
+    file_name: str,
+) -> Asset:
+    normalized_file_name = normalize_uploaded_file_name(file_name)
+
+    if not content:
+        raise InvalidAssetUploadError("uploaded file is empty")
+
+    settings = get_settings()
+    settings.raw_data_dir.mkdir(parents=True, exist_ok=True)
+
+    target_path = settings.raw_data_dir / normalized_file_name
+    if target_path.exists():
+        raise AssetAlreadyRegisteredError(f"asset already registered: {target_path}")
+
+    target_path.write_bytes(content)
+
+    try:
+        return register_asset(session, file_path=str(target_path))
+    except Exception:
+        target_path.unlink(missing_ok=True)
+        raise
+
+
+def scan_directory_for_assets(
+    session: Session,
+    *,
+    directory_path: str,
+    recursive: bool = True,
+) -> DirectoryScanResult:
+    normalized_directory = normalize_asset_path(directory_path)
+    if not normalized_directory.exists():
+        raise InvalidAssetDirectoryError(f"asset directory does not exist: {normalized_directory}")
+    if not normalized_directory.is_dir():
+        raise InvalidAssetDirectoryError(f"asset directory is not a directory: {normalized_directory}")
+
+    discovered_paths = list(_iter_supported_asset_files(normalized_directory, recursive=recursive))
+    registered_assets: list[Asset] = []
+    skipped: list[AssetRegistrationSkip] = []
+
+    for discovered_path in discovered_paths:
+        try:
+            asset = register_asset(session, file_path=str(discovered_path))
+        except InvalidAssetPathError as exc:
+            skipped.append(
+                AssetRegistrationSkip(
+                    detail=str(exc),
+                    file_path=str(discovered_path),
+                    reason="invalid_path",
+                )
+            )
+        except AssetAlreadyRegisteredError as exc:
+            skipped.append(
+                AssetRegistrationSkip(
+                    detail=str(exc),
+                    file_path=str(discovered_path),
+                    reason="duplicate",
+                )
+            )
+        else:
+            registered_assets.append(asset)
+
+    return DirectoryScanResult(
+        discovered_file_count=len(discovered_paths),
+        recursive=recursive,
+        registered_assets=registered_assets,
+        scanned_directory=str(normalized_directory),
+        skipped=skipped,
+    )
+
+
 def list_assets(session: Session, *, filters: AssetListFilters | None = None) -> list[Asset]:
     filters = filters or AssetListFilters()
     statement = select(Asset).options(selectinload(Asset.tags))
@@ -365,3 +512,54 @@ def get_asset_or_raise(session: Session, asset_id: str) -> Asset:
     if asset is None:
         raise AssetNotFoundError(f"asset not found: {asset_id}")
     return asset
+
+
+def list_asset_episodes(asset: Asset) -> list[AssetEpisodeSummary]:
+    metadata_record = asset.metadata_record
+    if metadata_record is None or metadata_record.default_episode_json is None:
+        raise EpisodeDiscoveryUnavailableError(
+            f"asset must be indexed before episodes are available: {asset.file_name}"
+        )
+
+    default_episode = metadata_record.default_episode_json
+    visualization_summary = metadata_record.visualization_summary_json or {}
+
+    return [
+        AssetEpisodeSummary(
+            default_lane_count=int(visualization_summary.get("default_lane_count", 0)),
+            duration=float(default_episode["duration"]),
+            end_time=metadata_record.end_time,
+            episode_id=str(default_episode["episode_id"]),
+            has_visualizable_streams=bool(
+                visualization_summary.get("has_visualizable_streams", False)
+            ),
+            label=str(default_episode["label"]),
+            start_time=metadata_record.start_time,
+        )
+    ]
+
+
+def list_related_jobs_for_asset(
+    session: Session,
+    *,
+    asset_id: str,
+    limit: int = 10,
+) -> list[Job]:
+    statement = select(Job).order_by(Job.created_at.desc(), Job.id.desc())
+    jobs = [job for job in session.scalars(statement).all() if asset_id in job.target_asset_ids_json]
+    return jobs[:limit]
+
+
+def list_related_conversions_for_asset(
+    session: Session,
+    *,
+    asset_id: str,
+    limit: int = 10,
+) -> list[Conversion]:
+    statement = select(Conversion).order_by(Conversion.created_at.desc(), Conversion.id.desc())
+    conversions = [
+        conversion
+        for conversion in session.scalars(statement).all()
+        if asset_id in conversion.source_asset_ids_json
+    ]
+    return conversions[:limit]
