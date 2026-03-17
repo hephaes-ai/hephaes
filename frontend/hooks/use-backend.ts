@@ -7,6 +7,8 @@ import {
   getConversion,
   getAssetEpisode,
   getAssetDetail,
+  getEpisodeSamples,
+  getEpisodeTimeline,
   getEpisodeViewerSource,
   getHealth,
   getJob,
@@ -16,8 +18,20 @@ import {
   listJobs,
   listTags,
   serializeAssetListQuery,
+  type EpisodeSamplesQuery,
   type AssetListQuery,
 } from "@/lib/api";
+
+function serializeEpisodeSamplesQuery(query: EpisodeSamplesQuery) {
+  const streamIds = (query.stream_ids ?? []).map((value) => value.trim()).filter(Boolean).sort().join(",");
+
+  return [
+    `ts:${query.timestamp_ns}`,
+    `before:${query.window_before_ns ?? ""}`,
+    `after:${query.window_after_ns ?? ""}`,
+    `streams:${streamIds}`,
+  ].join("|");
+}
 
 export const backendKeys = {
   asset: (assetId: string) => ["asset", assetId] as const,
@@ -29,7 +43,10 @@ export const backendKeys = {
   health: ["health"] as const,
   job: (jobId: string) => ["job", jobId] as const,
   jobs: ["jobs"] as const,
+  samples: (assetId: string, episodeId: string, query: EpisodeSamplesQuery) =>
+    ["samples", assetId, episodeId, serializeEpisodeSamplesQuery(query)] as const,
   tags: ["tags"] as const,
+  timeline: (assetId: string, episodeId: string) => ["timeline", assetId, episodeId] as const,
   viewerSource: (assetId: string, episodeId: string) => ["viewer-source", assetId, episodeId] as const,
 };
 
@@ -84,6 +101,20 @@ export function useEpisodeViewerSource(assetId: string, episodeId: string) {
   return useSWR(
     assetId && episodeId ? backendKeys.viewerSource(assetId, episodeId) : null,
     () => getEpisodeViewerSource(assetId, episodeId),
+  );
+}
+
+export function useEpisodeTimeline(assetId: string, episodeId: string) {
+  return useSWR(
+    assetId && episodeId ? backendKeys.timeline(assetId, episodeId) : null,
+    () => getEpisodeTimeline(assetId, episodeId),
+  );
+}
+
+export function useEpisodeSamples(assetId: string, episodeId: string, query: EpisodeSamplesQuery | null) {
+  return useSWR(
+    assetId && episodeId && query ? backendKeys.samples(assetId, episodeId, query) : null,
+    () => getEpisodeSamples(assetId, episodeId, query as EpisodeSamplesQuery),
   );
 }
 
@@ -181,6 +212,38 @@ export function useBackendCache() {
     [mutate],
   );
 
+  const revalidateEpisodeTimeline = React.useCallback(
+    async (assetId: string, episodeId: string) => {
+      if (!assetId || !episodeId) {
+        return;
+      }
+
+      await mutate(backendKeys.timeline(assetId, episodeId));
+    },
+    [mutate],
+  );
+
+  const revalidateEpisodeSamples = React.useCallback(
+    async (assetId: string, episodeId: string) => {
+      if (!assetId || !episodeId) {
+        return;
+      }
+
+      await mutate(
+        (key) =>
+          Array.isArray(key) &&
+          key[0] === "samples" &&
+          key[1] === assetId &&
+          key[2] === episodeId,
+        undefined,
+        {
+          revalidate: true,
+        },
+      );
+    },
+    [mutate],
+  );
+
   return {
     revalidateAssetDetail,
     revalidateAssetEverywhere,
@@ -189,6 +252,8 @@ export function useBackendCache() {
     revalidateAssetLists,
     revalidateConversionDetail,
     revalidateConversions,
+    revalidateEpisodeSamples,
+    revalidateEpisodeTimeline,
     revalidateEpisodeViewerSource,
     revalidateJobDetail,
     revalidateJobs,

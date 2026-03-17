@@ -92,6 +92,73 @@ export interface EpisodeViewerSourceResponse {
   viewer_version: string | null;
 }
 
+export interface EpisodeTimelineEvent {
+  count?: number;
+  timestamp_ns: number;
+}
+
+export interface EpisodeTimelineBucket {
+  bucket_index: number;
+  end_offset_ns: number;
+  event_count: number;
+  start_offset_ns: number;
+}
+
+export interface EpisodeTimelineLane {
+  buckets?: EpisodeTimelineBucket[];
+  events: EpisodeTimelineEvent[];
+  label: string;
+  modality: TopicModality;
+  source_topic?: string;
+  stream_key?: string;
+  stream_id: string;
+}
+
+export interface EpisodeTimelineResponse {
+  duration_ns: number;
+  end_time_ns: number;
+  episode_id: string;
+  lanes: EpisodeTimelineLane[];
+  start_time_ns: number;
+}
+
+export interface EpisodeSamplesQuery {
+  stream_ids?: string[];
+  timestamp_ns: number;
+  window_after_ns?: number;
+  window_before_ns?: number;
+}
+
+export interface EpisodeSample {
+  message_type?: string;
+  metadata?: Record<string, unknown>;
+  metadata_json?: Record<string, unknown>;
+  modality: TopicModality;
+  payload: Record<string, unknown> | null;
+  selection_strategy?: "nearest" | "window";
+  stream_id: string;
+  timestamp_ns: number;
+  topic_name?: string;
+}
+
+export interface EpisodeStreamSamplesResponse {
+  modality: TopicModality;
+  sample_count: number;
+  samples: EpisodeSample[];
+  selection_strategy: "nearest" | "window";
+  source_topic: string;
+  stream_id: string;
+  stream_key: string;
+}
+
+export interface EpisodeSamplesResponse {
+  requested_timestamp_ns?: number;
+  streams?: EpisodeStreamSamplesResponse[];
+  episode_id: string;
+  samples: EpisodeSample[];
+  timestamp_ns: number;
+}
+
 export interface VisualizationSummary {
   default_lane_count: number;
   has_visualizable_streams: boolean;
@@ -431,4 +498,31 @@ export function getAssetEpisode(assetId: string, episodeId: string) {
 
 export function getEpisodeViewerSource(assetId: string, episodeId: string) {
   return request<EpisodeViewerSourceResponse>(`/assets/${assetId}/episodes/${episodeId}/viewer-source`);
+}
+
+export function getEpisodeTimeline(assetId: string, episodeId: string) {
+  return request<EpisodeTimelineResponse>(`/assets/${assetId}/episodes/${episodeId}/timeline`);
+}
+
+export function getEpisodeSamples(assetId: string, episodeId: string, query: EpisodeSamplesQuery) {
+  const params = new URLSearchParams();
+  params.set("timestamp_ns", String(query.timestamp_ns));
+
+  if (query.window_before_ns !== undefined) {
+    params.set("window_before_ns", String(query.window_before_ns));
+  }
+
+  if (query.window_after_ns !== undefined) {
+    params.set("window_after_ns", String(query.window_after_ns));
+  }
+
+  for (const streamId of query.stream_ids ?? []) {
+    const normalized = streamId.trim();
+    if (normalized) {
+      params.append("stream_ids", normalized);
+    }
+  }
+
+  const queryString = params.toString();
+  return request<EpisodeSamplesResponse>(`/assets/${assetId}/episodes/${episodeId}/samples?${queryString}`);
 }

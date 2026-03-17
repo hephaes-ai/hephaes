@@ -3,12 +3,14 @@
 import * as React from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { ArrowLeft, Gauge, Play, SkipBack, SkipForward, Pause } from "lucide-react";
+import { ArrowLeft, Gauge, Pause, Play, SkipBack, SkipForward } from "lucide-react";
 
 import {
   useAsset,
   useAssetEpisode,
   useAssetEpisodes,
+  useEpisodeSamples,
+  useEpisodeTimeline,
   useEpisodeViewerSource,
 } from "@/hooks/use-backend";
 import { BackendApiError, getErrorMessage } from "@/lib/api";
@@ -16,6 +18,7 @@ import { formatDateTime, formatDuration } from "@/lib/format";
 import { resolveReturnHref } from "@/lib/navigation";
 import { buildVisualizeHref } from "@/lib/visualization";
 
+import { VisualizationScrubber } from "@/components/visualization-scrubber";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -29,6 +32,7 @@ function VisualizationShellSkeleton() {
       <Skeleton className="h-8 w-28" />
       <Skeleton className="h-28 rounded-xl" />
       <Skeleton className="h-16 rounded-xl" />
+      <Skeleton className="h-72 rounded-xl" />
       <div className="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
         <Skeleton className="h-[360px] rounded-xl" />
         <Skeleton className="h-[360px] rounded-xl" />
@@ -41,14 +45,71 @@ export function VisualizationPageFallback() {
   return <VisualizationShellSkeleton />;
 }
 
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function parsePositiveNumber(value: string | null, fallback: number) {
+  if (!value) {
+    return fallback;
+  }
+
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function parseTimestampNs(value: string | null) {
+  if (!value) {
+    return null;
+  }
+
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function parseLaneIds(value: string | null) {
+  if (!value) {
+    return [];
+  }
+
+  return value
+    .split(",")
+    .map((lane) => lane.trim())
+    .filter(Boolean);
+}
+
+function formatTimestampNs(timestampNs: number) {
+  const seconds = timestampNs / 1_000_000_000;
+  if (seconds < 60) {
+    return `${seconds.toFixed(2)} s`;
+  }
+
+  const totalSeconds = Math.floor(seconds);
+  const minutes = Math.floor(totalSeconds / 60);
+  const remainingSeconds = totalSeconds % 60;
+  return `${minutes}m ${remainingSeconds}s`;
+}
+
 export function VisualizationPage() {
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
+  const searchParamsString = searchParams.toString();
 
   const assetId = searchParams.get("asset_id")?.trim() ?? "";
   const selectedEpisodeId = searchParams.get("episode_id")?.trim() ?? "";
+  const selectedLanesParam = searchParams.get("lanes");
+  const selectedLanesFromUrl = React.useMemo(() => parseLaneIds(selectedLanesParam), [selectedLanesParam]);
+  const speedFromUrl = parsePositiveNumber(searchParams.get("speed"), 1);
+  const timestampFromUrl = parseTimestampNs(searchParams.get("timestamp_ns"));
   const returnHref = resolveReturnHref(searchParams.get("from"), "/");
+
+  const [isPlaying, setIsPlaying] = React.useState(false);
+  const [speed, setSpeed] = React.useState(speedFromUrl);
+  const [currentTimestampNs, setCurrentTimestampNs] = React.useState<number | null>(timestampFromUrl);
+  const [selectedLaneIds, setSelectedLaneIds] = React.useState<string[]>(selectedLanesFromUrl);
+  const [isScrubberDragging, setIsScrubberDragging] = React.useState(false);
+  const stepSizeNs = 100_000_000;
 
   const assetResponse = useAsset(assetId);
   const episodesResponse = useAssetEpisodes(assetId);
@@ -57,12 +118,78 @@ export function VisualizationPage() {
   const resolvedEpisodeId = selectedEpisodeId || (episodes.length === 1 ? episodes[0].episode_id : "");
 
   const episodeResponse = useAssetEpisode(assetId, resolvedEpisodeId);
+  const timelineResponse = useEpisodeTimeline(assetId, resolvedEpisodeId);
   const viewerSourceResponse = useEpisodeViewerSource(assetId, resolvedEpisodeId);
 
+  const timeline = timelineResponse.data;
+  const timelineStartNs = timeline?.start_time_ns ?? 0;
+  const timelineEndNs =
+    timeline?.end_time_ns ??
+    (timeline?.duration_ns ? timelineStartNs + timeline.duration_ns : timelineStartNs + 1_000_000_000);
+  const timelineLanes = React.useMemo(() => timeline?.lanes ?? [], [timeline?.lanes]);
+  const availableLaneIds = React.useMemo(() => new Set(timelineLanes.map((lane) => lane.stream_id)), [timelineLanes]);
+  const normalizedSelectedLaneIds = React.useMemo(() => {
+    const filtered = selectedLaneIds.filter((laneId) => availableLaneIds.has(laneId));
+    return filtered.length > 0 ? filtered : timelineLanes.map((lane) => lane.stream_id);
+  }, [availableLaneIds, selectedLaneIds, timelineLanes]);
+
+  const samplesQuery = React.useMemo(() => {
+    if (!assetId || !resolvedEpisodeId || currentTimestampNs === null) {
+      return null;
+    }
+
+    return {
+      stream_ids: normalizedSelectedLaneIds,
+      timestamp_ns: currentTimestampNs,
+      window_after_ns: stepSizeNs * 2,
+      window_before_ns: stepSizeNs * 2,
+    };
+  }, [assetId, currentTimestampNs, normalizedSelectedLaneIds, resolvedEpisodeId]);
+
+  const samplesResponse = useEpisodeSamples(assetId, resolvedEpisodeId, samplesQuery);
+
   const currentHref = React.useMemo(() => {
-    const query = searchParams.toString();
-    return query ? `${pathname}?${query}` : pathname;
-  }, [pathname, searchParams]);
+    return searchParamsString ? `${pathname}?${searchParamsString}` : pathname;
+  }, [pathname, searchParamsString]);
+
+  const updateVisualizeState = React.useCallback(
+    (updates: Record<string, string | null>) => {
+      const nextParams = new URLSearchParams(searchParamsString);
+
+      for (const [key, value] of Object.entries(updates)) {
+        const normalized = value?.trim() ?? "";
+        if (!normalized) {
+          nextParams.delete(key);
+        } else {
+          nextParams.set(key, normalized);
+        }
+      }
+
+      const nextQuery = nextParams.toString();
+      if (nextQuery === searchParamsString) {
+        return;
+      }
+
+      const nextHref = nextQuery ? `${pathname}?${nextQuery}` : pathname;
+
+      React.startTransition(() => {
+        router.replace(nextHref, { scroll: false });
+      });
+    },
+    [pathname, router, searchParamsString],
+  );
+
+  const seekTo = React.useCallback(
+    (timestampNs: number, options?: { updateUrl?: boolean }) => {
+      const clampedTimestamp = clamp(Math.round(timestampNs), timelineStartNs, timelineEndNs);
+      setCurrentTimestampNs(clampedTimestamp);
+
+      if (options?.updateUrl !== false) {
+        updateVisualizeState({ timestamp_ns: String(clampedTimestamp) });
+      }
+    },
+    [timelineEndNs, timelineStartNs, updateVisualizeState],
+  );
 
   function onSelectEpisode(nextEpisodeId: string) {
     if (!assetId || !nextEpisodeId) {
@@ -78,7 +205,113 @@ export function VisualizationPage() {
     React.startTransition(() => {
       router.replace(nextHref, { scroll: false });
     });
+
+    setIsPlaying(false);
+    setCurrentTimestampNs(null);
   }
+
+  function onToggleLane(streamId: string) {
+    setSelectedLaneIds((current) => {
+      const next = new Set(current);
+      if (next.has(streamId)) {
+        next.delete(streamId);
+      } else {
+        next.add(streamId);
+      }
+
+      const normalized = Array.from(next).filter((laneId) => availableLaneIds.has(laneId));
+      updateVisualizeState({ lanes: normalized.length > 0 ? normalized.join(",") : null });
+      setIsPlaying(false);
+      return normalized;
+    });
+  }
+
+  function setPlaybackSpeed(nextSpeed: number) {
+    setSpeed(nextSpeed);
+    updateVisualizeState({ speed: String(nextSpeed) });
+  }
+
+  React.useEffect(() => {
+    setSelectedLaneIds((current) => {
+      if (current.length === selectedLanesFromUrl.length && current.every((value, index) => value === selectedLanesFromUrl[index])) {
+        return current;
+      }
+
+      return selectedLanesFromUrl;
+    });
+  }, [selectedLanesFromUrl]);
+
+  React.useEffect(() => {
+    setSpeed(speedFromUrl);
+  }, [speedFromUrl]);
+
+  React.useEffect(() => {
+    if (timelineStartNs >= timelineEndNs) {
+      return;
+    }
+
+    if (currentTimestampNs === null) {
+      const initialTimestamp = timestampFromUrl ?? timelineStartNs;
+      seekTo(initialTimestamp, { updateUrl: timestampFromUrl === null });
+      return;
+    }
+
+    if (currentTimestampNs < timelineStartNs || currentTimestampNs > timelineEndNs) {
+      seekTo(currentTimestampNs, { updateUrl: true });
+    }
+  }, [currentTimestampNs, seekTo, timelineEndNs, timelineStartNs, timestampFromUrl]);
+
+  React.useEffect(() => {
+    if (!isPlaying || currentTimestampNs === null) {
+      return;
+    }
+
+    let lastTick = performance.now();
+    const intervalId = window.setInterval(() => {
+      const now = performance.now();
+      const deltaMs = now - lastTick;
+      lastTick = now;
+
+      setCurrentTimestampNs((current) => {
+        if (current === null) {
+          return current;
+        }
+
+        const next = clamp(Math.round(current + deltaMs * 1_000_000 * speed), timelineStartNs, timelineEndNs);
+        if (next >= timelineEndNs) {
+          setIsPlaying(false);
+        }
+
+        return next;
+      });
+    }, 100);
+
+    return () => window.clearInterval(intervalId);
+  }, [currentTimestampNs, isPlaying, speed, timelineEndNs, timelineStartNs]);
+
+  React.useEffect(() => {
+    if (!isPlaying && !isScrubberDragging) {
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      void samplesResponse.mutate();
+    }, 900);
+
+    return () => window.clearInterval(intervalId);
+  }, [isPlaying, isScrubberDragging, samplesResponse]);
+
+  React.useEffect(() => {
+    if (isScrubberDragging || currentTimestampNs === null) {
+      return;
+    }
+
+    if (searchParams.get("timestamp_ns") === String(currentTimestampNs)) {
+      return;
+    }
+
+    updateVisualizeState({ timestamp_ns: String(currentTimestampNs) });
+  }, [currentTimestampNs, isScrubberDragging, searchParams, updateVisualizeState]);
 
   if (!assetId) {
     return (
@@ -148,6 +381,51 @@ export function VisualizationPage() {
   const selectedEpisode = episodes.find((episode) => episode.episode_id === resolvedEpisodeId) ?? null;
   const hasVisualizableData =
     (episodeResponse.data?.has_visualizable_streams ?? selectedEpisode?.has_visualizable_streams) !== false;
+  const effectiveTimestampNs = currentTimestampNs ?? timelineStartNs;
+  const stepBackwardDisabled = effectiveTimestampNs <= timelineStartNs;
+  const stepForwardDisabled = effectiveTimestampNs >= timelineEndNs;
+  const selectedSamples = (() => {
+    const data = samplesResponse.data;
+    if (!data) {
+      return [] as Array<{
+        message_type: string;
+        metadata: Record<string, unknown>;
+        modality: string;
+        selection_strategy?: "nearest" | "window";
+        stream_id: string;
+        timestamp_ns: number;
+        topic_name: string;
+      }>;
+    }
+
+    if (Array.isArray(data.streams) && data.streams.length > 0) {
+      return data.streams
+        .filter((stream) => normalizedSelectedLaneIds.includes(stream.stream_id))
+        .flatMap((stream) =>
+          (stream.samples ?? []).map((sample) => ({
+            message_type: stream.stream_key,
+            metadata: sample.metadata_json ?? sample.metadata ?? {},
+            modality: stream.modality,
+            selection_strategy: stream.selection_strategy,
+            stream_id: stream.stream_id,
+            timestamp_ns: sample.timestamp_ns,
+            topic_name: stream.source_topic,
+          })),
+        );
+    }
+
+    return (data.samples ?? [])
+      .filter((sample) => normalizedSelectedLaneIds.includes(sample.stream_id))
+      .map((sample) => ({
+        message_type: sample.message_type ?? "Unknown",
+        metadata: sample.metadata_json ?? sample.metadata ?? {},
+        modality: sample.modality,
+        selection_strategy: sample.selection_strategy,
+        stream_id: sample.stream_id,
+        timestamp_ns: sample.timestamp_ns,
+        topic_name: sample.topic_name ?? sample.stream_id,
+      }));
+  })();
 
   return (
     <div className="space-y-6">
@@ -193,7 +471,7 @@ export function VisualizationPage() {
             <Alert>
               <AlertTitle>Select an episode</AlertTitle>
               <AlertDescription>
-                This asset has multiple episodes. Choose one to load the visualization shell.
+                This asset has multiple episodes. Choose one to load visualization playback data.
               </AlertDescription>
             </Alert>
           ) : null}
@@ -235,25 +513,143 @@ export function VisualizationPage() {
             <Gauge className="size-4" />
             Transport controls
           </CardTitle>
-          <CardDescription>Phase 8A shell with controls scaffolded for phase 8B behavior.</CardDescription>
+          <CardDescription>Shared playback transport and cursor controls for synchronized timeline replay.</CardDescription>
         </CardHeader>
-        <CardContent className="flex flex-wrap items-center gap-2">
-          <Button disabled size="sm" type="button" variant="outline">
-            <SkipBack className="size-3.5" />
-            Start
-          </Button>
-          <Button disabled size="sm" type="button" variant="outline">
-            <Play className="size-3.5" />
-            Play
-          </Button>
-          <Button disabled size="sm" type="button" variant="outline">
-            <Pause className="size-3.5" />
-            Pause
-          </Button>
-          <Button disabled size="sm" type="button" variant="outline">
-            <SkipForward className="size-3.5" />
-            End
-          </Button>
+        <CardContent className="space-y-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              onClick={() => {
+                setIsPlaying(false);
+                seekTo(timelineStartNs);
+              }}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              <SkipBack className="size-3.5" />
+              Start
+            </Button>
+            {isPlaying ? (
+              <Button onClick={() => setIsPlaying(false)} size="sm" type="button" variant="secondary">
+                <Pause className="size-3.5" />
+                Pause
+              </Button>
+            ) : (
+              <Button
+                onClick={() => {
+                  if (effectiveTimestampNs >= timelineEndNs) {
+                    seekTo(timelineStartNs);
+                  }
+
+                  setIsPlaying(true);
+                }}
+                size="sm"
+                type="button"
+                variant="secondary"
+              >
+                <Play className="size-3.5" />
+                Play
+              </Button>
+            )}
+            <Button
+              disabled={stepBackwardDisabled}
+              onClick={() => {
+                setIsPlaying(false);
+                seekTo(effectiveTimestampNs - stepSizeNs);
+              }}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              Step -
+            </Button>
+            <Button
+              disabled={stepForwardDisabled}
+              onClick={() => {
+                setIsPlaying(false);
+                seekTo(effectiveTimestampNs + stepSizeNs);
+              }}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              Step +
+            </Button>
+            <Button
+              onClick={() => {
+                setIsPlaying(false);
+                seekTo(timelineEndNs);
+              }}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              <SkipForward className="size-3.5" />
+              End
+            </Button>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="max-w-[140px] space-y-1">
+              <label className="text-xs uppercase tracking-wide text-muted-foreground" htmlFor="playback-speed">
+                Speed
+              </label>
+              <NativeSelect
+                id="playback-speed"
+                onChange={(event) => setPlaybackSpeed(Number(event.target.value))}
+                value={String(speed)}
+              >
+                <option value="0.5">0.5x</option>
+                <option value="1">1x</option>
+                <option value="1.5">1.5x</option>
+                <option value="2">2x</option>
+              </NativeSelect>
+            </div>
+
+            <Badge variant="outline">Cursor {formatTimestampNs(effectiveTimestampNs)}</Badge>
+            <Badge variant="outline">Window ±{formatTimestampNs(stepSizeNs * 2)}</Badge>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Timeline scrubber</CardTitle>
+          <CardDescription>One shared timeline cursor aligned across selected lanes.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {resolvedEpisodeId && timelineResponse.isLoading ? (
+            <Skeleton className="h-56 rounded-xl" />
+          ) : timelineResponse.error ? (
+            <Alert variant="destructive">
+              <AlertTitle>Could not load timeline</AlertTitle>
+              <AlertDescription>{getErrorMessage(timelineResponse.error)}</AlertDescription>
+            </Alert>
+          ) : timelineLanes.length > 0 ? (
+            <VisualizationScrubber
+              currentTimestampNs={effectiveTimestampNs}
+              endNs={timelineEndNs}
+              lanes={timelineLanes.map((lane) => ({
+                ...lane,
+                label: lane.label || lane.source_topic || lane.stream_key || lane.stream_id,
+              }))}
+              onDragStateChange={setIsScrubberDragging}
+              onSeek={(timestampNs) => {
+                setIsPlaying(false);
+                seekTo(timestampNs, { updateUrl: !isScrubberDragging });
+              }}
+              onToggleLane={onToggleLane}
+              selectedLaneIds={normalizedSelectedLaneIds}
+              startNs={timelineStartNs}
+            />
+          ) : (
+            <Alert>
+              <AlertTitle>No timeline lanes available</AlertTitle>
+              <AlertDescription>
+                This episode has not returned scrubber lane metadata yet. Check backend timeline payloads and try again.
+              </AlertDescription>
+            </Alert>
+          )}
         </CardContent>
       </Card>
 
@@ -292,20 +688,47 @@ export function VisualizationPage() {
         <Card>
           <CardHeader>
             <CardTitle>Inspector panel</CardTitle>
-            <CardDescription>Topic and sample inspector scaffolding for phase 8B.</CardDescription>
+            <CardDescription>Synchronized sample metadata at the active timeline cursor.</CardDescription>
           </CardHeader>
-          <CardContent className="space-y-3 text-sm text-muted-foreground">
-            <p>Current route: {currentHref}</p>
-            <p>
-              Episode detail status:{" "}
-              {resolvedEpisodeId
-                ? episodeResponse.isLoading
-                  ? "Loading"
-                  : episodeResponse.error
-                    ? "Error"
-                    : "Ready"
-                : "No episode selected"}
-            </p>
+          <CardContent className="space-y-3">
+            <p className="text-xs text-muted-foreground">Current route: {currentHref}</p>
+            {resolvedEpisodeId && samplesResponse.isLoading ? (
+              <Skeleton className="h-24 rounded-lg" />
+            ) : samplesResponse.error ? (
+              <Alert variant="destructive">
+                <AlertTitle>Could not load synchronized samples</AlertTitle>
+                <AlertDescription>{getErrorMessage(samplesResponse.error)}</AlertDescription>
+              </Alert>
+            ) : selectedSamples.length > 0 ? (
+              <div className="space-y-2">
+                {selectedSamples.map((sample) => (
+                  <div key={`${sample.stream_id}-${sample.timestamp_ns}`} className="rounded-lg border p-3">
+                    <p className="text-sm font-medium text-foreground">{sample.topic_name}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {sample.message_type} • {sample.modality.replace(/_/g, " ")}
+                    </p>
+                        {sample.selection_strategy ? (
+                          <p className="text-xs text-muted-foreground">Selection: {sample.selection_strategy}</p>
+                        ) : null}
+                    <p className="mt-1 text-xs text-muted-foreground">Timestamp {formatTimestampNs(sample.timestamp_ns)}</p>
+                    {Object.keys(sample.metadata ?? {}).length > 0 ? (
+                      <pre className="mt-2 overflow-x-auto rounded-md bg-muted/30 p-2 text-xs text-foreground">
+                        {JSON.stringify(sample.metadata, null, 2)}
+                      </pre>
+                    ) : (
+                      <p className="mt-2 text-xs text-muted-foreground">No metadata fields available for this sample.</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <Alert>
+                <AlertTitle>No synchronized samples at this cursor</AlertTitle>
+                <AlertDescription>
+                  Try selecting different lanes or scrubbing to a timestamp where data is available.
+                </AlertDescription>
+              </Alert>
+            )}
           </CardContent>
         </Card>
       </div>
