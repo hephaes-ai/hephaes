@@ -7,8 +7,10 @@ import {
   getConversion,
   getAssetDetail,
   getHealth,
+  getJob,
   listConversions,
   listAssets,
+  listJobs,
   listTags,
   serializeAssetListQuery,
   type AssetListQuery,
@@ -20,6 +22,8 @@ export const backendKeys = {
   conversion: (conversionId: string) => ["conversion", conversionId] as const,
   conversions: ["conversions"] as const,
   health: ["health"] as const,
+  job: (jobId: string) => ["job", jobId] as const,
+  jobs: ["jobs"] as const,
   tags: ["tags"] as const,
 };
 
@@ -45,6 +49,14 @@ export function useConversions() {
 
 export function useConversion(conversionId: string) {
   return useSWR(conversionId ? backendKeys.conversion(conversionId) : null, () => getConversion(conversionId));
+}
+
+export function useJobs() {
+  return useSWR(backendKeys.jobs, () => listJobs());
+}
+
+export function useJob(jobId: string) {
+  return useSWR(jobId ? backendKeys.job(jobId) : null, () => getJob(jobId));
 }
 
 export function useTags() {
@@ -86,6 +98,21 @@ export function useBackendCache() {
     await mutate(backendKeys.conversions);
   }, [mutate]);
 
+  const revalidateJobs = React.useCallback(async () => {
+    await mutate(backendKeys.jobs);
+  }, [mutate]);
+
+  const revalidateJobDetail = React.useCallback(
+    async (jobId: string) => {
+      if (!jobId) {
+        return;
+      }
+
+      await mutate(backendKeys.job(jobId));
+    },
+    [mutate],
+  );
+
   const revalidateConversionDetail = React.useCallback(
     async (conversionId: string) => {
       if (!conversionId) {
@@ -103,6 +130,8 @@ export function useBackendCache() {
     revalidateAssetLists,
     revalidateConversionDetail,
     revalidateConversions,
+    revalidateJobDetail,
+    revalidateJobs,
     revalidateTags,
   };
 }

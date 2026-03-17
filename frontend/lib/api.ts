@@ -61,6 +61,16 @@ export interface DefaultEpisodeSummary {
   label: string;
 }
 
+export interface EpisodeSummary {
+  default_lane_count: number;
+  duration: number;
+  end_time: string | null;
+  episode_id: string;
+  has_visualizable_streams: boolean;
+  label: string;
+  start_time: string | null;
+}
+
 export interface VisualizationSummary {
   default_lane_count: number;
   has_visualizable_streams: boolean;
@@ -82,7 +92,10 @@ export interface AssetMetadata {
 
 export interface AssetDetailResponse {
   asset: AssetSummary;
+  conversions: ConversionSummary[];
+  episodes: EpisodeSummary[];
   metadata: AssetMetadata | null;
+  related_jobs: JobSummary[];
   tags: AssetTag[];
 }
 
@@ -377,4 +390,12 @@ export function listConversions() {
 
 export function getConversion(conversionId: string) {
   return request<ConversionDetail>(`/conversions/${conversionId}`);
+}
+
+export function listJobs() {
+  return request<JobSummary[]>("/jobs");
+}
+
+export function getJob(jobId: string) {
+  return request<JobSummary>(`/jobs/${jobId}`);
 }

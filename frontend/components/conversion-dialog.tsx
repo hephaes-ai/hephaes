@@ -1,9 +1,12 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
+import { usePathname, useSearchParams } from "next/navigation";
 import { ArrowRightLeft, CheckCircle2, LoaderCircle, TriangleAlert } from "lucide-react";
 
 import { useFeedback } from "@/components/feedback-provider";
+import { WorkflowStatusBadge } from "@/components/workflow-status-badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -34,7 +37,7 @@ import {
   type ResampleMethod,
   type TFRecordConversionOutputRequest,
 } from "@/lib/api";
-import { formatDateTime } from "@/lib/format";
+import { formatDateTime, isWorkflowActiveStatus } from "@/lib/format";
 
 type ParquetCompression = NonNullable<ParquetConversionOutputRequest["compression"]>;
 type TFRecordCompression = NonNullable<TFRecordConversionOutputRequest["compression"]>;
@@ -241,8 +244,15 @@ export function ConversionDialog({
   onOpenChange: (open: boolean) => void;
   open: boolean;
 }) {
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const { notify } = useFeedback();
-  const { revalidateConversionDetail, revalidateConversions } = useBackendCache();
+  const {
+    revalidateAssetDetail,
+    revalidateConversionDetail,
+    revalidateConversions,
+    revalidateJobs,
+  } = useBackendCache();
   const [formState, setFormState] = React.useState<ConversionFormState>(createDefaultFormState);
   const [createdConversion, setCreatedConversion] = React.useState<ConversionDetail | null>(null);
   const [isSubmitting, setIsSubmitting] = React.useState(false);
@@ -276,6 +286,10 @@ export function ConversionDialog({
     unindexedAssets.length > 0 ||
     Boolean(parsedCustomMapping.error) ||
     Boolean(resampleError);
+  const currentHref = React.useMemo(() => {
+    const query = searchParams.toString();
+    return query ? `${pathname}?${query}` : pathname;
+  }, [pathname, searchParams]);
 
   React.useEffect(() => {
     if (open) {
@@ -293,7 +307,10 @@ export function ConversionDialog({
       return;
     }
 
-    if (createdConversion.status !== "queued" && createdConversion.status !== "running") {
+    if (
+      !isWorkflowActiveStatus(createdConversion.status) &&
+      !isWorkflowActiveStatus(createdConversion.job.status)
+    ) {
       return;
     }
 
@@ -303,8 +320,10 @@ export function ConversionDialog({
           const refreshedConversion = await getConversion(createdConversion.id);
           setCreatedConversion(refreshedConversion);
           await Promise.all([
+            ...assets.map((asset) => revalidateAssetDetail(asset.id)),
             revalidateConversionDetail(refreshedConversion.id),
             revalidateConversions(),
+            revalidateJobs(),
           ]);
         } catch {
           // Keep the last known status visible if polling fails briefly.
@@ -313,7 +332,15 @@ export function ConversionDialog({
     }, 1500);
 
     return () => window.clearInterval(intervalId);
-  }, [createdConversion, open, revalidateConversionDetail, revalidateConversions]);
+  }, [
+    assets,
+    createdConversion,
+    open,
+    revalidateAssetDetail,
+    revalidateConversionDetail,
+    revalidateConversions,
+    revalidateJobs,
+  ]);
 
   function updateFormState(updater: (current: ConversionFormState) => ConversionFormState) {
     setFormState((current) => updater(current));
@@ -349,8 +376,10 @@ export function ConversionDialog({
 
       setCreatedConversion(result);
       await Promise.all([
+        ...assets.map((asset) => revalidateAssetDetail(asset.id)),
         revalidateConversionDetail(result.id),
         revalidateConversions(),
+        revalidateJobs(),
       ]);
     } catch (conversionError) {
       const message = getErrorMessage(conversionError);
@@ -408,24 +437,13 @@ export function ConversionDialog({
               </CardHeader>
               <CardContent className="space-y-5">
                 <dl className="grid gap-4 sm:grid-cols-2">
-                  <SummaryField
-                    label="Conversion status"
-                    value={
-                      <Badge className={getConversionStatusClasses(createdConversion.status)} variant="outline">
-                        {formatSentenceCase(createdConversion.status)}
-                      </Badge>
-                    }
-                  />
-                  <SummaryField
-                    label="Job status"
-                    value={
-                      <Badge className={getConversionStatusClasses(createdConversion.job.status)} variant="outline">
-                        {formatSentenceCase(createdConversion.job.status)}
-                      </Badge>
-                    }
-                  />
+                  <SummaryField label="Conversion status" value={<WorkflowStatusBadge status={createdConversion.status} />} />
+                  <SummaryField label="Job status" value={<WorkflowStatusBadge status={createdConversion.job.status} />} />
                   <SummaryField label="Created" value={formatDateTime(createdConversion.created_at)} />
-                  <SummaryField label="Job ID" value={<span className="break-all font-mono text-xs">{createdConversion.job_id}</span>} />
+                  <SummaryField
+                    label="Job ID"
+                    value={<span className="break-all font-mono text-xs">{createdConversion.job_id}</span>}
+                  />
                   <div className="space-y-1 sm:col-span-2">
                     <dt className="text-xs uppercase tracking-wide text-muted-foreground">Output path</dt>
                     <dd className="break-all text-sm font-medium text-foreground">
@@ -474,6 +492,11 @@ export function ConversionDialog({
             <DialogFooter>
               <Button onClick={resetForAnotherConversion} type="button" variant="outline">
                 New conversion
+              </Button>
+              <Button asChild type="button" variant="outline">
+                <Link href={`/jobs/${createdConversion.job_id}?from=${encodeURIComponent(currentHref)}`}>
+                  Open job
+                </Link>
               </Button>
               <Button onClick={() => onOpenChange(false)} type="button">
                 Done

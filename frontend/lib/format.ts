@@ -1,4 +1,4 @@
-import type { IndexingStatus } from "@/lib/api";
+import type { ConversionStatus, IndexingStatus, JobStatus, JobType } from "@/lib/api";
 
 export function formatFileSize(bytes: number) {
   if (bytes < 1024) {
@@ -72,4 +72,20 @@ export function getIndexActionLabel(status: IndexingStatus, isRunning = false) {
   }
 
   return "Index";
+}
+
+export function formatSentenceCase(value: string) {
+  return `${value.slice(0, 1).toUpperCase()}${value.slice(1).replace(/_/g, " ")}`;
+}
+
+export function formatJobType(jobType: JobType) {
+  return formatSentenceCase(jobType);
+}
+
+export function formatWorkflowStatus(status: JobStatus | ConversionStatus) {
+  return formatSentenceCase(status);
+}
+
+export function isWorkflowActiveStatus(status: JobStatus | ConversionStatus) {
+  return status === "queued" || status === "running";
 }
