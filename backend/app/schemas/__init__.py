@@ -13,7 +13,6 @@ from backend.app.schemas.assets import (
     ReindexAllResponse,
     VisualizationSummary,
 )
-
 __all__ = [
     "AssetMetadataResponse",
     "AssetDetailResponse",

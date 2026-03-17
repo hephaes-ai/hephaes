@@ -35,6 +35,15 @@ from backend.app.services.conversions import (
     get_conversion_or_raise,
     list_conversions,
 )
+from backend.app.services.episodes import (
+    EpisodeNotFoundError,
+    EpisodePlaybackError,
+    EpisodeStreamNotFoundError,
+    get_episode_detail,
+    get_episode_samples,
+    get_episode_timeline,
+    open_asset_reader,
+)
 from backend.app.services.indexing import AssetIndexingError, IndexingService, ReindexAllResult
 from backend.app.services.jobs import (
     JobNotFoundError,
@@ -75,6 +84,9 @@ __all__ = [
     "AssetTagAlreadyExistsError",
     "AssetTagNotFoundError",
     "EpisodeDiscoveryUnavailableError",
+    "EpisodeNotFoundError",
+    "EpisodePlaybackError",
+    "EpisodeStreamNotFoundError",
     "InspectedAssetPath",
     "IndexingService",
     "InvalidAssetDirectoryError",
@@ -94,6 +106,9 @@ __all__ = [
     "get_asset_or_raise",
     "get_conversion",
     "get_conversion_or_raise",
+    "get_episode_detail",
+    "get_episode_samples",
+    "get_episode_timeline",
     "get_job",
     "get_job_or_raise",
     "get_tag",
@@ -110,6 +125,7 @@ __all__ = [
     "normalize_asset_path",
     "normalize_tag_name",
     "normalize_uploaded_file_name",
+    "open_asset_reader",
     "register_asset",
     "remove_tag_from_asset",
     "scan_directory_for_assets",
