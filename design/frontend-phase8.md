@@ -11,6 +11,7 @@ Add a dedicated visualization workflow so users can choose a file, open an episo
 - [backend-phase2.md](/Users/danielyoo/workspace/hephaes/design/backend-phase2.md) for indexed topic and episode summaries
 - [backend-phase7.md](/Users/danielyoo/workspace/hephaes/design/backend-phase7.md) for aggregated asset detail and episode discovery
 - [backend-phase8.md](/Users/danielyoo/workspace/hephaes/design/backend-phase8.md) for scrubber and playback APIs
+- [backend-phase9.md](/Users/danielyoo/workspace/hephaes/design/backend-phase9.md) for official Rerun viewer-source delivery
 - [frontend-ui-guidelines.md](/Users/danielyoo/workspace/hephaes/design/frontend-ui-guidelines.md)
 
 ## Product Scope
@@ -23,10 +24,10 @@ Implement:
 - playback transport controls for play, pause, seek, step, and speed changes
 - a multi-row scrubber aligned on one shared timeline
 - synchronized replay across selected streams or modality lanes
-- a reusable component that wraps Rerun's open-source web viewer for visual data
+- a reusable component that embeds the official open-source Rerun viewer from `rerun-io/rerun`
 - loading, empty, unsupported-data, and backend-error states
 
-The visualization experience should still feel minimal and product-consistent. Use shadcn layout and control primitives around the Rerun component, and make sure the viewer shell works in both light and dark themes.
+The visualization experience should still feel minimal and product-consistent. Use shadcn layout and control primitives around the Rerun viewer shell, and make sure the page works in both light and dark themes.
 
 ## Recommended UI Surfaces
 
@@ -46,23 +47,26 @@ The visualization experience should still feel minimal and product-consistent. U
 - inspector panel for topic name, message type, timestamp, and per-sample metadata
 - theme-aware layout and control styling that keeps the playback surface legible in both modes
 
-### Shared visual data component
+### Shared Rerun viewer component
 
-- wrapper around the Rerun web component
-- normalized props for image frames, point or graph data, and scalar-series overlays
-- graceful fallback UI when a stream is indexed but not yet renderable by the Rerun-backed component
+- wrapper around the official Rerun web viewer package or its React wrapper
+- accepts a backend-provided viewer source manifest or URL instead of raw image or point payload props
+- handles viewer loading, missing-source, preparation-in-progress, and version-mismatch states
+- provides a clear integration seam between the app shell, scrubber state, and the embedded viewer
 
 ## State and Data Guidance
 
 Recommended state split:
 
 - URL state for `asset_id`, `episode_id`, selected lanes, current timestamp, and playback speed
-- query/cache state for episode summaries, scrubber timeline windows, and sampled playback data
-- local UI state for play/pause, drag interactions, hover state, and panel layout
+- query/cache state for episode summaries, scrubber timeline windows, synchronized sample windows, and viewer-source manifests
+- local UI state for play/pause, drag interactions, hover state, viewer readiness, and panel layout
 
 Keep the last useful playback context so users can move between inventory, detail, and visualization routes without losing the selected episode or current timeline position unnecessarily.
 
-The visualization page should not require the browser to parse raw `.bag` or `.mcap` files directly. It should consume backend-provided episode, timeline, and sample APIs.
+The visualization page should not require the browser to parse raw `.bag` or `.mcap` files directly. It should consume backend-provided episode, timeline, and sample APIs plus a backend-provided official Rerun viewer source.
+
+The main visual panel should prefer the official Rerun viewer source over custom rendering of normalized sample payloads. Sample APIs remain useful for scrubber-adjacent UI, inspectors, and fallback states.
 
 ## Backend Endpoints Used
 
@@ -72,6 +76,9 @@ The visualization page should not require the browser to parse raw `.bag` or `.m
 - `GET /assets/{asset_id}/episodes/{episode_id}`
 - `GET /assets/{asset_id}/episodes/{episode_id}/timeline`
 - `GET /assets/{asset_id}/episodes/{episode_id}/samples`
+- `GET /assets/{asset_id}/episodes/{episode_id}/viewer-source`
+- `POST /assets/{asset_id}/episodes/{episode_id}/prepare-visualization`
+- `GET /jobs/{job_id}`
 
 ## Deliverable
 
@@ -80,5 +87,5 @@ By the end of phase 8, a user should be able to:
 - choose a registered file from the inventory or asset detail page and open it for visualization
 - select an episode when multiple episodes are available
 - scrub through a shared episode timeline with multiple aligned rows
-- replay synchronized image and point or graph data in one view
-- inspect supported visual data through a shared Rerun-backed component instead of one-off renderers
+- replay synchronized multi-modal data in one view
+- inspect supported visual data through an embedded official Rerun viewer backed by a backend-provided source
