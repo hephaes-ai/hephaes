@@ -68,6 +68,12 @@ from backend.app.services.tags import (
     normalize_tag_name,
     remove_tag_from_asset,
 )
+from backend.app.services.visualization import (
+    VisualizationError,
+    VisualizationGenerationError,
+    VisualizationNotFoundError,
+    VisualizationService,
+)
 
 __all__ = [
     "AssetAlreadyRegisteredError",
@@ -100,6 +106,10 @@ __all__ = [
     "TagAlreadyExistsError",
     "TagNotFoundError",
     "TagServiceError",
+    "VisualizationError",
+    "VisualizationGenerationError",
+    "VisualizationNotFoundError",
+    "VisualizationService",
     "attach_tag_to_asset",
     "create_tag",
     "get_asset",

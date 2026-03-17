@@ -7,12 +7,15 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from fastapi.staticfiles import StaticFiles
+
 from backend.app.api.assets import router as assets_router
 from backend.app.api.conversions import router as conversions_router
 from backend.app.api.episodes import router as episodes_router
 from backend.app.api.health import router as health_router
 from backend.app.api.jobs import router as jobs_router
 from backend.app.api.tags import router as tags_router
+from backend.app.api.visualization import router as visualization_router
 from backend.app.config import get_settings
 from backend.app.db.session import create_engine_and_session_factory, initialize_database
 
@@ -51,6 +54,16 @@ def create_app() -> FastAPI:
     app.include_router(conversions_router)
     app.include_router(jobs_router)
     app.include_router(tags_router)
+    app.include_router(visualization_router)
+
+    visualizations_dir = settings.outputs_dir / "visualizations"
+    visualizations_dir.mkdir(parents=True, exist_ok=True)
+    app.mount(
+        "/visualizations",
+        StaticFiles(directory=str(visualizations_dir)),
+        name="visualizations",
+    )
+
     return app
 
 

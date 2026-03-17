@@ -38,6 +38,30 @@ def get_job_or_raise(session: Session, job_id: str) -> Job:
     return job
 
 
+def find_latest_job_for_target(
+    session: Session,
+    *,
+    job_type: str,
+    target_asset_id: str,
+    episode_id: str | None = None,
+) -> Job | None:
+    """Return the most recent job matching type, target asset, and optional episode."""
+    statement = (
+        select(Job)
+        .where(Job.type == job_type)
+        .order_by(Job.created_at.desc())
+    )
+    for job in session.scalars(statement).all():
+        if target_asset_id not in (job.target_asset_ids_json or []):
+            continue
+        if episode_id is not None:
+            config = job.config_json or {}
+            if config.get("episode_id") != episode_id:
+                continue
+        return job
+    return None
+
+
 class JobService:
     def __init__(self, session: Session) -> None:
         self.session = session

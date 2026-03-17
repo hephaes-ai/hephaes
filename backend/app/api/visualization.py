@@ -1,0 +1,83 @@
+"""Visualization preparation and viewer-source routes."""
+
+from __future__ import annotations
+
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.orm import Session
+
+from backend.app.db.session import get_db_session
+from backend.app.schemas.jobs import JobResponse
+from backend.app.schemas.visualization import (
+    PrepareVisualizationResponse,
+    ViewerSourceResponse,
+)
+from backend.app.services.assets import AssetNotFoundError, EpisodeDiscoveryUnavailableError
+from backend.app.services.episodes import EpisodeNotFoundError, EpisodePlaybackError
+from backend.app.services.visualization import (
+    VisualizationError,
+    VisualizationGenerationError,
+    VisualizationService,
+)
+
+router = APIRouter(
+    prefix="/assets/{asset_id}/episodes/{episode_id}",
+    tags=["visualization"],
+)
+DbSession = Annotated[Session, Depends(get_db_session)]
+
+
+@router.post("/prepare-visualization", response_model=PrepareVisualizationResponse)
+def prepare_visualization_route(
+    asset_id: str,
+    episode_id: str,
+    session: DbSession,
+) -> PrepareVisualizationResponse:
+    try:
+        service = VisualizationService(session)
+        job = service.prepare_visualization(asset_id, episode_id)
+    except AssetNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except EpisodeNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except EpisodeDiscoveryUnavailableError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
+    except EpisodePlaybackError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
+    except VisualizationGenerationError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
+    except VisualizationError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
+
+    return PrepareVisualizationResponse(job=JobResponse.model_validate(job, from_attributes=True))
+
+
+@router.get("/viewer-source", response_model=ViewerSourceResponse)
+def get_viewer_source_route(
+    asset_id: str,
+    episode_id: str,
+    session: DbSession,
+) -> ViewerSourceResponse:
+    try:
+        service = VisualizationService(session)
+        manifest = service.get_viewer_source(asset_id, episode_id)
+    except AssetNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except EpisodeNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except EpisodeDiscoveryUnavailableError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
+
+    return ViewerSourceResponse(
+        episode_id=manifest.episode_id,
+        status=manifest.status,
+        source_kind=manifest.source_kind,
+        source_url=manifest.source_url,
+        job_id=manifest.job_id,
+        artifact_path=manifest.artifact_path,
+        error_message=manifest.error_message,
+        viewer_version=manifest.viewer_version,
+        recording_version=manifest.recording_version,
+        updated_at=manifest.updated_at,
+    )
