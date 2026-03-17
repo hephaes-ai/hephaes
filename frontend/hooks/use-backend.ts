@@ -5,9 +5,12 @@ import useSWR, { useSWRConfig } from "swr";
 
 import {
   getConversion,
+  getAssetEpisode,
   getAssetDetail,
+  getEpisodeViewerSource,
   getHealth,
   getJob,
+  listAssetEpisodes,
   listConversions,
   listAssets,
   listJobs,
@@ -21,10 +24,13 @@ export const backendKeys = {
   assets: (query?: AssetListQuery | null) => ["assets", serializeAssetListQuery(query)] as const,
   conversion: (conversionId: string) => ["conversion", conversionId] as const,
   conversions: ["conversions"] as const,
+  episode: (assetId: string, episodeId: string) => ["episode", assetId, episodeId] as const,
+  episodes: (assetId: string) => ["episodes", assetId] as const,
   health: ["health"] as const,
   job: (jobId: string) => ["job", jobId] as const,
   jobs: ["jobs"] as const,
   tags: ["tags"] as const,
+  viewerSource: (assetId: string, episodeId: string) => ["viewer-source", assetId, episodeId] as const,
 };
 
 export function useHealth() {
@@ -61,6 +67,24 @@ export function useJob(jobId: string) {
 
 export function useTags() {
   return useSWR(backendKeys.tags, () => listTags());
+}
+
+export function useAssetEpisodes(assetId: string) {
+  return useSWR(assetId ? backendKeys.episodes(assetId) : null, () => listAssetEpisodes(assetId));
+}
+
+export function useAssetEpisode(assetId: string, episodeId: string) {
+  return useSWR(
+    assetId && episodeId ? backendKeys.episode(assetId, episodeId) : null,
+    () => getAssetEpisode(assetId, episodeId),
+  );
+}
+
+export function useEpisodeViewerSource(assetId: string, episodeId: string) {
+  return useSWR(
+    assetId && episodeId ? backendKeys.viewerSource(assetId, episodeId) : null,
+    () => getEpisodeViewerSource(assetId, episodeId),
+  );
 }
 
 export function useBackendCache() {
@@ -124,12 +148,48 @@ export function useBackendCache() {
     [mutate],
   );
 
+  const revalidateAssetEpisodes = React.useCallback(
+    async (assetId: string) => {
+      if (!assetId) {
+        return;
+      }
+
+      await mutate(backendKeys.episodes(assetId));
+    },
+    [mutate],
+  );
+
+  const revalidateAssetEpisodeDetail = React.useCallback(
+    async (assetId: string, episodeId: string) => {
+      if (!assetId || !episodeId) {
+        return;
+      }
+
+      await mutate(backendKeys.episode(assetId, episodeId));
+    },
+    [mutate],
+  );
+
+  const revalidateEpisodeViewerSource = React.useCallback(
+    async (assetId: string, episodeId: string) => {
+      if (!assetId || !episodeId) {
+        return;
+      }
+
+      await mutate(backendKeys.viewerSource(assetId, episodeId));
+    },
+    [mutate],
+  );
+
   return {
     revalidateAssetDetail,
     revalidateAssetEverywhere,
+    revalidateAssetEpisodeDetail,
+    revalidateAssetEpisodes,
     revalidateAssetLists,
     revalidateConversionDetail,
     revalidateConversions,
+    revalidateEpisodeViewerSource,
     revalidateJobDetail,
     revalidateJobs,
     revalidateTags,

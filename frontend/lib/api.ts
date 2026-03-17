@@ -71,6 +71,27 @@ export interface EpisodeSummary {
   start_time: string | null;
 }
 
+export interface EpisodeDetailResponse {
+  default_lane_count: number;
+  duration: number;
+  end_time: string | null;
+  episode_id: string;
+  has_visualizable_streams: boolean;
+  label: string;
+  start_time: string | null;
+  topic_count?: number | null;
+}
+
+export type ViewerSourceStatus = "ready" | "missing" | "preparing" | "error";
+
+export interface EpisodeViewerSourceResponse {
+  detail: string | null;
+  preparation_job_id: string | null;
+  source_url: string | null;
+  status: ViewerSourceStatus;
+  viewer_version: string | null;
+}
+
 export interface VisualizationSummary {
   default_lane_count: number;
   has_visualizable_streams: boolean;
@@ -398,4 +419,16 @@ export function listJobs() {
 
 export function getJob(jobId: string) {
   return request<JobSummary>(`/jobs/${jobId}`);
+}
+
+export function listAssetEpisodes(assetId: string) {
+  return request<EpisodeSummary[]>(`/assets/${assetId}/episodes`);
+}
+
+export function getAssetEpisode(assetId: string, episodeId: string) {
+  return request<EpisodeDetailResponse>(`/assets/${assetId}/episodes/${episodeId}`);
+}
+
+export function getEpisodeViewerSource(assetId: string, episodeId: string) {
+  return request<EpisodeViewerSourceResponse>(`/assets/${assetId}/episodes/${episodeId}/viewer-source`);
 }

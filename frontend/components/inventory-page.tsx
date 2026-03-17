@@ -57,6 +57,7 @@ import type { AssetSelectionScope } from "@/lib/future-workflows";
 import { usePersistentUiState } from "@/lib/local-ui-state";
 import { formatDateTime, formatFileSize, getIndexActionLabel } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { buildVisualizeHref } from "@/lib/visualization";
 
 type InventorySort =
   | "file_name-asc"
@@ -140,6 +141,13 @@ function parseSort(value: string | null) {
 
 function buildAssetDetailHref(assetId: string, inventoryHref: string) {
   return `/assets/${assetId}?from=${encodeURIComponent(inventoryHref)}`;
+}
+
+function buildInventoryVisualizeHref(assetId: string, inventoryHref: string) {
+  return buildVisualizeHref({
+    assetId,
+    from: inventoryHref,
+  });
 }
 
 function parseNonNegativeNumber(value: string | null) {
@@ -438,7 +446,12 @@ function AssetsTable({
                 <TableCell>{formatDateTime(asset.registered_time)}</TableCell>
                 <TableCell>{formatDateTime(asset.last_indexed_time, "Not indexed yet")}</TableCell>
                 <TableCell className="text-right">
-                  <div className="flex justify-end" data-stop-row-click="true">
+                  <div className="flex flex-wrap justify-end gap-2" data-stop-row-click="true">
+                    {asset.indexing_status === "indexed" ? (
+                      <Button asChild size="sm" type="button" variant="secondary">
+                        <Link href={buildInventoryVisualizeHref(asset.id, inventoryHref)}>Visualize</Link>
+                      </Button>
+                    ) : null}
                     <Button
                       disabled={isRunningAction || asset.indexing_status === "indexing"}
                       onClick={() => onRunAssetAction(asset)}

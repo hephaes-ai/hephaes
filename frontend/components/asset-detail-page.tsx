@@ -44,6 +44,7 @@ import {
   isWorkflowActiveStatus,
 } from "@/lib/format";
 import { resolveReturnHref } from "@/lib/navigation";
+import { buildVisualizeHref } from "@/lib/visualization";
 
 function AssetDetailSkeleton() {
   return (
@@ -233,6 +234,12 @@ export function AssetDetailPage({ assetId }: { assetId: string }) {
   const modalitySummary = Array.from(modalityCounts.entries()).sort(([left], [right]) =>
     left.localeCompare(right),
   );
+  const canVisualize = Boolean(metadata?.visualization_summary?.has_visualizable_streams && data.episodes.length > 0);
+  const visualizeHref = buildVisualizeHref({
+    assetId: asset.id,
+    episodeId: data.episodes.length === 1 ? data.episodes[0].episode_id : null,
+    from: currentDetailHref,
+  });
   const rawMetadataEntries = Object.entries(metadata?.raw_metadata ?? {}).filter(([, value]) => {
     if (value === null || value === undefined) {
       return false;
@@ -404,6 +411,14 @@ export function AssetDetailPage({ assetId }: { assetId: string }) {
           </div>
           <div className="flex shrink-0 flex-wrap items-center gap-2">
             <AssetStatusBadge status={effectiveStatus} />
+            {canVisualize ? (
+              <Button asChild size="sm" type="button" variant="secondary">
+                <Link href={visualizeHref}>
+                  <Eye className="size-3.5" />
+                  Visualize
+                </Link>
+              </Button>
+            ) : null}
             <Button onClick={() => setIsConversionDialogOpen(true)} size="sm" type="button" variant="outline">
               <ArrowRightLeft className="size-3.5" />
               Convert
