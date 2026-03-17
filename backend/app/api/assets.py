@@ -161,7 +161,7 @@ def index_asset_route(asset_id: str, session: DbSession) -> AssetDetailResponse:
     indexing_service = IndexingService(session)
 
     try:
-        asset = indexing_service.index_asset(asset_id)
+        asset = indexing_service.index_asset(asset_id, job_config={"trigger": "index_asset"})
     except AssetNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except AssetIndexingError as exc:

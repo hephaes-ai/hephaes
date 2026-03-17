@@ -13,6 +13,7 @@ from hephaes.models import BagMetadata
 
 from backend.app.db.models import Asset, AssetMetadata, utc_now
 from backend.app.services.assets import AssetNotFoundError, get_asset_or_raise
+from backend.app.services.jobs import JobService
 
 VISUAL_MODALITIES = {"image", "points", "scalar_series"}
 
@@ -155,11 +156,19 @@ def _upsert_metadata_record(
 class IndexingService:
     def __init__(self, session: Session) -> None:
         self.session = session
+        self.job_service = JobService(session)
 
-    def index_asset(self, asset_id: str) -> Asset:
+    def index_asset(self, asset_id: str, *, job_config: dict[str, object] | None = None) -> Asset:
         asset = get_asset_or_raise(self.session, asset_id)
+        job = self.job_service.create_job(
+            job_type="index",
+            target_asset_ids=[asset.id],
+            config={"execution": "inline", **(job_config or {})},
+        )
+        job_id = job.id
+
         asset.indexing_status = "indexing"
-        self.session.commit()
+        self.job_service.mark_job_running(job_id)
 
         try:
             profile = profile_asset_file(asset.file_path)
@@ -168,6 +177,7 @@ class IndexingService:
             asset.indexing_status = "indexed"
             asset.last_indexed_time = utc_now()
             self.session.commit()
+            self.job_service.mark_job_succeeded(job_id)
         except Exception as exc:
             self.session.rollback()
             failed_asset = get_asset_or_raise(self.session, asset_id)
@@ -178,6 +188,7 @@ class IndexingService:
             )
             failed_asset.indexing_status = "failed"
             self.session.commit()
+            self.job_service.mark_job_failed(job_id, error_message=str(exc))
             raise AssetIndexingError(str(exc)) from exc
 
         return get_asset_or_raise(self.session, asset_id)
@@ -200,7 +211,12 @@ class IndexingService:
 
         for asset in assets:
             try:
-                indexed_assets.append(self.index_asset(asset.id))
+                indexed_assets.append(
+                    self.index_asset(
+                        asset.id,
+                        job_config={"trigger": "reindex_all"},
+                    )
+                )
             except (AssetIndexingError, AssetNotFoundError):
                 failed_assets.append(get_asset_or_raise(self.session, asset.id))
 

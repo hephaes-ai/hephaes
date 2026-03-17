@@ -15,6 +15,15 @@ from backend.app.services.assets import (
     register_asset,
 )
 from backend.app.services.indexing import AssetIndexingError, IndexingService, ReindexAllResult
+from backend.app.services.jobs import (
+    JobNotFoundError,
+    JobService,
+    JobServiceError,
+    JobStateTransitionError,
+    get_job,
+    get_job_or_raise,
+    list_jobs as list_tracked_jobs,
+)
 from backend.app.services.tags import (
     AssetTagAlreadyExistsError,
     AssetTagNotFoundError,
@@ -40,6 +49,10 @@ __all__ = [
     "InspectedAssetPath",
     "IndexingService",
     "InvalidAssetPathError",
+    "JobNotFoundError",
+    "JobService",
+    "JobServiceError",
+    "JobStateTransitionError",
     "ReindexAllResult",
     "TagAlreadyExistsError",
     "TagNotFoundError",
@@ -48,11 +61,14 @@ __all__ = [
     "create_tag",
     "get_asset",
     "get_asset_or_raise",
+    "get_job",
+    "get_job_or_raise",
     "get_tag",
     "get_tag_or_raise",
     "infer_file_type",
     "inspect_asset_path",
     "list_assets",
+    "list_tracked_jobs",
     "list_tags",
     "normalize_asset_path",
     "normalize_tag_name",
