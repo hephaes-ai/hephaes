@@ -66,45 +66,50 @@ export function VisualizationScrubber({
   startNs,
 }: VisualizationScrubberProps) {
   const selectedSet = React.useMemo(() => new Set(selectedLaneIds), [selectedLaneIds]);
-  const rangeValue = timestampToPercent(currentTimestampNs, startNs, endNs);
 
-  function onRangeChange(event: React.ChangeEvent<HTMLInputElement>) {
-    const nextTimestamp = percentToTimestamp(Number(event.target.value), startNs, endNs);
-    onSeek(nextTimestamp);
-  }
-
-  function onLaneSeek(event: React.MouseEvent<HTMLDivElement>) {
-    const bounds = event.currentTarget.getBoundingClientRect();
+  function seekFromPointer(target: HTMLDivElement, clientX: number) {
+    const bounds = target.getBoundingClientRect();
     if (bounds.width <= 0) {
       return;
     }
 
-    const percent = ((event.clientX - bounds.left) / bounds.width) * 100;
+    const percent = ((clientX - bounds.left) / bounds.width) * 100;
     onSeek(percentToTimestamp(percent, startNs, endNs));
+  }
+
+  function onLanePointerDown(event: React.PointerEvent<HTMLDivElement>) {
+    event.currentTarget.setPointerCapture(event.pointerId);
+    onDragStateChange?.(true);
+    seekFromPointer(event.currentTarget, event.clientX);
+  }
+
+  function onLanePointerMove(event: React.PointerEvent<HTMLDivElement>) {
+    if (!event.currentTarget.hasPointerCapture(event.pointerId)) {
+      return;
+    }
+
+    seekFromPointer(event.currentTarget, event.clientX);
+  }
+
+  function onLanePointerUp(event: React.PointerEvent<HTMLDivElement>) {
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+
+    onDragStateChange?.(false);
+    seekFromPointer(event.currentTarget, event.clientX);
+  }
+
+  function onLanePointerCancel(event: React.PointerEvent<HTMLDivElement>) {
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+
+    onDragStateChange?.(false);
   }
 
   return (
     <div className="space-y-4">
-      <div className="space-y-2">
-        <div className="flex items-center justify-between text-xs text-muted-foreground">
-          <span>Timeline cursor</span>
-          <span>{rangeValue.toFixed(1)}%</span>
-        </div>
-        <input
-          className="w-full accent-primary"
-          max={100}
-          min={0}
-          onChange={onRangeChange}
-          onMouseDown={() => onDragStateChange?.(true)}
-          onMouseUp={() => onDragStateChange?.(false)}
-          onTouchEnd={() => onDragStateChange?.(false)}
-          onTouchStart={() => onDragStateChange?.(true)}
-          step={0.1}
-          type="range"
-          value={rangeValue}
-        />
-      </div>
-
       <div className="space-y-3">
         {lanes.map((lane) => {
           const laneEvents = Array.isArray(lane.events) ? lane.events : [];
@@ -133,7 +138,10 @@ export function VisualizationScrubber({
 
               <div
                 className="relative h-10 cursor-pointer rounded-md border bg-muted/30"
-                onClick={onLaneSeek}
+                onPointerCancel={onLanePointerCancel}
+                onPointerDown={onLanePointerDown}
+                onPointerMove={onLanePointerMove}
+                onPointerUp={onLanePointerUp}
                 role="button"
                 tabIndex={0}
               >

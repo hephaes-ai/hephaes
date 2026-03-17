@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { ArrowLeft, Gauge, Pause, Play, SkipBack, SkipForward } from "lucide-react";
+import { ArrowLeft, Pause, Play, SkipBack, SkipForward } from "lucide-react";
 
 import {
   useAsset,
@@ -507,152 +507,6 @@ export function VisualizationPage() {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Gauge className="size-4" />
-            Transport controls
-          </CardTitle>
-          <CardDescription>Shared playback transport and cursor controls for synchronized timeline replay.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex flex-wrap items-center gap-2">
-            <Button
-              onClick={() => {
-                setIsPlaying(false);
-                seekTo(timelineStartNs);
-              }}
-              size="sm"
-              type="button"
-              variant="outline"
-            >
-              <SkipBack className="size-3.5" />
-              Start
-            </Button>
-            {isPlaying ? (
-              <Button onClick={() => setIsPlaying(false)} size="sm" type="button" variant="secondary">
-                <Pause className="size-3.5" />
-                Pause
-              </Button>
-            ) : (
-              <Button
-                onClick={() => {
-                  if (effectiveTimestampNs >= timelineEndNs) {
-                    seekTo(timelineStartNs);
-                  }
-
-                  setIsPlaying(true);
-                }}
-                size="sm"
-                type="button"
-                variant="secondary"
-              >
-                <Play className="size-3.5" />
-                Play
-              </Button>
-            )}
-            <Button
-              disabled={stepBackwardDisabled}
-              onClick={() => {
-                setIsPlaying(false);
-                seekTo(effectiveTimestampNs - stepSizeNs);
-              }}
-              size="sm"
-              type="button"
-              variant="outline"
-            >
-              Step -
-            </Button>
-            <Button
-              disabled={stepForwardDisabled}
-              onClick={() => {
-                setIsPlaying(false);
-                seekTo(effectiveTimestampNs + stepSizeNs);
-              }}
-              size="sm"
-              type="button"
-              variant="outline"
-            >
-              Step +
-            </Button>
-            <Button
-              onClick={() => {
-                setIsPlaying(false);
-                seekTo(timelineEndNs);
-              }}
-              size="sm"
-              type="button"
-              variant="outline"
-            >
-              <SkipForward className="size-3.5" />
-              End
-            </Button>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="max-w-[140px] space-y-1">
-              <label className="text-xs uppercase tracking-wide text-muted-foreground" htmlFor="playback-speed">
-                Speed
-              </label>
-              <NativeSelect
-                id="playback-speed"
-                onChange={(event) => setPlaybackSpeed(Number(event.target.value))}
-                value={String(speed)}
-              >
-                <option value="0.5">0.5x</option>
-                <option value="1">1x</option>
-                <option value="1.5">1.5x</option>
-                <option value="2">2x</option>
-              </NativeSelect>
-            </div>
-
-            <Badge variant="outline">Cursor {formatTimestampNs(effectiveTimestampNs)}</Badge>
-            <Badge variant="outline">Window ±{formatTimestampNs(stepSizeNs * 2)}</Badge>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Timeline scrubber</CardTitle>
-          <CardDescription>One shared timeline cursor aligned across selected lanes.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          {resolvedEpisodeId && timelineResponse.isLoading ? (
-            <Skeleton className="h-56 rounded-xl" />
-          ) : timelineResponse.error ? (
-            <Alert variant="destructive">
-              <AlertTitle>Could not load timeline</AlertTitle>
-              <AlertDescription>{getErrorMessage(timelineResponse.error)}</AlertDescription>
-            </Alert>
-          ) : timelineLanes.length > 0 ? (
-            <VisualizationScrubber
-              currentTimestampNs={effectiveTimestampNs}
-              endNs={timelineEndNs}
-              lanes={timelineLanes.map((lane) => ({
-                ...lane,
-                label: lane.label || lane.source_topic || lane.stream_key || lane.stream_id,
-              }))}
-              onDragStateChange={setIsScrubberDragging}
-              onSeek={(timestampNs) => {
-                setIsPlaying(false);
-                seekTo(timestampNs, { updateUrl: !isScrubberDragging });
-              }}
-              onToggleLane={onToggleLane}
-              selectedLaneIds={normalizedSelectedLaneIds}
-              startNs={timelineStartNs}
-            />
-          ) : (
-            <Alert>
-              <AlertTitle>No timeline lanes available</AlertTitle>
-              <AlertDescription>
-                This episode has not returned scrubber lane metadata yet. Check backend timeline payloads and try again.
-              </AlertDescription>
-            </Alert>
-          )}
-        </CardContent>
-      </Card>
-
       <div className="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
         <Card>
           <CardHeader>
@@ -732,6 +586,141 @@ export function VisualizationPage() {
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardContent className="space-y-5">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                onClick={() => {
+                  setIsPlaying(false);
+                  seekTo(timelineStartNs);
+                }}
+                size="sm"
+                type="button"
+                variant="outline"
+              >
+                <SkipBack className="size-3.5" />
+                Start
+              </Button>
+              {isPlaying ? (
+                <Button onClick={() => setIsPlaying(false)} size="sm" type="button" variant="secondary">
+                  <Pause className="size-3.5" />
+                  Pause
+                </Button>
+              ) : (
+                <Button
+                  onClick={() => {
+                    if (effectiveTimestampNs >= timelineEndNs) {
+                      seekTo(timelineStartNs);
+                    }
+
+                    setIsPlaying(true);
+                  }}
+                  size="sm"
+                  type="button"
+                  variant="secondary"
+                >
+                  <Play className="size-3.5" />
+                  Play
+                </Button>
+              )}
+              <Button
+                disabled={stepBackwardDisabled}
+                onClick={() => {
+                  setIsPlaying(false);
+                  seekTo(effectiveTimestampNs - stepSizeNs);
+                }}
+                size="sm"
+                type="button"
+                variant="outline"
+              >
+                Step -
+              </Button>
+              <Button
+                disabled={stepForwardDisabled}
+                onClick={() => {
+                  setIsPlaying(false);
+                  seekTo(effectiveTimestampNs + stepSizeNs);
+                }}
+                size="sm"
+                type="button"
+                variant="outline"
+              >
+                Step +
+              </Button>
+              <Button
+                onClick={() => {
+                  setIsPlaying(false);
+                  seekTo(timelineEndNs);
+                }}
+                size="sm"
+                type="button"
+                variant="outline"
+              >
+                <SkipForward className="size-3.5" />
+                End
+              </Button>
+            </div>
+
+            <div className="flex flex-wrap items-end gap-3 lg:justify-end">
+              <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+                <Badge variant="outline">Cursor {formatTimestampNs(effectiveTimestampNs)}</Badge>
+                <Badge variant="outline">Window ±{formatTimestampNs(stepSizeNs * 2)}</Badge>
+              </div>
+
+              <div className="max-w-[140px] space-y-1">
+                <label className="text-xs uppercase tracking-wide text-muted-foreground" htmlFor="playback-speed">
+                  Speed
+                </label>
+                <NativeSelect
+                  id="playback-speed"
+                  onChange={(event) => setPlaybackSpeed(Number(event.target.value))}
+                  value={String(speed)}
+                >
+                  <option value="0.5">0.5x</option>
+                  <option value="1">1x</option>
+                  <option value="1.5">1.5x</option>
+                  <option value="2">2x</option>
+                </NativeSelect>
+              </div>
+            </div>
+          </div>
+
+          {resolvedEpisodeId && timelineResponse.isLoading ? (
+            <Skeleton className="h-56 rounded-xl" />
+          ) : timelineResponse.error ? (
+            <Alert variant="destructive">
+              <AlertTitle>Could not load timeline</AlertTitle>
+              <AlertDescription>{getErrorMessage(timelineResponse.error)}</AlertDescription>
+            </Alert>
+          ) : timelineLanes.length > 0 ? (
+            <VisualizationScrubber
+              currentTimestampNs={effectiveTimestampNs}
+              endNs={timelineEndNs}
+              lanes={timelineLanes.map((lane) => ({
+                ...lane,
+                label: lane.label || lane.source_topic || lane.stream_key || lane.stream_id,
+              }))}
+              onDragStateChange={setIsScrubberDragging}
+              onSeek={(timestampNs) => {
+                setIsPlaying(false);
+                seekTo(timestampNs, { updateUrl: !isScrubberDragging });
+              }}
+              onToggleLane={onToggleLane}
+              selectedLaneIds={normalizedSelectedLaneIds}
+              startNs={timelineStartNs}
+            />
+          ) : (
+            <Alert>
+              <AlertTitle>No timeline lanes available</AlertTitle>
+              <AlertDescription>
+                This episode has not returned scrubber lane metadata yet. Check backend timeline payloads and try again.
+              </AlertDescription>
+            </Alert>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }
