@@ -238,7 +238,13 @@ def list_assets_route(
             start_before=query.start_before,
         ),
     )
-    return [AssetListItem.model_validate(asset) for asset in assets]
+    return [
+        AssetListItem(
+            **AssetSummary.model_validate(asset).model_dump(),
+            tags=[TagResponse.model_validate(tag) for tag in asset.tags],
+        )
+        for asset in assets
+    ]
 
 
 @router.get("/{asset_id}", response_model=AssetDetailResponse)

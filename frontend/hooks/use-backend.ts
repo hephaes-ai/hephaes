@@ -3,12 +3,20 @@
 import * as React from "react";
 import useSWR, { useSWRConfig } from "swr";
 
-import { getAssetDetail, getHealth, listAssets, serializeAssetListQuery, type AssetListQuery } from "@/lib/api";
+import {
+  getAssetDetail,
+  getHealth,
+  listAssets,
+  listTags,
+  serializeAssetListQuery,
+  type AssetListQuery,
+} from "@/lib/api";
 
 export const backendKeys = {
   asset: (assetId: string) => ["asset", assetId] as const,
   assets: (query?: AssetListQuery | null) => ["assets", serializeAssetListQuery(query)] as const,
   health: ["health"] as const,
+  tags: ["tags"] as const,
 };
 
 export function useHealth() {
@@ -25,6 +33,10 @@ export function useAssets(query?: AssetListQuery | null) {
 
 export function useAsset(assetId: string) {
   return useSWR(assetId ? backendKeys.asset(assetId) : null, () => getAssetDetail(assetId));
+}
+
+export function useTags() {
+  return useSWR(backendKeys.tags, () => listTags());
 }
 
 export function useBackendCache() {
@@ -54,9 +66,14 @@ export function useBackendCache() {
     [revalidateAssetDetail, revalidateAssetLists],
   );
 
+  const revalidateTags = React.useCallback(async () => {
+    await mutate(backendKeys.tags);
+  }, [mutate]);
+
   return {
     revalidateAssetDetail,
     revalidateAssetEverywhere,
     revalidateAssetLists,
+    revalidateTags,
   };
 }

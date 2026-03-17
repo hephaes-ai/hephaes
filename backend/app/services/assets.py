@@ -320,7 +320,7 @@ def register_assets_from_dialog(session: Session) -> DialogAssetRegistrationResu
 
 def list_assets(session: Session, *, filters: AssetListFilters | None = None) -> list[Asset]:
     filters = filters or AssetListFilters()
-    statement = select(Asset)
+    statement = select(Asset).options(selectinload(Asset.tags))
 
     if filters.requires_metadata_join:
         statement = statement.outerjoin(AssetMetadata, AssetMetadata.asset_id == Asset.id)

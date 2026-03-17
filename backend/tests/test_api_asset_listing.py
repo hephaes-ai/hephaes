@@ -104,6 +104,7 @@ def test_list_assets_filters_by_filename_case_insensitive(client: TestClient, tm
             "registered_time": camera_response.json()["registered_time"],
             "indexing_status": "pending",
             "last_indexed_time": None,
+            "tags": [],
         }
     ]
 
@@ -265,6 +266,7 @@ def test_list_assets_ignores_empty_query_params(client: TestClient, sample_asset
             "registered_time": register_response.json()["registered_time"],
             "indexing_status": "pending",
             "last_indexed_time": None,
+            "tags": [],
         }
     ]
 

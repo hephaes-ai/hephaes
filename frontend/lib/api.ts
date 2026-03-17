@@ -13,7 +13,14 @@ export interface AssetListQuery {
   start_after?: string;
   start_before?: string;
   status?: IndexingStatus;
+  tag?: string;
   type?: string;
+}
+
+export interface TagSummary {
+  created_at: string;
+  id: string;
+  name: string;
 }
 
 export interface AssetSummary {
@@ -25,6 +32,7 @@ export interface AssetSummary {
   indexing_status: IndexingStatus;
   last_indexed_time: string | null;
   registered_time: string;
+  tags?: TagSummary[];
 }
 
 export interface IndexedTopicSummary {
@@ -63,6 +71,7 @@ export interface AssetMetadata {
 export interface AssetDetailResponse {
   asset: AssetSummary;
   metadata: AssetMetadata | null;
+  tags: TagSummary[];
 }
 
 export interface AssetRegistrationRequest {
@@ -85,6 +94,14 @@ export interface ReindexAllResponse {
   failed_assets: AssetSummary[];
   indexed_assets: AssetSummary[];
   total_requested: number;
+}
+
+export interface TagCreateRequest {
+  name: string;
+}
+
+export interface AssetTagAttachRequest {
+  tag_id: string;
 }
 
 export class BackendApiError extends Error {
@@ -235,6 +252,30 @@ export function indexAsset(assetId: string) {
 export function reindexAllAssets() {
   return request<ReindexAllResponse>("/assets/reindex-all", {
     method: "POST",
+  });
+}
+
+export function listTags() {
+  return request<TagSummary[]>("/tags");
+}
+
+export function createTag(payload: TagCreateRequest) {
+  return request<TagSummary>("/tags", {
+    body: JSON.stringify(payload),
+    method: "POST",
+  });
+}
+
+export function attachTagToAsset(assetId: string, payload: AssetTagAttachRequest) {
+  return request<AssetDetailResponse>(`/assets/${assetId}/tags`, {
+    body: JSON.stringify(payload),
+    method: "POST",
+  });
+}
+
+export function removeTagFromAsset(assetId: string, tagId: string) {
+  return request<AssetDetailResponse>(`/assets/${assetId}/tags/${tagId}`, {
+    method: "DELETE",
   });
 }
 

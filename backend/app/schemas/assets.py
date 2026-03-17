@@ -121,10 +121,6 @@ class AssetSummary(BaseModel):
         return value.replace(tzinfo=UTC)
 
 
-class AssetListItem(AssetSummary):
-    model_config = ConfigDict(extra="forbid", from_attributes=True)
-
-
 class AssetRegistrationResponse(AssetSummary):
     model_config = ConfigDict(extra="forbid", from_attributes=True)
 
@@ -170,6 +166,12 @@ class TagResponse(BaseModel):
         if value.tzinfo is not None:
             return value
         return value.replace(tzinfo=UTC)
+
+
+class AssetListItem(AssetSummary):
+    model_config = ConfigDict(extra="forbid", from_attributes=True)
+
+    tags: list[TagResponse] = Field(default_factory=list)
 
 
 class IndexedTopicSummary(BaseModel):
