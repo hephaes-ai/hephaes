@@ -3,12 +3,13 @@
 import * as React from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { ArrowLeft, ArrowRightLeft, Database, Eye, RefreshCw, Waves } from "lucide-react";
+import { ArrowLeft, ArrowRight, ArrowRightLeft, Database, Eye, RefreshCw, Waves } from "lucide-react";
 
 import { AssetStatusBadge } from "@/components/asset-status-badge";
 import { ConversionDialog } from "@/components/conversion-dialog";
 import { useFeedback } from "@/components/feedback-provider";
 import { TagActionPanel, TagBadgeList } from "@/components/tag-controls";
+import { WorkflowStatusBadge } from "@/components/workflow-status-badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -30,11 +31,18 @@ import {
   createTag,
   getErrorMessage,
   indexAsset,
-  removeTagFromAsset,
-  type TagSummary,
-  type TopicModality,
-} from "@/lib/api";
-import { formatDateTime, formatDuration, formatFileSize, getIndexActionLabel } from "@/lib/format";
+    removeTagFromAsset,
+    type TagSummary,
+    type TopicModality,
+  } from "@/lib/api";
+import {
+  formatDateTime,
+  formatDuration,
+  formatFileSize,
+  formatJobType,
+  getIndexActionLabel,
+  isWorkflowActiveStatus,
+} from "@/lib/format";
 
 function AssetDetailSkeleton() {
   return (
@@ -124,10 +132,14 @@ function MetadataEmptyState({
   );
 }
 
+function buildJobDetailHref(jobId: string, returnHref: string) {
+  return `/jobs/${jobId}?from=${encodeURIComponent(returnHref)}`;
+}
+
 export function AssetDetailPage({ assetId }: { assetId: string }) {
   const searchParams = useSearchParams();
   const { notify } = useFeedback();
-  const { revalidateAssetLists, revalidateTags } = useBackendCache();
+  const { revalidateAssetLists, revalidateConversions, revalidateJobs, revalidateTags } = useBackendCache();
   const { data, error, isLoading, mutate } = useAsset(assetId);
   const tagsResponse = useTags();
   const [isConversionDialogOpen, setIsConversionDialogOpen] = React.useState(false);
@@ -147,23 +159,35 @@ export function AssetDetailPage({ assetId }: { assetId: string }) {
 
     return from;
   })();
+  const currentDetailHref = React.useMemo(() => {
+    const currentQuery = searchParams.toString();
+    return currentQuery ? `/assets/${assetId}?${currentQuery}` : `/assets/${assetId}`;
+  }, [assetId, searchParams]);
 
   React.useEffect(() => {
     if (!data) {
       return;
     }
 
-    if ((isRunningIndexAction ? "indexing" : data.asset.indexing_status) !== "indexing") {
+    const isIndexingActive = (isRunningIndexAction ? "indexing" : data.asset.indexing_status) === "indexing";
+    const hasActiveJobs = data.related_jobs.some((job) => isWorkflowActiveStatus(job.status));
+    const hasActiveConversions = data.conversions.some((conversion) =>
+      isWorkflowActiveStatus(conversion.status),
+    );
+
+    if (!isIndexingActive && !hasActiveJobs && !hasActiveConversions) {
       return;
     }
 
     const intervalId = window.setInterval(() => {
       void mutate();
       void revalidateAssetLists();
+      void revalidateJobs();
+      void revalidateConversions();
     }, 1500);
 
     return () => window.clearInterval(intervalId);
-  }, [data, isRunningIndexAction, mutate, revalidateAssetLists]);
+  }, [data, isRunningIndexAction, mutate, revalidateAssetLists, revalidateConversions, revalidateJobs]);
 
   if (isLoading) {
     return <AssetDetailSkeleton />;
@@ -177,7 +201,7 @@ export function AssetDetailPage({ assetId }: { assetId: string }) {
         <Button asChild size="sm" variant="ghost">
           <Link href={returnHref}>
             <ArrowLeft className="size-4" />
-            Back to inventory
+            Back
           </Link>
         </Button>
         <Alert variant="destructive">
@@ -201,6 +225,8 @@ export function AssetDetailPage({ assetId }: { assetId: string }) {
 
   const { asset, metadata } = data;
   const assetTags = data.tags;
+  const relatedJobs = data.related_jobs;
+  const conversions = data.conversions;
   const availableTags = tagsResponse.data ?? [];
   const effectiveStatus = isRunningIndexAction ? "indexing" : asset.indexing_status;
   const isActionDisabled = isRunningIndexAction || asset.indexing_status === "indexing";
@@ -236,7 +262,7 @@ export function AssetDetailPage({ assetId }: { assetId: string }) {
     try {
       const result = await indexAsset(asset.id);
       await mutate(result, { revalidate: false });
-      await revalidateAssetLists();
+      await Promise.all([revalidateAssetLists(), revalidateJobs()]);
     } catch (indexError) {
       const message = getErrorMessage(indexError);
 
@@ -250,7 +276,7 @@ export function AssetDetailPage({ assetId }: { assetId: string }) {
         title: "Indexing failed",
         tone: "error",
       });
-      await Promise.all([mutate(), revalidateAssetLists()]);
+      await Promise.all([mutate(), revalidateAssetLists(), revalidateJobs()]);
     } finally {
       setIsRunningIndexAction(false);
     }
@@ -309,7 +335,7 @@ export function AssetDetailPage({ assetId }: { assetId: string }) {
     await attachTag(selectedTag);
   }
 
-async function onCreateAndAttachTag(name: string) {
+  async function onCreateAndAttachTag(name: string) {
     const existingTag = findExistingTagByName(availableTags, name);
     if (existingTag) {
       await attachTag(existingTag);
@@ -372,7 +398,7 @@ async function onCreateAndAttachTag(name: string) {
       <Button asChild size="sm" variant="ghost">
         <Link href={returnHref}>
           <ArrowLeft className="size-4" />
-          Back to inventory
+          Back
         </Link>
       </Button>
 
@@ -577,6 +603,108 @@ async function onCreateAndAttachTag(name: string) {
           )}
         </CardContent>
       </Card>
+
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+        <Card>
+          <CardHeader>
+            <CardTitle>Related jobs</CardTitle>
+            <CardDescription>Recent backend work tied to this asset.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {relatedJobs.length > 0 ? (
+              relatedJobs.map((job) => (
+                <div key={job.id} className="space-y-3 rounded-xl border bg-muted/20 px-4 py-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0 space-y-1">
+                      <p className="text-sm font-medium text-foreground">{formatJobType(job.type)}</p>
+                      <p className="break-all font-mono text-xs text-muted-foreground">{job.id}</p>
+                    </div>
+                    <WorkflowStatusBadge status={job.status} />
+                  </div>
+                  <dl className="grid gap-3 sm:grid-cols-2">
+                    <MetadataField label="Created" value={formatDateTime(job.created_at)} />
+                    <MetadataField label="Updated" value={formatDateTime(job.updated_at)} />
+                  </dl>
+                  {job.output_path ? (
+                    <div className="space-y-1">
+                      <p className="text-xs uppercase tracking-wide text-muted-foreground">Output path</p>
+                      <p className="break-all text-sm text-foreground">{job.output_path}</p>
+                    </div>
+                  ) : null}
+                  {job.error_message ? (
+                    <p className="text-sm text-destructive">{job.error_message}</p>
+                  ) : null}
+                  <div className="flex justify-end">
+                    <Button asChild size="sm" variant="outline">
+                      <Link href={buildJobDetailHref(job.id, currentDetailHref)}>
+                        Open job
+                        <ArrowRight className="size-3.5" />
+                      </Link>
+                    </Button>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <MetadataEmptyState
+                description="Jobs will appear here after indexing, conversion, or visualization prep runs are started for this asset."
+                title="No related jobs yet"
+              />
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Conversion history</CardTitle>
+            <CardDescription>Recent conversion requests that include this asset.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {conversions.length > 0 ? (
+              conversions.map((conversion) => (
+                <div key={conversion.id} className="space-y-3 rounded-xl border bg-muted/20 px-4 py-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0 space-y-1">
+                      <p className="text-sm font-medium text-foreground">{conversion.id}</p>
+                      <p className="text-xs text-muted-foreground">Linked job {conversion.job_id}</p>
+                    </div>
+                    <WorkflowStatusBadge status={conversion.status} />
+                  </div>
+                  <dl className="grid gap-3 sm:grid-cols-2">
+                    <MetadataField label="Created" value={formatDateTime(conversion.created_at)} />
+                    <MetadataField label="Updated" value={formatDateTime(conversion.updated_at)} />
+                  </dl>
+                  <div className="space-y-1">
+                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Output path</p>
+                    <p className="break-all text-sm text-foreground">
+                      {conversion.output_path ?? "Not available yet"}
+                    </p>
+                  </div>
+                  {conversion.error_message ? (
+                    <p className="text-sm text-destructive">{conversion.error_message}</p>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">
+                      Open the linked job to inspect output files and the latest execution details.
+                    </p>
+                  )}
+                  <div className="flex justify-end">
+                    <Button asChild size="sm" variant="outline">
+                      <Link href={buildJobDetailHref(conversion.job_id, currentDetailHref)}>
+                        Open job
+                        <ArrowRight className="size-3.5" />
+                      </Link>
+                    </Button>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <MetadataEmptyState
+                description="Conversion requests launched from this asset will show up here once the backend records them."
+                title="No conversions yet"
+              />
+            )}
+          </CardContent>
+        </Card>
+      </div>
 
       <Card>
         <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">

@@ -466,7 +466,7 @@ export function InventoryPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { notify } = useFeedback();
-  const { revalidateAssetLists, revalidateTags } = useBackendCache();
+  const { revalidateAssetLists, revalidateJobs, revalidateTags } = useBackendCache();
 
   const appliedSearch = searchParams.get("search")?.trim() ?? "";
   const activeTag = searchParams.get("tag")?.trim() ?? "";
@@ -853,7 +853,7 @@ export function InventoryPage() {
   }, [allAssetsResponse, assetsResponse, hasServerFilters, shouldPollAssets]);
 
   async function refreshAssetLists() {
-    await revalidateAssetLists();
+    await Promise.all([revalidateAssetLists(), revalidateJobs()]);
   }
 
   async function refreshTagAwareData() {
