@@ -1,5 +1,10 @@
 export type IndexingStatus = "pending" | "indexing" | "indexed" | "failed";
 export type TopicModality = "image" | "points" | "scalar_series" | "other";
+export type JobStatus = "queued" | "running" | "succeeded" | "failed";
+export type JobType = "index" | "convert" | "prepare_visualization";
+export type ConversionStatus = "queued" | "running" | "succeeded" | "failed";
+export type ConversionFormat = "parquet" | "tfrecord";
+export type ResampleMethod = "interpolate" | "downsample";
 
 export interface HealthResponse {
   app_name: string;
@@ -109,6 +114,66 @@ export interface TagCreateRequest {
 
 export interface AssetTagAttachRequest {
   tag_id: string;
+}
+
+export interface ParquetConversionOutputRequest {
+  compression?: "none" | "snappy" | "gzip" | "brotli" | "lz4" | "zstd";
+  format: "parquet";
+}
+
+export interface TFRecordConversionOutputRequest {
+  compression?: "none" | "gzip";
+  format: "tfrecord";
+  null_encoding?: "presence_flag";
+  payload_encoding?: "typed_features";
+}
+
+export type ConversionOutputRequest =
+  | ParquetConversionOutputRequest
+  | TFRecordConversionOutputRequest;
+
+export interface ConversionResampleRequest {
+  freq_hz: number;
+  method: ResampleMethod;
+}
+
+export interface ConversionCreateRequest {
+  asset_ids: string[];
+  mapping?: Record<string, string[]> | null;
+  output: ConversionOutputRequest;
+  resample?: ConversionResampleRequest | null;
+  write_manifest?: boolean;
+}
+
+export interface JobSummary {
+  config_json: Record<string, unknown>;
+  created_at: string;
+  error_message: string | null;
+  finished_at: string | null;
+  id: string;
+  output_path: string | null;
+  started_at: string | null;
+  status: JobStatus;
+  target_asset_ids_json: string[];
+  type: JobType;
+  updated_at: string;
+}
+
+export interface ConversionSummary {
+  asset_ids: string[];
+  config: Record<string, unknown>;
+  created_at: string;
+  error_message: string | null;
+  id: string;
+  job_id: string;
+  output_path: string | null;
+  status: ConversionStatus;
+  updated_at: string;
+}
+
+export interface ConversionDetail extends ConversionSummary {
+  job: JobSummary;
+  output_files: string[];
 }
 
 export class BackendApiError extends Error {
@@ -297,4 +362,19 @@ export function registerAssetsFromDialog() {
   return request<DialogAssetRegistrationResponse>("/assets/register-dialog", {
     method: "POST",
   });
+}
+
+export function createConversion(payload: ConversionCreateRequest) {
+  return request<ConversionDetail>("/conversions", {
+    body: JSON.stringify(payload),
+    method: "POST",
+  });
+}
+
+export function listConversions() {
+  return request<ConversionSummary[]>("/conversions");
+}
+
+export function getConversion(conversionId: string) {
+  return request<ConversionDetail>(`/conversions/${conversionId}`);
 }

@@ -4,6 +4,7 @@ import * as React from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
+  ArrowRightLeft,
   ArrowRight,
   ArrowUpDown,
   ChevronDown,
@@ -16,6 +17,7 @@ import {
 } from "lucide-react";
 
 import { AssetStatusBadge } from "@/components/asset-status-badge";
+import { ConversionDialog } from "@/components/conversion-dialog";
 import { useFeedback } from "@/components/feedback-provider";
 import { TagActionPanel, TagBadgeList } from "@/components/tag-controls";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -482,6 +484,7 @@ export function InventoryPage() {
   const [isChoosingFiles, setIsChoosingFiles] = React.useState(false);
   const [searchInput, setSearchInput] = React.useState(appliedSearch);
   const [isBrowsePanelOpen, setIsBrowsePanelOpen] = React.useState(() => searchParams.toString().length > 0);
+  const [isConversionDialogOpen, setIsConversionDialogOpen] = React.useState(false);
   const [isBulkIndexingSelection, setIsBulkIndexingSelection] = React.useState(false);
   const [isIndexingPendingAssets, setIsIndexingPendingAssets] = React.useState(false);
   const [isUpdatingSelectionTags, setIsUpdatingSelectionTags] = React.useState(false);
@@ -1208,6 +1211,12 @@ export function InventoryPage() {
                 </Button>
               ) : null}
               {selectedCount > 0 ? (
+                <Button onClick={() => setIsConversionDialogOpen(true)} size="sm" type="button" variant="outline">
+                  <ArrowRightLeft className="size-3.5" />
+                  Convert
+                </Button>
+              ) : null}
+              {selectedCount > 0 ? (
                 <Button onClick={() => setSelectedAssetIds(new Set())} size="sm" type="button" variant="ghost">
                   Clear selection
                 </Button>
@@ -1531,6 +1540,12 @@ export function InventoryPage() {
           ) : null}
         </CardContent>
       </Card>
+
+      <ConversionDialog
+        assets={selectedVisibleAssets}
+        onOpenChange={setIsConversionDialogOpen}
+        open={isConversionDialogOpen}
+      />
     </div>
   );
 }
