@@ -12,9 +12,9 @@ from pathlib import Path
 
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
-from backend.app.db.models import Asset, AssetMetadata
+from backend.app.db.models import Asset, AssetMetadata, Tag
 
 
 class AssetServiceError(Exception):
@@ -70,6 +70,7 @@ class AssetListFilters:
     """Normalized filters for listing registered assets."""
 
     search: str | None = None
+    tag: str | None = None
     file_type: str | None = None
     status: str | None = None
     min_duration: float | None = None
@@ -88,6 +89,10 @@ class AssetListFilters:
                 self.start_before,
             )
         )
+
+    @property
+    def requires_tag_join(self) -> bool:
+        return self.tag is not None
 
 
 TK_FILE_DIALOG_SCRIPT = """
@@ -319,9 +324,13 @@ def list_assets(session: Session, *, filters: AssetListFilters | None = None) ->
 
     if filters.requires_metadata_join:
         statement = statement.outerjoin(AssetMetadata, AssetMetadata.asset_id == Asset.id)
+    if filters.requires_tag_join:
+        statement = statement.join(Asset.tags)
 
     if filters.search is not None:
         statement = statement.where(func.lower(Asset.file_name).contains(filters.search.lower()))
+    if filters.tag is not None:
+        statement = statement.where(Tag.normalized_name == filters.tag.lower())
     if filters.file_type is not None:
         statement = statement.where(func.lower(Asset.file_type) == filters.file_type.lower())
     if filters.status is not None:
@@ -336,11 +345,19 @@ def list_assets(session: Session, *, filters: AssetListFilters | None = None) ->
         statement = statement.where(AssetMetadata.start_time <= filters.start_before)
 
     statement = statement.order_by(Asset.registered_time.desc(), Asset.id.desc())
-    return list(session.scalars(statement).all())
+    return list(session.scalars(statement).unique().all())
 
 
 def get_asset(session: Session, asset_id: str) -> Asset | None:
-    return session.get(Asset, asset_id)
+    statement = (
+        select(Asset)
+        .options(
+            selectinload(Asset.metadata_record),
+            selectinload(Asset.tags),
+        )
+        .where(Asset.id == asset_id)
+    )
+    return session.scalar(statement)
 
 
 def get_asset_or_raise(session: Session, asset_id: str) -> Asset:

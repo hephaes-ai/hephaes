@@ -6,7 +6,19 @@ from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import JSON, CheckConstraint, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import (
+    JSON,
+    CheckConstraint,
+    Column,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Table,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 ASSET_INDEXING_STATUSES = ("pending", "indexing", "indexed", "failed")
@@ -18,6 +30,15 @@ def utc_now() -> datetime:
 
 class Base(DeclarativeBase):
     """Base class for backend database models."""
+
+
+asset_tags_table = Table(
+    "asset_tags",
+    Base.metadata,
+    Column("asset_id", String(36), ForeignKey("assets.id", ondelete="CASCADE"), primary_key=True),
+    Column("tag_id", String(36), ForeignKey("tags.id", ondelete="CASCADE"), primary_key=True),
+    UniqueConstraint("asset_id", "tag_id", name="uq_asset_tags_asset_id_tag_id"),
+)
 
 
 class Asset(Base):
@@ -52,6 +73,11 @@ class Asset(Base):
         back_populates="asset",
         cascade="all, delete-orphan",
         uselist=False,
+    )
+    tags: Mapped[list["Tag"]] = relationship(
+        secondary=asset_tags_table,
+        back_populates="assets",
+        order_by="Tag.normalized_name",
     )
 
 
@@ -94,3 +120,26 @@ class AssetMetadata(Base):
     )
 
     asset: Mapped[Asset] = relationship(back_populates="metadata_record")
+
+
+class Tag(Base):
+    """User-defined label for organizing registered assets."""
+
+    __tablename__ = "tags"
+    __table_args__ = (
+        UniqueConstraint("normalized_name", name="uq_tags_normalized_name"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    normalized_name: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+    )
+
+    assets: Mapped[list[Asset]] = relationship(
+        secondary=asset_tags_table,
+        back_populates="tags",
+    )

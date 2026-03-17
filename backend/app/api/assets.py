@@ -14,6 +14,7 @@ from backend.app.schemas.assets import (
     AssetDetailResponse,
     AssetListQueryParams,
     AssetMetadataResponse,
+    AssetTagAttachRequest,
     DefaultEpisodeSummary,
     DialogAssetRegistrationResponse,
     IndexedTopicSummary,
@@ -22,6 +23,7 @@ from backend.app.schemas.assets import (
     AssetRegistrationResponse,
     ReindexAllResponse,
     AssetSummary,
+    TagResponse,
     VisualizationSummary,
 )
 from backend.app.services.assets import (
@@ -36,6 +38,13 @@ from backend.app.services.assets import (
     register_assets_from_dialog,
 )
 from backend.app.services.indexing import AssetIndexingError, IndexingService
+from backend.app.services.tags import (
+    AssetTagAlreadyExistsError,
+    AssetTagNotFoundError,
+    TagNotFoundError,
+    attach_tag_to_asset,
+    remove_tag_from_asset,
+)
 
 router = APIRouter(prefix="/assets", tags=["assets"])
 DbSession = Annotated[Session, Depends(get_db_session)]
@@ -43,6 +52,7 @@ DbSession = Annotated[Session, Depends(get_db_session)]
 
 def parse_list_assets_query(
     search: Annotated[str | None, Query()] = None,
+    tag: Annotated[str | None, Query()] = None,
     file_type: Annotated[str | None, Query(alias="type")] = None,
     status_value: Annotated[str | None, Query(alias="status")] = None,
     min_duration: Annotated[str | None, Query()] = None,
@@ -54,6 +64,7 @@ def parse_list_assets_query(
         return AssetListQueryParams.model_validate(
             {
                 "search": search,
+                "tag": tag,
                 "type": file_type,
                 "status": status_value,
                 "min_duration": min_duration,
@@ -102,6 +113,7 @@ def build_asset_detail_response(asset: Asset) -> AssetDetailResponse:
     return AssetDetailResponse(
         asset=AssetSummary.model_validate(asset),
         metadata=metadata,
+        tags=[TagResponse.model_validate(tag) for tag in asset.tags],
     )
 
 
@@ -158,6 +170,38 @@ def index_asset_route(asset_id: str, session: DbSession) -> AssetDetailResponse:
     return build_asset_detail_response(asset)
 
 
+@router.post("/{asset_id}/tags", response_model=AssetDetailResponse)
+def attach_tag_to_asset_route(
+    asset_id: str,
+    payload: AssetTagAttachRequest,
+    session: DbSession,
+) -> AssetDetailResponse:
+    try:
+        asset = attach_tag_to_asset(session, asset_id=asset_id, tag_id=payload.tag_id)
+    except AssetNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except TagNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except AssetTagAlreadyExistsError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+    return build_asset_detail_response(asset)
+
+
+@router.delete("/{asset_id}/tags/{tag_id}", response_model=AssetDetailResponse)
+def remove_tag_from_asset_route(asset_id: str, tag_id: str, session: DbSession) -> AssetDetailResponse:
+    try:
+        asset = remove_tag_from_asset(session, asset_id=asset_id, tag_id=tag_id)
+    except AssetNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except TagNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except AssetTagNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+    return build_asset_detail_response(asset)
+
+
 @router.post("/reindex-all", response_model=ReindexAllResponse)
 def reindex_all_route(session: DbSession) -> ReindexAllResponse:
     indexing_service = IndexingService(session)
@@ -185,6 +229,7 @@ def list_assets_route(
         session,
         filters=AssetListFilters(
             search=query.search,
+            tag=query.tag,
             file_type=query.file_type,
             status=query.status,
             min_duration=query.min_duration,
