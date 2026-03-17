@@ -43,6 +43,7 @@ import {
   getIndexActionLabel,
   isWorkflowActiveStatus,
 } from "@/lib/format";
+import { resolveReturnHref } from "@/lib/navigation";
 
 function AssetDetailSkeleton() {
   return (
@@ -151,14 +152,7 @@ export function AssetDetailPage({ assetId }: { assetId: string }) {
     tone: "error" | "info";
   } | null>(null);
 
-  const returnHref = (() => {
-    const from = searchParams.get("from");
-    if (!from || !from.startsWith("/") || from.startsWith("//")) {
-      return "/";
-    }
-
-    return from;
-  })();
+  const returnHref = resolveReturnHref(searchParams.get("from"), "/");
   const currentDetailHref = React.useMemo(() => {
     const currentQuery = searchParams.toString();
     return currentQuery ? `/assets/${assetId}?${currentQuery}` : `/assets/${assetId}`;

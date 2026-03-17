@@ -19,6 +19,7 @@ import {
   formatJobType,
   isWorkflowActiveStatus,
 } from "@/lib/format";
+import { resolveReturnHref } from "@/lib/navigation";
 
 import { WorkflowStatusBadge } from "@/components/workflow-status-badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -116,14 +117,7 @@ export function JobDetailPage({ jobId }: { jobId: string }) {
   );
   const conversionDetailResponse = useConversion(matchedConversionSummary?.id ?? "");
 
-  const returnHref = (() => {
-    const from = searchParams.get("from");
-    if (!from || !from.startsWith("/") || from.startsWith("//")) {
-      return "/jobs";
-    }
-
-    return from;
-  })();
+  const returnHref = resolveReturnHref(searchParams.get("from"), "/jobs");
   const currentHref = React.useMemo(() => {
     const currentQuery = searchParams.toString();
     return currentQuery ? `/jobs/${jobId}?${currentQuery}` : `/jobs/${jobId}`;
