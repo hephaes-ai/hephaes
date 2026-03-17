@@ -23,6 +23,7 @@ def test_create_and_list_tags(client: TestClient):
 
     assert create_response.status_code == 201
     assert create_response.json() == {
+        "asset_count": 0,
         "id": create_response.json()["id"],
         "name": "Night Run",
         "created_at": create_response.json()["created_at"],
@@ -32,6 +33,7 @@ def test_create_and_list_tags(client: TestClient):
 
     assert list_response.status_code == 200
     assert [item["name"] for item in list_response.json()] == ["Calibration", "Night Run"]
+    assert [item["asset_count"] for item in list_response.json()] == [0, 0]
     assert [item["id"] for item in list_response.json()] == [
         second_response.json()["id"],
         create_response.json()["id"],
@@ -99,6 +101,10 @@ def test_remove_tag_from_asset(client: TestClient, sample_asset_file: Path):
     detail_response = client.get(f"/assets/{asset_id}")
     assert detail_response.status_code == 200
     assert detail_response.json()["tags"] == []
+
+    list_response = client.get("/tags")
+    assert list_response.status_code == 200
+    assert list_response.json() == []
 
 
 def test_list_assets_filters_by_tag_and_composes_with_search(client: TestClient, tmp_path: Path):

@@ -24,6 +24,7 @@ import {
 import { useAsset, useBackendCache, useTags } from "@/hooks/use-backend";
 import {
   attachTagToAsset,
+  type AssetTag,
   BackendApiError,
   createTag,
   getErrorMessage,
@@ -306,7 +307,7 @@ export function AssetDetailPage({ assetId }: { assetId: string }) {
     await attachTag(selectedTag);
   }
 
-  async function onCreateAndAttachTag(name: string) {
+async function onCreateAndAttachTag(name: string) {
     const existingTag = findExistingTagByName(availableTags, name);
     if (existingTag) {
       await attachTag(existingTag);
@@ -338,7 +339,7 @@ export function AssetDetailPage({ assetId }: { assetId: string }) {
     }
   }
 
-  async function onRemoveTag(tag: TagSummary) {
+  async function onRemoveTag(tag: AssetTag) {
     setRequestMessage(null);
     setIsUpdatingTags(true);
 

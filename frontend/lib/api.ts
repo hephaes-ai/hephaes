@@ -18,6 +18,13 @@ export interface AssetListQuery {
 }
 
 export interface TagSummary {
+  asset_count: number;
+  created_at: string;
+  id: string;
+  name: string;
+}
+
+export interface AssetTag {
   created_at: string;
   id: string;
   name: string;
@@ -32,7 +39,7 @@ export interface AssetSummary {
   indexing_status: IndexingStatus;
   last_indexed_time: string | null;
   registered_time: string;
-  tags?: TagSummary[];
+  tags?: AssetTag[];
 }
 
 export interface IndexedTopicSummary {
@@ -71,7 +78,7 @@ export interface AssetMetadata {
 export interface AssetDetailResponse {
   asset: AssetSummary;
   metadata: AssetMetadata | null;
-  tags: TagSummary[];
+  tags: AssetTag[];
 }
 
 export interface AssetRegistrationRequest {

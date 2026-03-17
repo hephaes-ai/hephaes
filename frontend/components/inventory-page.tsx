@@ -36,7 +36,13 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useAssets, useBackendCache, useTags } from "@/hooks/use-backend";
-import type { AssetListQuery, AssetRegistrationSkip, AssetSummary, IndexingStatus, TagSummary } from "@/lib/api";
+import type {
+  AssetListQuery,
+  AssetRegistrationSkip,
+  AssetSummary,
+  IndexingStatus,
+  TagSummary,
+} from "@/lib/api";
 import {
   attachTagToAsset,
   createTag,
@@ -511,6 +517,13 @@ export function InventoryPage() {
   const allAssets = hasServerFilters ? (allAssetsResponse.data ?? assets) : assets;
   const totalRegisteredCount = hasServerFilters ? allAssetsResponse.data?.length : assets.length;
   const availableTags = tagsResponse.data ?? [];
+  const selectableFilterTags = availableTags.filter((tag) => {
+    if (tag.asset_count > 0) {
+      return true;
+    }
+
+    return activeTag.length > 0 && tag.name.trim().toLowerCase() === activeTag.toLowerCase();
+  });
 
   const availableFileTypes = Array.from(new Set(allAssets.map((asset) => asset.file_type))).sort((left, right) =>
     left.localeCompare(right, undefined, { sensitivity: "base" }),
@@ -1319,7 +1332,7 @@ export function InventoryPage() {
                       value={activeTag}
                     >
                       <option value="">All tags</option>
-                      {availableTags.map((tag) => (
+                      {selectableFilterTags.map((tag) => (
                         <option key={tag.id} value={tag.name}>
                           {tag.name}
                         </option>

@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { NativeSelect } from "@/components/ui/native-select";
-import type { TagSummary } from "@/lib/api";
+import type { AssetTag, TagSummary } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 function sortTags(tags: TagSummary[]) {
@@ -26,9 +26,9 @@ export function TagBadgeList({
   className?: string;
   emptyLabel?: string;
   maxVisible?: number;
-  onRemove?: (tag: TagSummary) => void;
+  onRemove?: (tag: AssetTag) => void;
   removable?: boolean;
-  tags: TagSummary[];
+  tags: AssetTag[];
 }) {
   if (tags.length === 0) {
     return emptyLabel ? <p className={cn("text-sm text-muted-foreground", className)}>{emptyLabel}</p> : null;
@@ -91,7 +91,9 @@ export function TagActionPanel({
 
   const assignableTags = React.useMemo(() => {
     const excludedTagIds = new Set(excludeTagIds);
-    return sortTags(availableTags).filter((tag) => !excludedTagIds.has(tag.id));
+    return sortTags(availableTags).filter(
+      (tag) => tag.asset_count > 0 && !excludedTagIds.has(tag.id),
+    );
   }, [availableTags, excludeTagIds]);
 
   React.useEffect(() => {
