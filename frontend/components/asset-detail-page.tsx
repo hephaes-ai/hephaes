@@ -7,6 +7,7 @@ import { ArrowLeft, Database, Eye, RefreshCw, Waves } from "lucide-react";
 
 import { AssetStatusBadge } from "@/components/asset-status-badge";
 import { useFeedback } from "@/components/feedback-provider";
+import { TagActionPanel, TagBadgeList } from "@/components/tag-controls";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -20,8 +21,18 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { useAsset, useBackendCache } from "@/hooks/use-backend";
-import { BackendApiError, getErrorMessage, indexAsset, type TopicModality } from "@/lib/api";
+import { useAsset, useBackendCache, useTags } from "@/hooks/use-backend";
+import {
+  attachTagToAsset,
+  type AssetTag,
+  BackendApiError,
+  createTag,
+  getErrorMessage,
+  indexAsset,
+  removeTagFromAsset,
+  type TagSummary,
+  type TopicModality,
+} from "@/lib/api";
 import { formatDateTime, formatDuration, formatFileSize, getIndexActionLabel } from "@/lib/format";
 
 function AssetDetailSkeleton() {
@@ -44,6 +55,11 @@ export function AssetDetailPageFallback() {
 
 function formatLabel(value: string) {
   return value.replace(/_/g, " ");
+}
+
+function findExistingTagByName(tags: TagSummary[], name: string) {
+  const normalizedName = name.trim().toLowerCase();
+  return tags.find((tag) => tag.name.trim().toLowerCase() === normalizedName);
 }
 
 function formatModality(modality: TopicModality) {
@@ -110,9 +126,11 @@ function MetadataEmptyState({
 export function AssetDetailPage({ assetId }: { assetId: string }) {
   const searchParams = useSearchParams();
   const { notify } = useFeedback();
-  const { revalidateAssetLists } = useBackendCache();
+  const { revalidateAssetLists, revalidateTags } = useBackendCache();
   const { data, error, isLoading, mutate } = useAsset(assetId);
+  const tagsResponse = useTags();
   const [isRunningIndexAction, setIsRunningIndexAction] = React.useState(false);
+  const [isUpdatingTags, setIsUpdatingTags] = React.useState(false);
   const [requestMessage, setRequestMessage] = React.useState<{
     description?: string;
     title: string;
@@ -180,6 +198,8 @@ export function AssetDetailPage({ assetId }: { assetId: string }) {
   }
 
   const { asset, metadata } = data;
+  const assetTags = data.tags;
+  const availableTags = tagsResponse.data ?? [];
   const effectiveStatus = isRunningIndexAction ? "indexing" : asset.indexing_status;
   const isActionDisabled = isRunningIndexAction || asset.indexing_status === "indexing";
   const modalityCounts = new Map<TopicModality, number>();
@@ -231,6 +251,117 @@ export function AssetDetailPage({ assetId }: { assetId: string }) {
       await Promise.all([mutate(), revalidateAssetLists()]);
     } finally {
       setIsRunningIndexAction(false);
+    }
+  }
+
+  async function refreshTagData() {
+    await Promise.all([revalidateAssetLists(), revalidateTags()]);
+  }
+
+  async function attachTag(tag: TagSummary) {
+    if (assetTags.some((existingTag) => existingTag.id === tag.id)) {
+      setRequestMessage({
+        description: `${asset.file_name} already has the ${tag.name} tag.`,
+        title: "Tag already attached",
+        tone: "info",
+      });
+      return;
+    }
+
+    setRequestMessage(null);
+    setIsUpdatingTags(true);
+
+    try {
+      const result = await attachTagToAsset(asset.id, { tag_id: tag.id });
+      await mutate(result, { revalidate: false });
+      await refreshTagData();
+    } catch (tagError) {
+      const message = getErrorMessage(tagError);
+      setRequestMessage({
+        description: message,
+        title: "Could not add tag",
+        tone: "error",
+      });
+      notify({
+        description: message,
+        title: "Tag update failed",
+        tone: "error",
+      });
+      await Promise.all([mutate(), refreshTagData()]);
+    } finally {
+      setIsUpdatingTags(false);
+    }
+  }
+
+  async function onApplyExistingTag(tagId: string) {
+    const selectedTag = availableTags.find((tag) => tag.id === tagId);
+    if (!selectedTag) {
+      setRequestMessage({
+        description: "Select an existing tag to add it to this asset.",
+        title: "Tag not found",
+        tone: "error",
+      });
+      return;
+    }
+
+    await attachTag(selectedTag);
+  }
+
+async function onCreateAndAttachTag(name: string) {
+    const existingTag = findExistingTagByName(availableTags, name);
+    if (existingTag) {
+      await attachTag(existingTag);
+      return;
+    }
+
+    setRequestMessage(null);
+    setIsUpdatingTags(true);
+
+    try {
+      const createdTag = await createTag({ name });
+      await revalidateTags();
+      await attachTag(createdTag);
+    } catch (tagError) {
+      const message = getErrorMessage(tagError);
+      setRequestMessage({
+        description: message,
+        title: "Could not create tag",
+        tone: "error",
+      });
+      notify({
+        description: message,
+        title: "Tag creation failed",
+        tone: "error",
+      });
+      await revalidateTags();
+    } finally {
+      setIsUpdatingTags(false);
+    }
+  }
+
+  async function onRemoveTag(tag: AssetTag) {
+    setRequestMessage(null);
+    setIsUpdatingTags(true);
+
+    try {
+      const result = await removeTagFromAsset(asset.id, tag.id);
+      await mutate(result, { revalidate: false });
+      await refreshTagData();
+    } catch (tagError) {
+      const message = getErrorMessage(tagError);
+      setRequestMessage({
+        description: message,
+        title: "Could not remove tag",
+        tone: "error",
+      });
+      notify({
+        description: message,
+        title: "Tag removal failed",
+        tone: "error",
+      });
+      await Promise.all([mutate(), refreshTagData()]);
+    } finally {
+      setIsUpdatingTags(false);
     }
   }
 
@@ -297,7 +428,7 @@ export function AssetDetailPage({ assetId }: { assetId: string }) {
         />
       ) : null}
 
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1.7fr)_minmax(0,1.1fr)]">
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1.1fr)]">
         <Card>
           <CardHeader>
             <CardTitle>Asset details</CardTitle>
@@ -322,96 +453,124 @@ export function AssetDetailPage({ assetId }: { assetId: string }) {
 
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Database className="size-4" />
-              Indexed metadata
-            </CardTitle>
-            <CardDescription>Persisted metadata from the latest indexing run.</CardDescription>
+            <CardTitle>Tags</CardTitle>
+            <CardDescription>Organize this asset with lightweight labels.</CardDescription>
           </CardHeader>
-          <CardContent className="space-y-5">
-            {metadata ? (
-              <>
-                <dl className="grid gap-4 sm:grid-cols-2">
-                  <MetadataField label="Duration" value={formatDuration(metadata.duration)} />
-                  <MetadataField label="Default episode" value={metadata.default_episode?.label ?? "Not available"} />
-                  <MetadataField label="Start time" value={formatDateTime(metadata.start_time)} />
-                  <MetadataField label="End time" value={formatDateTime(metadata.end_time)} />
-                  <MetadataField label="Topic count" value={metadata.topic_count} />
-                  <MetadataField label="Message count" value={metadata.message_count} />
-                  <MetadataField
-                    label="Visual data"
-                    value={
-                      metadata.visualization_summary?.has_visualizable_streams ? "Available" : "Not available"
-                    }
-                  />
-                  <MetadataField
-                    label="Viewer lanes"
-                    value={metadata.visualization_summary?.default_lane_count ?? "Not available"}
-                  />
-                </dl>
-
-                <div className="space-y-2">
-                  <p className="text-xs uppercase tracking-wide text-muted-foreground">Sensor types</p>
-                  {metadata.sensor_types.length > 0 ? (
-                    <div className="flex flex-wrap gap-2">
-                      {metadata.sensor_types.map((sensorType) => (
-                        <Badge key={sensorType} variant="outline">
-                          {sensorType}
-                        </Badge>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-sm text-muted-foreground">No sensor categories were reported.</p>
-                  )}
-                </div>
-
-                <div className="space-y-2">
-                  <p className="text-xs uppercase tracking-wide text-muted-foreground">Modality mix</p>
-                  {modalitySummary.length > 0 ? (
-                    <div className="flex flex-wrap gap-2">
-                      {modalitySummary.map(([modality, count]) => (
-                        <Badge key={modality} variant="secondary">
-                          {formatModality(modality)} {count}
-                        </Badge>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-sm text-muted-foreground">Modality summaries will appear after indexing.</p>
-                  )}
-                </div>
-
-                {rawMetadataEntries.length > 0 ? (
-                  <div className="space-y-2">
-                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Profile details</p>
-                    <div className="flex flex-wrap gap-2">
-                      {rawMetadataEntries.map(([key, value]) => (
-                        <Badge key={key} variant="outline">
-                          {formatLabel(key)}: {String(value)}
-                        </Badge>
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
-              </>
-            ) : effectiveStatus === "failed" ? (
-              <MetadataEmptyState
-                description="Retry indexing after fixing the source file or backend issue to regenerate metadata."
-                title="No indexed metadata is available yet"
-              />
-            ) : effectiveStatus === "indexing" ? (
-              <MetadataEmptyState
-                description="The metadata panels will populate automatically once the backend finishes indexing."
-                title="Metadata is on the way"
-              />
-            ) : (
-              <MetadataEmptyState
-                description="Use the index action above to extract duration, topic summaries, and visualization readiness."
-                title="Metadata has not been generated"
-              />
-            )}
+          <CardContent className="space-y-4">
+            <TagBadgeList
+              emptyLabel="No tags on this asset yet."
+              onRemove={(tag) => void onRemoveTag(tag)}
+              removable
+              tags={assetTags}
+            />
+            <TagActionPanel
+              applyButtonLabel="Add tag"
+              availableTags={availableTags}
+              createButtonLabel="Create and add"
+              createInputLabel="Create a new tag"
+              disabled={isUpdatingTags}
+              emptyState="Create a tag below or reuse one from another asset."
+              excludeTagIds={assetTags.map((tag) => tag.id)}
+              onApplyTag={onApplyExistingTag}
+              onCreateTag={onCreateAndAttachTag}
+              selectLabel="Add an existing tag"
+            />
+            {tagsResponse.error ? (
+              <p className="text-sm text-destructive">Could not load existing tags.</p>
+            ) : null}
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Database className="size-4" />
+            Indexed metadata
+          </CardTitle>
+          <CardDescription>Persisted metadata from the latest indexing run.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          {metadata ? (
+            <>
+              <dl className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                <MetadataField label="Duration" value={formatDuration(metadata.duration)} />
+                <MetadataField label="Default episode" value={metadata.default_episode?.label ?? "Not available"} />
+                <MetadataField label="Start time" value={formatDateTime(metadata.start_time)} />
+                <MetadataField label="End time" value={formatDateTime(metadata.end_time)} />
+                <MetadataField label="Topic count" value={metadata.topic_count} />
+                <MetadataField label="Message count" value={metadata.message_count} />
+                <MetadataField
+                  label="Visual data"
+                  value={metadata.visualization_summary?.has_visualizable_streams ? "Available" : "Not available"}
+                />
+                <MetadataField
+                  label="Viewer lanes"
+                  value={metadata.visualization_summary?.default_lane_count ?? "Not available"}
+                />
+              </dl>
+
+              <div className="space-y-2">
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">Sensor types</p>
+                {metadata.sensor_types.length > 0 ? (
+                  <div className="flex flex-wrap gap-2">
+                    {metadata.sensor_types.map((sensorType) => (
+                      <Badge key={sensorType} variant="outline">
+                        {sensorType}
+                      </Badge>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">No sensor categories were reported.</p>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">Modality mix</p>
+                {modalitySummary.length > 0 ? (
+                  <div className="flex flex-wrap gap-2">
+                    {modalitySummary.map(([modality, count]) => (
+                      <Badge key={modality} variant="secondary">
+                        {formatModality(modality)} {count}
+                      </Badge>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">Modality summaries will appear after indexing.</p>
+                )}
+              </div>
+
+              {rawMetadataEntries.length > 0 ? (
+                <div className="space-y-2">
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">Profile details</p>
+                  <div className="flex flex-wrap gap-2">
+                    {rawMetadataEntries.map(([key, value]) => (
+                      <Badge key={key} variant="outline">
+                        {formatLabel(key)}: {String(value)}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </>
+          ) : effectiveStatus === "failed" ? (
+            <MetadataEmptyState
+              description="Retry indexing after fixing the source file or backend issue to regenerate metadata."
+              title="No indexed metadata is available yet"
+            />
+          ) : effectiveStatus === "indexing" ? (
+            <MetadataEmptyState
+              description="The metadata panels will populate automatically once the backend finishes indexing."
+              title="Metadata is on the way"
+            />
+          ) : (
+            <MetadataEmptyState
+              description="Use the index action above to extract duration, topic summaries, and visualization readiness."
+              title="Metadata has not been generated"
+            />
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">

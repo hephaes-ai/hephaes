@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
-from backend.app.db.models import Asset, Tag
+from backend.app.db.models import Asset, Tag, asset_tags_table
 from backend.app.services.assets import get_asset_or_raise
 
 
@@ -38,7 +38,11 @@ def normalize_tag_name(name: str) -> tuple[str, str]:
 
 
 def list_tags(session: Session) -> list[Tag]:
-    statement = select(Tag).order_by(Tag.normalized_name.asc(), Tag.id.asc())
+    statement = (
+        select(Tag)
+        .options(selectinload(Tag.assets))
+        .order_by(Tag.normalized_name.asc(), Tag.id.asc())
+    )
     return list(session.scalars(statement).all())
 
 
@@ -97,5 +101,13 @@ def remove_tag_from_asset(session: Session, *, asset_id: str, tag_id: str) -> As
         )
 
     asset.tags.remove(matching_tag)
+    session.flush()
+
+    remaining_attachment = session.scalar(
+        select(asset_tags_table.c.asset_id).where(asset_tags_table.c.tag_id == tag.id).limit(1)
+    )
+    if remaining_attachment is None:
+        session.delete(tag)
+
     session.commit()
     return get_asset_or_raise(session, asset_id)

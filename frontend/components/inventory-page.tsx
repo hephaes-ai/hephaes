@@ -17,6 +17,7 @@ import {
 
 import { AssetStatusBadge } from "@/components/asset-status-badge";
 import { useFeedback } from "@/components/feedback-provider";
+import { TagActionPanel, TagBadgeList } from "@/components/tag-controls";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -24,6 +25,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { NativeSelect } from "@/components/ui/native-select";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
@@ -33,9 +35,22 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { useAssets, useBackendCache } from "@/hooks/use-backend";
-import type { AssetListQuery, AssetRegistrationSkip, AssetSummary, IndexingStatus } from "@/lib/api";
-import { getErrorMessage, indexAsset, registerAssetsFromDialog, reindexAllAssets } from "@/lib/api";
+import { useAssets, useBackendCache, useTags } from "@/hooks/use-backend";
+import type {
+  AssetListQuery,
+  AssetRegistrationSkip,
+  AssetSummary,
+  IndexingStatus,
+  TagSummary,
+} from "@/lib/api";
+import {
+  attachTagToAsset,
+  createTag,
+  getErrorMessage,
+  indexAsset,
+  registerAssetsFromDialog,
+  reindexAllAssets,
+} from "@/lib/api";
 import { formatDateTime, formatFileSize, getIndexActionLabel } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -232,6 +247,19 @@ function getBulkIndexActionLabel(assets: AssetSummary[], pendingAssetIds: Set<st
   return "Index selected";
 }
 
+function getAssetTags(asset: AssetSummary) {
+  return asset.tags ?? [];
+}
+
+function assetHasTag(asset: AssetSummary, tagId: string) {
+  return getAssetTags(asset).some((tag) => tag.id === tagId);
+}
+
+function findExistingTagByName(tags: TagSummary[], name: string) {
+  const normalizedName = name.trim().toLowerCase();
+  return tags.find((tag) => tag.name.trim().toLowerCase() === normalizedName);
+}
+
 function AssetsTable({
   assets,
   inventoryHref,
@@ -357,6 +385,9 @@ function AssetsTable({
                   <div className="space-y-1">
                     <div className="font-medium text-foreground">{asset.file_name}</div>
                     <div className="truncate text-xs text-muted-foreground">{asset.file_path}</div>
+                    {getAssetTags(asset).length > 0 ? (
+                      <TagBadgeList className="pt-1" maxVisible={2} tags={getAssetTags(asset)} />
+                    ) : null}
                   </div>
                 </TableCell>
                 <TableCell className="uppercase text-muted-foreground">{asset.file_type}</TableCell>
@@ -433,9 +464,10 @@ export function InventoryPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { notify } = useFeedback();
-  const { revalidateAssetLists } = useBackendCache();
+  const { revalidateAssetLists, revalidateTags } = useBackendCache();
 
   const appliedSearch = searchParams.get("search")?.trim() ?? "";
+  const activeTag = searchParams.get("tag")?.trim() ?? "";
   const activeType = searchParams.get("type")?.trim() ?? "";
   const activeStatus = searchParams.get("status")?.trim() ?? "";
   const minDuration = searchParams.get("min_duration")?.trim() ?? "";
@@ -452,6 +484,7 @@ export function InventoryPage() {
   const [isBrowsePanelOpen, setIsBrowsePanelOpen] = React.useState(() => searchParams.toString().length > 0);
   const [isBulkIndexingSelection, setIsBulkIndexingSelection] = React.useState(false);
   const [isIndexingPendingAssets, setIsIndexingPendingAssets] = React.useState(false);
+  const [isUpdatingSelectionTags, setIsUpdatingSelectionTags] = React.useState(false);
   const [pendingAssetIds, setPendingAssetIds] = React.useState<Set<string>>(new Set());
   const [selectedAssetIds, setSelectedAssetIds] = React.useState<Set<string>>(new Set());
 
@@ -468,6 +501,7 @@ export function InventoryPage() {
     min_duration: normalizedMinDuration,
     search: appliedSearch || undefined,
     status: normalizedStatus,
+    tag: activeTag || undefined,
     type: activeType || undefined,
   };
   const serverQuery = Object.values(serverQueryCandidate).some((value) => value !== undefined)
@@ -477,10 +511,19 @@ export function InventoryPage() {
 
   const assetsResponse = useAssets(serverQuery);
   const allAssetsResponse = useAssets(hasServerFilters ? undefined : null);
+  const tagsResponse = useTags();
 
   const assets = assetsResponse.data ?? [];
   const allAssets = hasServerFilters ? (allAssetsResponse.data ?? assets) : assets;
   const totalRegisteredCount = hasServerFilters ? allAssetsResponse.data?.length : assets.length;
+  const availableTags = tagsResponse.data ?? [];
+  const selectableFilterTags = availableTags.filter((tag) => {
+    if (tag.asset_count > 0) {
+      return true;
+    }
+
+    return activeTag.length > 0 && tag.name.trim().toLowerCase() === activeTag.toLowerCase();
+  });
 
   const availableFileTypes = Array.from(new Set(allAssets.map((asset) => asset.file_type))).sort((left, right) =>
     left.localeCompare(right, undefined, { sensitivity: "base" }),
@@ -730,6 +773,11 @@ export function InventoryPage() {
     activeFilterChips.push({ key: "search", label: `Search: ${appliedSearch}` });
   }
 
+  if (activeTag) {
+    const activeTagName = availableTags.find((tag) => tag.name.trim().toLowerCase() === activeTag.toLowerCase())?.name;
+    activeFilterChips.push({ key: "tag", label: `Tag: ${activeTagName ?? activeTag}` });
+  }
+
   if (activeType) {
     activeFilterChips.push({ key: "type", label: `Type: ${formatFilterValue(activeType)}` });
   }
@@ -803,6 +851,10 @@ export function InventoryPage() {
 
   async function refreshAssetLists() {
     await revalidateAssetLists();
+  }
+
+  async function refreshTagAwareData() {
+    await Promise.all([revalidateAssetLists(), revalidateTags()]);
   }
 
   async function onRunAssetAction(asset: AssetSummary) {
@@ -962,6 +1014,118 @@ export function InventoryPage() {
     }
   }
 
+  async function applyTagToSelectedAssets(tag: TagSummary) {
+    const assetsNeedingTag = selectedVisibleAssets.filter((asset) => !assetHasTag(asset, tag.id));
+
+    if (assetsNeedingTag.length === 0) {
+      setFormMessage({
+        description: `All selected assets already have the ${tag.name} tag.`,
+        title: "Selection already tagged",
+        tone: "info",
+      });
+      return;
+    }
+
+    setFormMessage(null);
+    setIsUpdatingSelectionTags(true);
+
+    try {
+      let taggedCount = 0;
+      const failureMessages: string[] = [];
+
+      for (const asset of assetsNeedingTag) {
+        try {
+          await attachTagToAsset(asset.id, { tag_id: tag.id });
+          taggedCount += 1;
+        } catch (tagError) {
+          failureMessages.push(`${asset.file_name}: ${getErrorMessage(tagError)}`);
+        }
+      }
+
+      await refreshTagAwareData();
+
+      if (failureMessages.length === 0) {
+        return;
+      }
+
+      if (taggedCount > 0) {
+        const description = `${taggedCount} asset${taggedCount === 1 ? "" : "s"} tagged with ${tag.name}. ${failureMessages[0]}${failureMessages.length > 1 ? ` ${failureMessages.length - 1} more failed.` : ""}`;
+        setFormMessage({
+          description,
+          title: "Tags applied with warnings",
+          tone: "info",
+        });
+        notify({
+          description,
+          title: "Bulk tag update finished",
+          tone: "info",
+        });
+        return;
+      }
+
+      const description = failureMessages[0] ?? `No selected assets could be tagged with ${tag.name}.`;
+      setFormMessage({
+        description,
+        title: "Could not apply tag",
+        tone: "error",
+      });
+      notify({
+        description,
+        title: "Bulk tag update failed",
+        tone: "error",
+      });
+    } finally {
+      setIsUpdatingSelectionTags(false);
+    }
+  }
+
+  async function onApplyExistingTagToSelection(tagId: string) {
+    const selectedTag = availableTags.find((tag) => tag.id === tagId);
+    if (!selectedTag) {
+      setFormMessage({
+        description: "Select an existing tag to apply it to the current selection.",
+        title: "Tag not found",
+        tone: "error",
+      });
+      return;
+    }
+
+    await applyTagToSelectedAssets(selectedTag);
+  }
+
+  async function onCreateAndApplyTagToSelection(name: string) {
+    const existingTag = findExistingTagByName(availableTags, name);
+
+    if (existingTag) {
+      await applyTagToSelectedAssets(existingTag);
+      return;
+    }
+
+    setFormMessage(null);
+    setIsUpdatingSelectionTags(true);
+
+    try {
+      const createdTag = await createTag({ name });
+      await revalidateTags();
+      await applyTagToSelectedAssets(createdTag);
+    } catch (tagError) {
+      const message = getErrorMessage(tagError);
+      setFormMessage({
+        description: message,
+        title: "Could not create tag",
+        tone: "error",
+      });
+      notify({
+        description: message,
+        title: "Tag creation failed",
+        tone: "error",
+      });
+      await revalidateTags();
+    } finally {
+      setIsUpdatingSelectionTags(false);
+    }
+  }
+
   return (
     <div className="space-y-8">
       <section className="space-y-2">
@@ -1003,7 +1167,7 @@ export function InventoryPage() {
                 Registered assets
               </CardTitle>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <Badge className="h-6" variant="secondary">
                 {resultsCountLabel}
               </Badge>
@@ -1061,7 +1225,7 @@ export function InventoryPage() {
               <Button
                 className="shrink-0"
                 onClick={() => {
-                  void revalidateAssetLists();
+                  void Promise.all([revalidateAssetLists(), revalidateTags()]);
                 }}
                 size="sm"
                 type="button"
@@ -1107,7 +1271,7 @@ export function InventoryPage() {
                   </div>
                 </form>
 
-                <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+                <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,240px)]">
                   <div className="space-y-2">
                     <Label className="text-xs uppercase tracking-wide text-muted-foreground">File type</Label>
                     <div className="flex flex-wrap gap-2">
@@ -1156,6 +1320,27 @@ export function InventoryPage() {
                         </Button>
                       ))}
                     </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label className="text-xs uppercase tracking-wide text-muted-foreground" htmlFor="tag-filter">
+                      Tag
+                    </Label>
+                    <NativeSelect
+                      id="tag-filter"
+                      onChange={(event) => updateBrowseState({ tag: event.target.value || null })}
+                      value={activeTag}
+                    >
+                      <option value="">All tags</option>
+                      {selectableFilterTags.map((tag) => (
+                        <option key={tag.id} value={tag.name}>
+                          {tag.name}
+                        </option>
+                      ))}
+                    </NativeSelect>
+                    {tagsResponse.error ? (
+                      <p className="text-xs text-destructive">Could not load tags for filtering.</p>
+                    ) : null}
                   </div>
                 </div>
 
@@ -1267,6 +1452,28 @@ export function InventoryPage() {
               </div>
             </div>
           </div>
+
+          {selectedCount > 0 ? (
+            <div className="space-y-3 rounded-xl border bg-muted/20 p-4">
+              <div className="space-y-1">
+                <p className="text-sm font-medium text-foreground">Selected assets</p>
+                <p className="text-sm text-muted-foreground">
+                  Apply an existing tag or create a new one for the current selection.
+                </p>
+              </div>
+              <TagActionPanel
+                applyButtonLabel="Apply tag"
+                availableTags={availableTags}
+                createButtonLabel="Create and apply"
+                createInputLabel="Create a new tag"
+                disabled={isUpdatingSelectionTags}
+                emptyState="Create a tag first, then apply it to the selected assets."
+                onApplyTag={onApplyExistingTagToSelection}
+                onCreateTag={onCreateAndApplyTagToSelection}
+                selectLabel="Apply an existing tag"
+              />
+            </div>
+          ) : null}
         </CardHeader>
 
         <CardContent className="space-y-4">
