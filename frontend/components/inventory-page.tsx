@@ -53,6 +53,8 @@ import {
   registerAssetsFromDialog,
   reindexAllAssets,
 } from "@/lib/api";
+import type { AssetSelectionScope } from "@/lib/future-workflows";
+import { usePersistentUiState } from "@/lib/local-ui-state";
 import { formatDateTime, formatFileSize, getIndexActionLabel } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -65,6 +67,7 @@ type InventorySort =
   | "registered-asc";
 type SortColumn = "file_name" | "file_size" | "registered";
 type SortDirection = "asc" | "desc";
+type InventoryView = "table" | "compact";
 
 const DEFAULT_SORT: InventorySort = "registered-desc";
 const STATUS_OPTIONS: IndexingStatus[] = ["pending", "indexing", "indexed", "failed"];
@@ -118,6 +121,10 @@ function isValidSort(value: string | null): value is InventorySort {
     value === "registered-desc" ||
     value === "registered-asc"
   );
+}
+
+function isValidInventoryView(value: string | null): value is InventoryView {
+  return value === "table" || value === "compact";
 }
 
 function parseSort(value: string | null) {
@@ -262,6 +269,30 @@ function findExistingTagByName(tags: TagSummary[], name: string) {
   return tags.find((tag) => tag.name.trim().toLowerCase() === normalizedName);
 }
 
+function getAssetSelectionScope({
+  hasSearch,
+  hasServerFilters,
+  selectedCount,
+}: {
+  hasSearch: boolean;
+  hasServerFilters: boolean;
+  selectedCount: number;
+}): AssetSelectionScope {
+  if (selectedCount > 0) {
+    return "selected-assets";
+  }
+
+  if (hasSearch) {
+    return "search-results";
+  }
+
+  if (hasServerFilters) {
+    return "filtered-assets";
+  }
+
+  return "all-assets";
+}
+
 function AssetsTable({
   assets,
   inventoryHref,
@@ -272,6 +303,7 @@ function AssetsTable({
   pendingAssetIds,
   selectedAssetIds,
   sort,
+  view,
 }: {
   assets: AssetSummary[];
   inventoryHref: string;
@@ -282,6 +314,7 @@ function AssetsTable({
   pendingAssetIds: Set<string>;
   selectedAssetIds: Set<string>;
   sort: ReturnType<typeof parseSort>;
+  view: InventoryView;
 }) {
   const router = useRouter();
 
@@ -316,7 +349,12 @@ function AssetsTable({
 
   return (
     <div className="overflow-x-auto">
-      <Table className="min-w-[860px]">
+      <Table
+        className={cn(
+          "min-w-[860px]",
+          view === "compact" && "[&_td]:py-2 [&_td]:align-top [&_th]:py-2.5 [&_th]:align-top",
+        )}
+      >
         <TableHeader>
           <TableRow>
             <TableHead className="w-12">
@@ -479,11 +517,17 @@ export function InventoryPage() {
   const registeredAfter = searchParams.get("registered_after")?.trim() ?? "";
   const registeredBefore = searchParams.get("registered_before")?.trim() ?? "";
   const sort = parseSort(searchParams.get("sort"));
+  const view: InventoryView = isValidInventoryView(searchParams.get("view"))
+    ? (searchParams.get("view") as InventoryView)
+    : "table";
 
   const [formMessage, setFormMessage] = React.useState<FormMessage | null>(null);
   const [isChoosingFiles, setIsChoosingFiles] = React.useState(false);
   const [searchInput, setSearchInput] = React.useState(appliedSearch);
-  const [isBrowsePanelOpen, setIsBrowsePanelOpen] = React.useState(() => searchParams.toString().length > 0);
+  const [isBrowsePanelOpen, setIsBrowsePanelOpen] = usePersistentUiState(
+    "hephaes-inventory-browse-panel-open",
+    searchParams.toString().length > 0,
+  );
   const [isConversionDialogOpen, setIsConversionDialogOpen] = React.useState(false);
   const [isBulkIndexingSelection, setIsBulkIndexingSelection] = React.useState(false);
   const [isIndexingPendingAssets, setIsIndexingPendingAssets] = React.useState(false);
@@ -494,6 +538,12 @@ export function InventoryPage() {
   React.useEffect(() => {
     setSearchInput(appliedSearch);
   }, [appliedSearch]);
+
+  React.useEffect(() => {
+    if (searchParams.toString().length > 0 && !isBrowsePanelOpen) {
+      setIsBrowsePanelOpen(true);
+    }
+  }, [isBrowsePanelOpen, searchParams, setIsBrowsePanelOpen]);
 
   const normalizedMinDuration = parseNonNegativeNumber(minDuration) ?? undefined;
   const normalizedMaxDuration = parseNonNegativeNumber(maxDuration) ?? undefined;
@@ -629,6 +679,14 @@ export function InventoryPage() {
 
     React.startTransition(() => {
       router.replace(pathname, { scroll: false });
+    });
+  }
+
+  function onShowPlannedFeature(title: string, description: string) {
+    setFormMessage({
+      description,
+      title,
+      tone: "info",
     });
   }
 
@@ -826,6 +884,11 @@ export function InventoryPage() {
   const totalCountLabel =
     typeof totalRegisteredCount === "number" ? `${totalRegisteredCount} registered` : "Loading total";
   const inventoryHref = searchParams.toString() ? `${pathname}?${searchParams.toString()}` : pathname;
+  const selectionScope = getAssetSelectionScope({
+    hasSearch: appliedSearch.length > 0,
+    hasServerFilters,
+    selectedCount,
+  });
 
   const isLoading = assetsResponse.isLoading;
   const isInventoryEmpty = !hasAppliedFilters && totalRegisteredCount === 0;
@@ -1156,6 +1219,34 @@ export function InventoryPage() {
             <FileSearch2 className="size-4" />
             {isChoosingFiles ? "Opening..." : "Add files"}
           </Button>
+          <Button
+            className="shrink-0"
+            onClick={() =>
+              onShowPlannedFeature(
+                "Upload ingestion is planned",
+                "Upload-based ingestion is scaffolded for phase 7 and will be enabled when backend endpoints are available.",
+              )
+            }
+            size="sm"
+            type="button"
+            variant="ghost"
+          >
+            Upload files
+          </Button>
+          <Button
+            className="shrink-0"
+            onClick={() =>
+              onShowPlannedFeature(
+                "Directory scan is planned",
+                "Optional local directory scan registration will be added after backend support is available.",
+              )
+            }
+            size="sm"
+            type="button"
+            variant="ghost"
+          >
+            Scan directory
+          </Button>
         </div>
       </section>
 
@@ -1230,6 +1321,14 @@ export function InventoryPage() {
               >
                 Search & filters{hasAppliedFilters ? ` (${activeFilterChips.length})` : ""}
                 <ChevronDown className={cn("size-4 transition-transform", isBrowsePanelOpen && "rotate-180")} />
+              </Button>
+              <Button
+                onClick={() => updateBrowseState({ view: view === "table" ? "compact" : null })}
+                size="sm"
+                type="button"
+                variant="outline"
+              >
+                {view === "compact" ? "Compact view" : "Table view"}
               </Button>
               <Button
                 className="shrink-0"
@@ -1458,6 +1557,38 @@ export function InventoryPage() {
                     </Button>
                   </div>
                 ) : null}
+
+                  <div className="rounded-lg border bg-background/70 p-3">
+                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Future workflows</p>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <Button
+                        onClick={() =>
+                          onShowPlannedFeature(
+                            "Saved searches are planned",
+                            "Saved query presets will be added in a future phase without changing the current URL state contract.",
+                          )
+                        }
+                        size="xs"
+                        type="button"
+                        variant="outline"
+                      >
+                        Saved searches
+                      </Button>
+                      <Button
+                        onClick={() =>
+                          onShowPlannedFeature(
+                            "Saved selections are planned",
+                            "Selection collections will be added in a future phase and reuse current selection scope behavior.",
+                          )
+                        }
+                        size="xs"
+                        type="button"
+                        variant="outline"
+                      >
+                        Saved selections
+                      </Button>
+                    </div>
+                  </div>
               </div>
             </div>
           </div>
@@ -1469,6 +1600,7 @@ export function InventoryPage() {
                 <p className="text-sm text-muted-foreground">
                   Apply an existing tag or create a new one for the current selection.
                 </p>
+                <p className="text-xs text-muted-foreground">Selection scope: {selectionScope.replace(/-/g, " ")}</p>
               </div>
               <TagActionPanel
                 applyButtonLabel="Apply tag"
@@ -1506,6 +1638,7 @@ export function InventoryPage() {
               pendingAssetIds={pendingAssetIds}
               selectedAssetIds={selectedAssetIds}
               sort={sort}
+              view={view}
             />
           ) : null}
 
