@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from backend.app.api.assets import router as assets_router
 from backend.app.api.conversions import router as conversions_router
+from backend.app.api.episodes import router as episodes_router
 from backend.app.api.health import router as health_router
 from backend.app.api.jobs import router as jobs_router
 from backend.app.api.tags import router as tags_router
@@ -46,6 +47,7 @@ def create_app() -> FastAPI:
     app.state.settings = settings
     app.include_router(health_router)
     app.include_router(assets_router)
+    app.include_router(episodes_router)
     app.include_router(conversions_router)
     app.include_router(jobs_router)
     app.include_router(tags_router)
