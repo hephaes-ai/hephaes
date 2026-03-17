@@ -116,10 +116,12 @@ export interface EpisodeTimelineLane {
 
 export interface EpisodeTimelineResponse {
   duration_ns: number;
-  end_time_ns: number;
+  end_timestamp_ns?: number | null;
+  end_time_ns?: number;
   episode_id: string;
   lanes: EpisodeTimelineLane[];
-  start_time_ns: number;
+  start_timestamp_ns?: number | null;
+  start_time_ns?: number;
 }
 
 export interface EpisodeSamplesQuery {

@@ -122,8 +122,9 @@ export function VisualizationPage() {
   const viewerSourceResponse = useEpisodeViewerSource(assetId, resolvedEpisodeId);
 
   const timeline = timelineResponse.data;
-  const timelineStartNs = timeline?.start_time_ns ?? 0;
+  const timelineStartNs = timeline?.start_timestamp_ns ?? timeline?.start_time_ns ?? 0;
   const timelineEndNs =
+    timeline?.end_timestamp_ns ??
     timeline?.end_time_ns ??
     (timeline?.duration_ns ? timelineStartNs + timeline.duration_ns : timelineStartNs + 1_000_000_000);
   const timelineLanes = React.useMemo(() => timeline?.lanes ?? [], [timeline?.lanes]);
