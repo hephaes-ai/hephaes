@@ -305,7 +305,7 @@ export function JobsPage() {
           </CardHeader>
           <CardContent>
             <div className="overflow-x-auto">
-              <Table className="min-w-[980px]">
+              <Table className="min-w-[820px]">
                 <TableHeader>
                   <TableRow>
                     <TableHead>Type</TableHead>
@@ -313,7 +313,6 @@ export function JobsPage() {
                     <TableHead>Target assets</TableHead>
                     <TableHead>Created</TableHead>
                     <TableHead>Updated</TableHead>
-                    <TableHead>Output</TableHead>
                     <TableHead className="w-[96px] text-right">Open</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -341,15 +340,6 @@ export function JobsPage() {
                       </TableCell>
                       <TableCell className="text-muted-foreground">{formatDateTime(job.created_at)}</TableCell>
                       <TableCell className="text-muted-foreground">{formatDateTime(job.updated_at)}</TableCell>
-                      <TableCell>
-                        {job.output_path ? (
-                          <span className="block max-w-[280px] break-all text-xs text-muted-foreground">
-                            {job.output_path}
-                          </span>
-                        ) : (
-                          <span className="text-sm text-muted-foreground">Not available</span>
-                        )}
-                      </TableCell>
                       <TableCell className="text-right">
                         <Button asChild size="sm" variant="ghost">
                           <Link href={buildJobDetailHref(job.id, currentHref)}>

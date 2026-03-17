@@ -201,7 +201,7 @@ export function AssetDetailPage({ assetId }: { assetId: string }) {
         <Button asChild size="sm" variant="ghost">
           <Link href={returnHref}>
             <ArrowLeft className="size-4" />
-            Back to inventory
+            Back
           </Link>
         </Button>
         <Alert variant="destructive">
@@ -398,7 +398,7 @@ export function AssetDetailPage({ assetId }: { assetId: string }) {
       <Button asChild size="sm" variant="ghost">
         <Link href={returnHref}>
           <ArrowLeft className="size-4" />
-          Back to inventory
+          Back
         </Link>
       </Button>
 
