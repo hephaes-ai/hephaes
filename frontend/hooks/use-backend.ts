@@ -115,6 +115,9 @@ export function useEpisodeSamples(assetId: string, episodeId: string, query: Epi
   return useSWR(
     assetId && episodeId && query ? backendKeys.samples(assetId, episodeId, query) : null,
     () => getEpisodeSamples(assetId, episodeId, query as EpisodeSamplesQuery),
+    {
+      keepPreviousData: false,
+    },
   );
 }
 

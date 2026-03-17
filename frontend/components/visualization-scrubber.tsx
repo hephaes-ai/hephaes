@@ -47,10 +47,12 @@ function getModalityClassName(modality: string) {
 interface VisualizationScrubberProps {
   currentTimestampNs: number;
   endNs: number;
+  isPayloadLoading?: boolean;
   lanes: EpisodeTimelineLane[];
   onDragStateChange?: (isDragging: boolean) => void;
   onSeek: (timestampNs: number) => void;
   onToggleLane: (streamId: string) => void;
+  payloadByStreamId?: Record<string, Array<{ payload: unknown; timestamp_ns: number }>>;
   selectedLaneIds: string[];
   startNs: number;
 }
@@ -58,10 +60,12 @@ interface VisualizationScrubberProps {
 export function VisualizationScrubber({
   currentTimestampNs,
   endNs,
+  isPayloadLoading,
   lanes,
   onDragStateChange,
   onSeek,
   onToggleLane,
+  payloadByStreamId,
   selectedLaneIds,
   startNs,
 }: VisualizationScrubberProps) {
@@ -123,6 +127,7 @@ export function VisualizationScrubber({
           const markers = laneEvents.length > 0 ? laneEvents : bucketEvents;
           const isSelected = selectedSet.has(lane.stream_id);
           const cursorPercent = timestampToPercent(currentTimestampNs, startNs, endNs);
+          const lanePayloads = payloadByStreamId?.[lane.stream_id] ?? [];
 
           return (
             <div key={lane.stream_id} className={cn("rounded-lg border p-3", !isSelected && "opacity-60")}>
@@ -166,6 +171,28 @@ export function VisualizationScrubber({
                   style={{ left: `${cursorPercent}%` }}
                 />
               </div>
+
+              <details className="mt-3 rounded-md border bg-muted/20 p-2">
+                <summary className="cursor-pointer text-xs font-medium text-foreground">
+                  Payload at cursor {lanePayloads.length > 0 ? `(${lanePayloads.length})` : ""}
+                </summary>
+                <div className="mt-2 space-y-2">
+                  {lanePayloads.length > 0 ? (
+                    lanePayloads.map((sample, index) => (
+                      <pre
+                        className="overflow-x-auto rounded-md border bg-background p-2 text-xs text-foreground"
+                        key={`${lane.stream_id}-${sample.timestamp_ns}-${index}`}
+                      >
+                        {JSON.stringify(sample.payload ?? null, null, 2)}
+                      </pre>
+                    ))
+                  ) : isPayloadLoading ? (
+                    <p className="text-xs text-muted-foreground">Updating payload for current cursor...</p>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">No payload samples for this lane at current cursor.</p>
+                  )}
+                </div>
+              </details>
             </div>
           );
         })}

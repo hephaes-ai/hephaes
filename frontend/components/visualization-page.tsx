@@ -403,8 +403,10 @@ export function VisualizationPage() {
   const effectiveTimestampNs = currentTimestampNs ?? timelineStartNs;
   const stepBackwardDisabled = effectiveTimestampNs <= timelineStartNs;
   const stepForwardDisabled = effectiveTimestampNs >= timelineEndNs;
+  const responseTimestampNs = samplesResponse.data?.requested_timestamp_ns ?? null;
+  const hasSamplesForActiveCursor = responseTimestampNs === effectiveTimestampNs;
   const selectedSamples = (() => {
-    const data = samplesResponse.data;
+    const data = hasSamplesForActiveCursor ? samplesResponse.data : null;
     if (!data) {
       return [] as Array<{
         message_type: string;
@@ -455,6 +457,15 @@ export function VisualizationPage() {
         topic_name: sample.topic_name ?? sample.stream_id,
       }));
   })();
+  const payloadsByStreamId = selectedSamples.reduce<Record<string, Array<{ payload: unknown; timestamp_ns: number }>>>(
+    (accumulator, sample) => {
+      const existingSamples = accumulator[sample.stream_id] ?? [];
+      existingSamples.push({ payload: sample.payload, timestamp_ns: sample.timestamp_ns });
+      accumulator[sample.stream_id] = existingSamples;
+      return accumulator;
+    },
+    {},
+  );
 
   return (
     <div className="space-y-6">
@@ -536,73 +547,36 @@ export function VisualizationPage() {
         </CardContent>
       </Card>
 
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-        <Card>
-          <CardHeader>
-            <CardTitle>Viewer panel</CardTitle>
-            <CardDescription>Official Rerun embedding arrives in phase 8C.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {!resolvedEpisodeId ? (
-              <Alert>
-                <AlertTitle>Viewer is waiting for an episode</AlertTitle>
-                <AlertDescription>Select an episode to load viewer-source status.</AlertDescription>
-              </Alert>
-            ) : viewerSourceResponse.isLoading ? (
-              <Skeleton className="h-24 rounded-lg" />
-            ) : viewerSourceResponse.error ? (
-              <Alert variant="destructive">
-                <AlertTitle>Could not load viewer source</AlertTitle>
-                <AlertDescription>{getErrorMessage(viewerSourceResponse.error)}</AlertDescription>
-              </Alert>
-            ) : (
-              <Alert>
-                <AlertTitle>Viewer source status: {viewerSourceResponse.data?.status ?? "missing"}</AlertTitle>
-                <AlertDescription>
-                  {viewerSourceResponse.data?.source_url
-                    ? `Source URL ready: ${viewerSourceResponse.data.source_url}`
-                    : viewerSourceResponse.data?.detail ?? "Viewer source is not ready yet."}
-                </AlertDescription>
-              </Alert>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Inspector panel</CardTitle>
-            <CardDescription>JSON payloads at the active timeline cursor.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {resolvedEpisodeId && samplesResponse.isLoading ? (
-              <Skeleton className="h-24 rounded-lg" />
-            ) : samplesResponse.error ? (
-              <Alert variant="destructive">
-                <AlertTitle>Could not load synchronized samples</AlertTitle>
-                <AlertDescription>{getErrorMessage(samplesResponse.error)}</AlertDescription>
-              </Alert>
-            ) : selectedSamples.length > 0 ? (
-              <div className="space-y-2">
-                {selectedSamples.map((sample, index) => (
-                  <pre
-                    key={`${sample.stream_id}-${sample.timestamp_ns}-${index}`}
-                    className="overflow-x-auto rounded-md border bg-muted/30 p-3 text-xs text-foreground"
-                  >
-                    {JSON.stringify(sample.payload ?? null, null, 2)}
-                  </pre>
-                ))}
-              </div>
-            ) : (
-              <Alert>
-                <AlertTitle>No payload samples at this cursor</AlertTitle>
-                <AlertDescription>
-                  Try selecting different lanes or scrubbing to a timestamp where data is available.
-                </AlertDescription>
-              </Alert>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+      <Card>
+        <CardHeader>
+          <CardTitle>Viewer panel</CardTitle>
+          <CardDescription>Official Rerun embedding arrives in phase 8C.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {!resolvedEpisodeId ? (
+            <Alert>
+              <AlertTitle>Viewer is waiting for an episode</AlertTitle>
+              <AlertDescription>Select an episode to load viewer-source status.</AlertDescription>
+            </Alert>
+          ) : viewerSourceResponse.isLoading ? (
+            <Skeleton className="h-24 rounded-lg" />
+          ) : viewerSourceResponse.error ? (
+            <Alert variant="destructive">
+              <AlertTitle>Could not load viewer source</AlertTitle>
+              <AlertDescription>{getErrorMessage(viewerSourceResponse.error)}</AlertDescription>
+            </Alert>
+          ) : (
+            <Alert>
+              <AlertTitle>Viewer source status: {viewerSourceResponse.data?.status ?? "missing"}</AlertTitle>
+              <AlertDescription>
+                {viewerSourceResponse.data?.source_url
+                  ? `Source URL ready: ${viewerSourceResponse.data.source_url}`
+                  : viewerSourceResponse.data?.detail ?? "Viewer source is not ready yet."}
+              </AlertDescription>
+            </Alert>
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardContent className="space-y-5">
@@ -725,6 +699,8 @@ export function VisualizationPage() {
                 seekTo(timestampNs, { updateUrl: !isScrubberDragging });
               }}
               onToggleLane={onToggleLane}
+              isPayloadLoading={Boolean(resolvedEpisodeId) && (samplesResponse.isLoading || !hasSamplesForActiveCursor)}
+              payloadByStreamId={payloadsByStreamId}
               selectedLaneIds={normalizedSelectedLaneIds}
               startNs={timelineStartNs}
             />
