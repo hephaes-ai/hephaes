@@ -132,6 +132,28 @@ export function VisualizationPage() {
     const filtered = selectedLaneIds.filter((laneId) => availableLaneIds.has(laneId));
     return filtered.length > 0 ? filtered : timelineLanes.map((lane) => lane.stream_id);
   }, [availableLaneIds, selectedLaneIds, timelineLanes]);
+  const selectedLaneIdSet = React.useMemo(() => new Set(normalizedSelectedLaneIds), [normalizedSelectedLaneIds]);
+  const selectedLaneTopicSet = React.useMemo(
+    () =>
+      new Set(
+        timelineLanes
+          .filter((lane) => selectedLaneIdSet.has(lane.stream_id))
+          .map((lane) => lane.source_topic)
+          .filter((topic): topic is string => Boolean(topic)),
+      ),
+    [selectedLaneIdSet, timelineLanes],
+  );
+  const selectedLaneKeySet = React.useMemo(
+    () =>
+      new Set(
+        timelineLanes
+          .filter((lane) => selectedLaneIdSet.has(lane.stream_id))
+          .map((lane) => lane.stream_key)
+          .filter((streamKey): streamKey is string => Boolean(streamKey)),
+      ),
+    [selectedLaneIdSet, timelineLanes],
+  );
+  const samplesWindowNs = Math.max(stepSizeNs * 10, 1_000_000_000);
 
   const samplesQuery = React.useMemo(() => {
     if (!assetId || !resolvedEpisodeId || currentTimestampNs === null) {
@@ -141,16 +163,12 @@ export function VisualizationPage() {
     return {
       stream_ids: normalizedSelectedLaneIds,
       timestamp_ns: currentTimestampNs,
-      window_after_ns: stepSizeNs * 2,
-      window_before_ns: stepSizeNs * 2,
+      window_after_ns: samplesWindowNs,
+      window_before_ns: samplesWindowNs,
     };
-  }, [assetId, currentTimestampNs, normalizedSelectedLaneIds, resolvedEpisodeId]);
+  }, [assetId, currentTimestampNs, normalizedSelectedLaneIds, resolvedEpisodeId, samplesWindowNs]);
 
   const samplesResponse = useEpisodeSamples(assetId, resolvedEpisodeId, samplesQuery);
-
-  const currentHref = React.useMemo(() => {
-    return searchParamsString ? `${pathname}?${searchParamsString}` : pathname;
-  }, [pathname, searchParamsString]);
 
   const updateVisualizeState = React.useCallback(
     (updates: Record<string, string | null>) => {
@@ -389,8 +407,8 @@ export function VisualizationPage() {
     if (!data) {
       return [] as Array<{
         message_type: string;
-        metadata: Record<string, unknown>;
         modality: string;
+        payload: unknown;
         selection_strategy?: "nearest" | "window";
         stream_id: string;
         timestamp_ns: number;
@@ -400,12 +418,17 @@ export function VisualizationPage() {
 
     if (Array.isArray(data.streams) && data.streams.length > 0) {
       return data.streams
-        .filter((stream) => normalizedSelectedLaneIds.includes(stream.stream_id))
+        .filter(
+          (stream) =>
+            selectedLaneIdSet.has(stream.stream_id) ||
+            (stream.source_topic ? selectedLaneTopicSet.has(stream.source_topic) : false) ||
+            (stream.stream_key ? selectedLaneKeySet.has(stream.stream_key) : false),
+        )
         .flatMap((stream) =>
           (stream.samples ?? []).map((sample) => ({
             message_type: stream.stream_key,
-            metadata: sample.metadata_json ?? sample.metadata ?? {},
             modality: stream.modality,
+            payload: sample.payload,
             selection_strategy: stream.selection_strategy,
             stream_id: stream.stream_id,
             timestamp_ns: sample.timestamp_ns,
@@ -415,11 +438,16 @@ export function VisualizationPage() {
     }
 
     return (data.samples ?? [])
-      .filter((sample) => normalizedSelectedLaneIds.includes(sample.stream_id))
+      .filter(
+        (sample) =>
+          selectedLaneIdSet.has(sample.stream_id) ||
+          (sample.topic_name ? selectedLaneTopicSet.has(sample.topic_name) : false) ||
+          (sample.message_type ? selectedLaneKeySet.has(sample.message_type) : false),
+      )
       .map((sample) => ({
         message_type: sample.message_type ?? "Unknown",
-        metadata: sample.metadata_json ?? sample.metadata ?? {},
         modality: sample.modality,
+        payload: sample.payload,
         selection_strategy: sample.selection_strategy,
         stream_id: sample.stream_id,
         timestamp_ns: sample.timestamp_ns,
@@ -542,10 +570,9 @@ export function VisualizationPage() {
         <Card>
           <CardHeader>
             <CardTitle>Inspector panel</CardTitle>
-            <CardDescription>Synchronized sample metadata at the active timeline cursor.</CardDescription>
+            <CardDescription>JSON payloads at the active timeline cursor.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            <p className="text-xs text-muted-foreground">Current route: {currentHref}</p>
             {resolvedEpisodeId && samplesResponse.isLoading ? (
               <Skeleton className="h-24 rounded-lg" />
             ) : samplesResponse.error ? (
@@ -555,29 +582,18 @@ export function VisualizationPage() {
               </Alert>
             ) : selectedSamples.length > 0 ? (
               <div className="space-y-2">
-                {selectedSamples.map((sample) => (
-                  <div key={`${sample.stream_id}-${sample.timestamp_ns}`} className="rounded-lg border p-3">
-                    <p className="text-sm font-medium text-foreground">{sample.topic_name}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {sample.message_type} • {sample.modality.replace(/_/g, " ")}
-                    </p>
-                        {sample.selection_strategy ? (
-                          <p className="text-xs text-muted-foreground">Selection: {sample.selection_strategy}</p>
-                        ) : null}
-                    <p className="mt-1 text-xs text-muted-foreground">Timestamp {formatTimestampNs(sample.timestamp_ns)}</p>
-                    {Object.keys(sample.metadata ?? {}).length > 0 ? (
-                      <pre className="mt-2 overflow-x-auto rounded-md bg-muted/30 p-2 text-xs text-foreground">
-                        {JSON.stringify(sample.metadata, null, 2)}
-                      </pre>
-                    ) : (
-                      <p className="mt-2 text-xs text-muted-foreground">No metadata fields available for this sample.</p>
-                    )}
-                  </div>
+                {selectedSamples.map((sample, index) => (
+                  <pre
+                    key={`${sample.stream_id}-${sample.timestamp_ns}-${index}`}
+                    className="overflow-x-auto rounded-md border bg-muted/30 p-3 text-xs text-foreground"
+                  >
+                    {JSON.stringify(sample.payload ?? null, null, 2)}
+                  </pre>
                 ))}
               </div>
             ) : (
               <Alert>
-                <AlertTitle>No synchronized samples at this cursor</AlertTitle>
+                <AlertTitle>No payload samples at this cursor</AlertTitle>
                 <AlertDescription>
                   Try selecting different lanes or scrubbing to a timestamp where data is available.
                 </AlertDescription>
@@ -666,7 +682,7 @@ export function VisualizationPage() {
             <div className="flex flex-wrap items-end gap-3 lg:justify-end">
               <div className="flex flex-wrap items-center gap-2 lg:justify-end">
                 <Badge variant="outline">Cursor {formatTimestampNs(effectiveTimestampNs)}</Badge>
-                <Badge variant="outline">Window ±{formatTimestampNs(stepSizeNs * 2)}</Badge>
+                <Badge variant="outline">Window ±{formatTimestampNs(samplesWindowNs)}</Badge>
               </div>
 
               <div className="max-w-[140px] space-y-1">
