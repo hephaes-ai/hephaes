@@ -207,6 +207,7 @@ def test_get_asset_detail_returns_registered_asset(client: TestClient, sample_as
             "last_indexed_time": None,
         },
         "metadata": None,
+        "tags": [],
     }
 
 

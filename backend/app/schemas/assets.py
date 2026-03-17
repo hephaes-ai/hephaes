@@ -30,6 +30,7 @@ class AssetListQueryParams(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
     search: str | None = None
+    tag: str | None = None
     file_type: str | None = Field(default=None, alias="type")
     status: IndexingStatus | None = None
     min_duration: float | None = Field(default=None, ge=0)
@@ -39,6 +40,7 @@ class AssetListQueryParams(BaseModel):
 
     @field_validator(
         "search",
+        "tag",
         "file_type",
         "status",
         "min_duration",
@@ -56,6 +58,13 @@ class AssetListQueryParams(BaseModel):
         if not stripped:
             return None
         return stripped
+
+    @field_validator("tag", mode="after")
+    @classmethod
+    def normalize_tag(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return value.lower()
 
     @field_validator("file_type", mode="after")
     @classmethod
@@ -118,6 +127,49 @@ class AssetListItem(AssetSummary):
 
 class AssetRegistrationResponse(AssetSummary):
     model_config = ConfigDict(extra="forbid", from_attributes=True)
+
+
+class TagCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1)
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("name must be non-empty")
+        return stripped
+
+
+class AssetTagAttachRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    tag_id: str = Field(min_length=1)
+
+    @field_validator("tag_id")
+    @classmethod
+    def validate_tag_id(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("tag_id must be non-empty")
+        return stripped
+
+
+class TagResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid", from_attributes=True)
+
+    id: str = Field(min_length=1)
+    name: str = Field(min_length=1)
+    created_at: datetime
+
+    @field_validator("created_at", mode="before")
+    @classmethod
+    def normalize_created_at_to_utc(cls, value: datetime) -> datetime:
+        if value.tzinfo is not None:
+            return value
+        return value.replace(tzinfo=UTC)
 
 
 class IndexedTopicSummary(BaseModel):
@@ -197,3 +249,4 @@ class AssetDetailResponse(BaseModel):
 
     asset: AssetSummary
     metadata: AssetMetadataResponse | None = None
+    tags: list[TagResponse] = Field(default_factory=list)
