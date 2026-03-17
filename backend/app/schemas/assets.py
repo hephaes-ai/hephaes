@@ -7,6 +7,9 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from backend.app.schemas.conversions import ConversionSummaryResponse
+from backend.app.schemas.jobs import JobResponse
+
 IndexingStatus = Literal["pending", "indexing", "indexed", "failed"]
 TopicModality = Literal["image", "points", "scalar_series", "other"]
 RegistrationSkipReason = Literal["duplicate", "invalid_path"]
@@ -23,6 +26,21 @@ class AssetRegistrationRequest(BaseModel):
         stripped = value.strip()
         if not stripped:
             raise ValueError("file_path must be non-empty")
+        return stripped
+
+
+class DirectoryScanRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    directory_path: str = Field(min_length=1)
+    recursive: bool = True
+
+    @field_validator("directory_path")
+    @classmethod
+    def validate_directory_path(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("directory_path must be non-empty")
         return stripped
 
 
@@ -205,6 +223,25 @@ class VisualizationSummary(BaseModel):
     has_visualizable_streams: bool
 
 
+class EpisodeSummaryResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    default_lane_count: int = Field(ge=0)
+    duration: float = Field(ge=0)
+    end_time: datetime | None = None
+    episode_id: str = Field(min_length=1)
+    has_visualizable_streams: bool
+    label: str = Field(min_length=1)
+    start_time: datetime | None = None
+
+    @field_validator("start_time", "end_time", mode="before")
+    @classmethod
+    def normalize_episode_datetimes_to_utc(cls, value: datetime | None) -> datetime | None:
+        if value is None or value.tzinfo is not None:
+            return value
+        return value.replace(tzinfo=UTC)
+
+
 class AssetMetadataResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -244,6 +281,16 @@ class DialogAssetRegistrationResponse(BaseModel):
     skipped: list[AssetRegistrationSkip]
 
 
+class DirectoryScanResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    discovered_file_count: int = Field(ge=0)
+    recursive: bool
+    registered_assets: list[AssetRegistrationResponse]
+    scanned_directory: str = Field(min_length=1)
+    skipped: list[AssetRegistrationSkip]
+
+
 class ReindexAllResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -258,3 +305,6 @@ class AssetDetailResponse(BaseModel):
     asset: AssetSummary
     metadata: AssetMetadataResponse | None = None
     tags: list[TagResponse] = Field(default_factory=list)
+    episodes: list[EpisodeSummaryResponse] = Field(default_factory=list)
+    related_jobs: list[JobResponse] = Field(default_factory=list)
+    conversions: list[ConversionSummaryResponse] = Field(default_factory=list)

@@ -21,6 +21,7 @@ class Settings:
     repo_root: Path
     backend_dir: Path
     data_dir: Path
+    raw_data_dir: Path
     outputs_dir: Path
     database_path: Path
     database_url: str
@@ -31,6 +32,9 @@ def get_settings() -> Settings:
     repo_root = Path(__file__).resolve().parents[2]
     backend_dir = repo_root / "backend"
     data_dir = Path(os.environ.get("HEPHAES_BACKEND_DATA_DIR", backend_dir / "data")).expanduser()
+    raw_data_dir = Path(
+        os.environ.get("HEPHAES_BACKEND_RAW_DATA_DIR", data_dir / "raw"),
+    ).expanduser()
     outputs_dir = Path(
         os.environ.get("HEPHAES_BACKEND_OUTPUTS_DIR", data_dir / "outputs"),
     ).expanduser()
@@ -44,6 +48,7 @@ def get_settings() -> Settings:
         repo_root=repo_root,
         backend_dir=backend_dir,
         data_dir=data_dir,
+        raw_data_dir=raw_data_dir,
         outputs_dir=outputs_dir,
         database_path=database_path,
         database_url=f"sqlite:///{database_path}",

@@ -209,6 +209,9 @@ def test_get_asset_detail_returns_registered_asset(client: TestClient, sample_as
         },
         "metadata": None,
         "tags": [],
+        "episodes": [],
+        "related_jobs": [],
+        "conversions": [],
     }
 
 

@@ -22,6 +22,9 @@ def create_app() -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        settings.data_dir.mkdir(parents=True, exist_ok=True)
+        settings.raw_data_dir.mkdir(parents=True, exist_ok=True)
+        settings.outputs_dir.mkdir(parents=True, exist_ok=True)
         initialize_database(engine)
         app.state.engine = engine
         app.state.session_factory = session_factory
