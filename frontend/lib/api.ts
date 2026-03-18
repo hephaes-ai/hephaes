@@ -4,6 +4,8 @@ export type JobStatus = "queued" | "running" | "succeeded" | "failed";
 export type JobType = "index" | "convert" | "prepare_visualization";
 export type ConversionStatus = "queued" | "running" | "succeeded" | "failed";
 export type ConversionFormat = "parquet" | "tfrecord";
+export type OutputFormat = ConversionFormat | "json" | "unknown";
+export type OutputAvailability = "ready";
 export type ResampleMethod = "interpolate" | "downsample";
 
 export interface HealthResponse {
@@ -306,6 +308,38 @@ export interface ConversionDetail extends ConversionSummary {
   output_files: string[];
 }
 
+export interface OutputsQuery {
+  asset_id?: string;
+  availability?: OutputAvailability;
+  conversion_id?: string;
+  format?: OutputFormat;
+  search?: string;
+}
+
+export interface OutputSummary {
+  asset_ids: string[];
+  availability: OutputAvailability;
+  conversion_id: string;
+  conversion_status: ConversionStatus;
+  created_at: string;
+  file_name: string;
+  format: OutputFormat;
+  id: string;
+  job_id: string;
+  job_status: JobStatus;
+  output_file: string;
+  output_path: string | null;
+  relative_path: string;
+  updated_at: string;
+}
+
+export interface OutputDetail extends OutputSummary {
+  config: Record<string, unknown>;
+  error_message: string | null;
+  job: JobSummary;
+  sibling_output_files: string[];
+}
+
 export class BackendApiError extends Error {
   status: number;
 
@@ -396,6 +430,126 @@ export function serializeAssetListQuery(query?: AssetListQuery | null) {
   }
 
   return params.toString();
+}
+
+function getOutputFileName(outputFile: string) {
+  const normalizedOutputFile = outputFile.replace(/\\/g, "/");
+  const segments = normalizedOutputFile.split("/").filter(Boolean);
+  return segments.at(-1) ?? outputFile;
+}
+
+function getOutputRelativePath(outputPath: string | null, outputFile: string) {
+  if (!outputPath) {
+    return getOutputFileName(outputFile);
+  }
+
+  const normalizedOutputPath = outputPath.replace(/\\/g, "/").replace(/\/+$/, "");
+  const normalizedOutputFile = outputFile.replace(/\\/g, "/");
+
+  if (normalizedOutputFile === normalizedOutputPath) {
+    return getOutputFileName(outputFile);
+  }
+
+  const prefix = `${normalizedOutputPath}/`;
+  if (normalizedOutputFile.startsWith(prefix)) {
+    return normalizedOutputFile.slice(prefix.length);
+  }
+
+  return getOutputFileName(outputFile);
+}
+
+function inferOutputFormat(
+  outputFile: string,
+  fallbackFormat: ConversionFormat | null,
+): OutputFormat {
+  const normalizedOutputFile = outputFile.trim().toLowerCase();
+
+  if (normalizedOutputFile.endsWith(".parquet")) {
+    return "parquet";
+  }
+
+  if (
+    normalizedOutputFile.endsWith(".tfrecord") ||
+    normalizedOutputFile.endsWith(".tfrecords")
+  ) {
+    return "tfrecord";
+  }
+
+  if (normalizedOutputFile.endsWith(".json")) {
+    return "json";
+  }
+
+  return fallbackFormat ?? "unknown";
+}
+
+export function buildOutputId(conversionId: string, outputFile: string) {
+  return `${conversionId}::${encodeURIComponent(outputFile)}`;
+}
+
+export function parseOutputId(outputId: string) {
+  const separatorIndex = outputId.indexOf("::");
+
+  if (separatorIndex <= 0) {
+    return null;
+  }
+
+  const conversionId = outputId.slice(0, separatorIndex).trim();
+  const encodedOutputFile = outputId.slice(separatorIndex + 2);
+
+  if (!conversionId || !encodedOutputFile) {
+    return null;
+  }
+
+  try {
+    return {
+      conversionId,
+      outputFile: decodeURIComponent(encodedOutputFile),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function buildOutputDetail(conversion: ConversionDetail, outputFile: string): OutputDetail {
+  const configOutput = conversion.config?.output;
+  const fallbackFormat =
+    configOutput && typeof configOutput === "object" && "format" in configOutput
+      ? (configOutput.format as ConversionFormat | null)
+      : null;
+
+  return {
+    asset_ids: [...conversion.asset_ids],
+    availability: "ready",
+    config: conversion.config,
+    conversion_id: conversion.id,
+    conversion_status: conversion.status,
+    created_at: conversion.created_at,
+    error_message: conversion.error_message,
+    file_name: getOutputFileName(outputFile),
+    format: inferOutputFormat(outputFile, fallbackFormat),
+    id: buildOutputId(conversion.id, outputFile),
+    job: conversion.job,
+    job_id: conversion.job_id,
+    job_status: conversion.job.status,
+    output_file: outputFile,
+    output_path: conversion.output_path,
+    relative_path: getOutputRelativePath(conversion.output_path, outputFile),
+    sibling_output_files: [...conversion.output_files],
+    updated_at: conversion.updated_at,
+  };
+}
+
+function sortOutputs(outputs: OutputDetail[]) {
+  return [...outputs].sort((left, right) => {
+    const createdDifference =
+      new Date(right.created_at).getTime() - new Date(left.created_at).getTime();
+
+    if (createdDifference !== 0) {
+      return createdDifference;
+    }
+
+    return left.file_name.localeCompare(right.file_name);
+  });
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -538,6 +692,38 @@ export function listConversions() {
 
 export function getConversion(conversionId: string) {
   return request<ConversionDetail>(`/conversions/${conversionId}`);
+}
+
+export async function listOutputs() {
+  const conversions = await listConversions();
+  const conversionDetails = await Promise.all(
+    conversions.map((conversion) => getConversion(conversion.id)),
+  );
+
+  const outputs = conversionDetails.flatMap((conversion) =>
+    conversion.output_files.map((outputFile) => buildOutputDetail(conversion, outputFile)),
+  );
+
+  return sortOutputs(outputs);
+}
+
+export async function getOutput(outputId: string) {
+  const parsedOutputId = parseOutputId(outputId);
+
+  if (!parsedOutputId) {
+    throw new BackendApiError(`output not found: ${outputId}`, 404);
+  }
+
+  const conversion = await getConversion(parsedOutputId.conversionId);
+  const matchingOutputFile = conversion.output_files.find(
+    (outputFile) => outputFile === parsedOutputId.outputFile,
+  );
+
+  if (!matchingOutputFile) {
+    throw new BackendApiError(`output not found: ${outputId}`, 404);
+  }
+
+  return buildOutputDetail(conversion, matchingOutputFile);
 }
 
 export function listJobs() {

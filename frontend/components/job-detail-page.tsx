@@ -20,6 +20,7 @@ import {
   isWorkflowActiveStatus,
 } from "@/lib/format";
 import { resolveReturnHref } from "@/lib/navigation";
+import { buildOutputsHref } from "@/lib/outputs";
 
 import { WorkflowStatusBadge } from "@/components/workflow-status-badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -289,9 +290,17 @@ export function JobDetailPage({ jobId }: { jobId: string }) {
 
       {matchedConversionSummary ? (
         <Card>
-          <CardHeader>
-            <CardTitle>Conversion output</CardTitle>
-            <CardDescription>Completed conversion metadata linked to this job.</CardDescription>
+          <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <CardTitle>Conversion output</CardTitle>
+              <CardDescription>Completed conversion metadata linked to this job.</CardDescription>
+            </div>
+            <Button asChild size="sm" variant="outline">
+              <Link href={buildOutputsHref({ conversionId: matchedConversionSummary.id })}>
+                View outputs
+                <ArrowRight className="size-3.5" />
+              </Link>
+            </Button>
           </CardHeader>
           <CardContent className="space-y-4">
             <dl className="grid gap-4 sm:grid-cols-2">

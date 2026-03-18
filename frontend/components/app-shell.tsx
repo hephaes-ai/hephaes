@@ -12,6 +12,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const isInventoryRoute = pathname === "/";
   const isJobsRoute = pathname === "/jobs" || pathname.startsWith("/jobs/");
+  const isOutputsRoute = pathname === "/outputs" || pathname.startsWith("/outputs/");
 
   return (
     <div className="flex min-h-svh flex-col bg-background">
@@ -47,6 +48,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <div className="flex items-center gap-1">
                 <Button asChild size="sm" variant={isInventoryRoute ? "secondary" : "ghost"}>
                   <Link href="/">Inventory</Link>
+                </Button>
+                <Button asChild size="sm" variant={isOutputsRoute ? "secondary" : "ghost"}>
+                  <Link href="/outputs">Outputs</Link>
                 </Button>
                 <Button asChild size="sm" variant={isJobsRoute ? "secondary" : "ghost"}>
                   <Link href="/jobs">Jobs</Link>

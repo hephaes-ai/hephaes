@@ -38,6 +38,7 @@ import {
   type TFRecordConversionOutputRequest,
 } from "@/lib/api";
 import { formatDateTime, isWorkflowActiveStatus } from "@/lib/format";
+import { buildOutputsHref } from "@/lib/outputs";
 
 type ParquetCompression = NonNullable<ParquetConversionOutputRequest["compression"]>;
 type TFRecordCompression = NonNullable<TFRecordConversionOutputRequest["compression"]>;
@@ -252,6 +253,7 @@ export function ConversionDialog({
     revalidateConversionDetail,
     revalidateConversions,
     revalidateJobs,
+    revalidateOutputs,
   } = useBackendCache();
   const [formState, setFormState] = React.useState<ConversionFormState>(createDefaultFormState);
   const [createdConversion, setCreatedConversion] = React.useState<ConversionDetail | null>(null);
@@ -324,6 +326,7 @@ export function ConversionDialog({
             revalidateConversionDetail(refreshedConversion.id),
             revalidateConversions(),
             revalidateJobs(),
+            revalidateOutputs(),
           ]);
         } catch {
           // Keep the last known status visible if polling fails briefly.
@@ -340,6 +343,7 @@ export function ConversionDialog({
     revalidateConversionDetail,
     revalidateConversions,
     revalidateJobs,
+    revalidateOutputs,
   ]);
 
   function updateFormState(updater: (current: ConversionFormState) => ConversionFormState) {
@@ -380,6 +384,7 @@ export function ConversionDialog({
         revalidateConversionDetail(result.id),
         revalidateConversions(),
         revalidateJobs(),
+        revalidateOutputs(),
       ]);
     } catch (conversionError) {
       const message = getErrorMessage(conversionError);
@@ -497,6 +502,9 @@ export function ConversionDialog({
                 <Link href={`/jobs/${createdConversion.job_id}?from=${encodeURIComponent(currentHref)}`}>
                   Open job
                 </Link>
+              </Button>
+              <Button asChild type="button" variant="outline">
+                <Link href={buildOutputsHref({ conversionId: createdConversion.id })}>View outputs</Link>
               </Button>
               <Button onClick={() => onOpenChange(false)} type="button">
                 Done

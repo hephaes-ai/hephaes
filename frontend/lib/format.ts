@@ -1,4 +1,11 @@
-import type { ConversionStatus, IndexingStatus, JobStatus, JobType } from "@/lib/api";
+import type {
+  ConversionStatus,
+  IndexingStatus,
+  JobStatus,
+  JobType,
+  OutputAvailability,
+  OutputFormat,
+} from "@/lib/api";
 
 export function formatFileSize(bytes: number) {
   if (bytes < 1024) {
@@ -80,6 +87,30 @@ export function formatSentenceCase(value: string) {
 
 export function formatJobType(jobType: JobType) {
   return formatSentenceCase(jobType);
+}
+
+export function formatOutputFormat(format: OutputFormat) {
+  if (format === "tfrecord") {
+    return "TFRecord";
+  }
+
+  if (format === "json") {
+    return "JSON";
+  }
+
+  if (format === "parquet") {
+    return "Parquet";
+  }
+
+  return "Unknown";
+}
+
+export function formatOutputAvailability(availability: OutputAvailability) {
+  if (availability === "ready") {
+    return "Ready";
+  }
+
+  return formatSentenceCase(availability);
 }
 
 export function formatWorkflowStatus(status: JobStatus | ConversionStatus) {

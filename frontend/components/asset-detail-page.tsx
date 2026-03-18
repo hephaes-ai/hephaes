@@ -44,6 +44,7 @@ import {
   isWorkflowActiveStatus,
 } from "@/lib/format";
 import { resolveReturnHref } from "@/lib/navigation";
+import { buildOutputsHref } from "@/lib/outputs";
 import { buildReplayHref } from "@/lib/visualization";
 
 function AssetDetailSkeleton() {
@@ -417,6 +418,11 @@ export function AssetDetailPage({ assetId }: { assetId: string }) {
                   <Eye className="size-3.5" />
                   Replay
                 </Link>
+              </Button>
+            ) : null}
+            {conversions.length > 0 ? (
+              <Button asChild size="sm" type="button" variant="outline">
+                <Link href={buildOutputsHref({ assetId: asset.id })}>View outputs</Link>
               </Button>
             ) : null}
             <Button onClick={() => setIsConversionDialogOpen(true)} size="sm" type="button" variant="outline">
