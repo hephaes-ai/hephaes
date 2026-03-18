@@ -6,8 +6,8 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
-from backend.app.db.models import Asset, Tag, asset_tags_table
-from backend.app.services.assets import get_asset_or_raise
+from app.db.models import Asset, Tag, asset_tags_table
+from app.services.assets import get_asset_or_raise
 
 
 class TagServiceError(Exception):

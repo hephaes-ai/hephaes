@@ -15,8 +15,8 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
-from backend.app.config import get_settings
-from backend.app.db.models import Asset, AssetMetadata, Conversion, Job, Tag
+from app.config import get_settings
+from app.db.models import Asset, AssetMetadata, Conversion, Job, Tag
 
 SUPPORTED_ASSET_FILE_TYPES = {"bag", "mcap"}
 

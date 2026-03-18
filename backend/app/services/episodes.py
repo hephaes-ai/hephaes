@@ -12,9 +12,9 @@ from hephaes._converter_helpers import _normalize_payload
 from hephaes.models import Message
 from hephaes.reader import RosReader
 
-from backend.app.db.models import Asset
-from backend.app.schemas.assets import TopicModality
-from backend.app.services.assets import (
+from app.db.models import Asset
+from app.schemas.assets import TopicModality
+from app.services.assets import (
     AssetEpisodeSummary,
     EpisodeDiscoveryUnavailableError,
     get_asset_or_raise,

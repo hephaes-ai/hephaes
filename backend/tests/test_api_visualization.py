@@ -4,9 +4,9 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from backend.app.services import episodes as episode_service
-from backend.app.services import indexing as indexing_service
-from backend.app.services import visualization as visualization_service
+from app.services import episodes as episode_service
+from app.services import indexing as indexing_service
+from app.services import visualization as visualization_service
 from .test_api_episodes import (
     BASE_TIMESTAMP_NS,
     FakeReader,

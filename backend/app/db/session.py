@@ -10,8 +10,8 @@ from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from backend.app.config import Settings
-from backend.app.db.models import Base
+from app.config import Settings
+from app.db.models import Base
 
 
 def ensure_database_directory(database_path: Path) -> None:

@@ -9,15 +9,15 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from fastapi.staticfiles import StaticFiles
 
-from backend.app.api.assets import router as assets_router
-from backend.app.api.conversions import router as conversions_router
-from backend.app.api.episodes import router as episodes_router
-from backend.app.api.health import router as health_router
-from backend.app.api.jobs import router as jobs_router
-from backend.app.api.tags import router as tags_router
-from backend.app.api.visualization import router as visualization_router
-from backend.app.config import get_settings
-from backend.app.db.session import create_engine_and_session_factory, initialize_database
+from app.api.assets import router as assets_router
+from app.api.conversions import router as conversions_router
+from app.api.episodes import router as episodes_router
+from app.api.health import router as health_router
+from app.api.jobs import router as jobs_router
+from app.api.tags import router as tags_router
+from app.api.visualization import router as visualization_router
+from app.config import get_settings
+from app.db.session import create_engine_and_session_factory, initialize_database
 
 
 def create_app() -> FastAPI:

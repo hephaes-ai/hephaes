@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
-from backend.app.services import assets as asset_services
+from app.services import assets as asset_services
 
 
 def register_asset(client: TestClient, asset_path: Path):

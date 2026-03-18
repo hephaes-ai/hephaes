@@ -7,7 +7,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from backend.app.schemas.jobs import JobResponse
+from app.schemas.jobs import JobResponse
 
 SourceKind = Literal["rrd_url", "grpc_url"]
 ViewerSourceStatus = Literal["none", "preparing", "ready", "failed"]

@@ -39,11 +39,11 @@ def client(
     monkeypatch.setenv("HEPHAES_BACKEND_OUTPUTS_DIR", str(backend_outputs_dir))
     monkeypatch.setenv("HEPHAES_BACKEND_RAW_DATA_DIR", str(backend_raw_data_dir))
 
-    from backend.app.config import get_settings
+    from app.config import get_settings
 
     get_settings.cache_clear()
 
-    from backend.app.main import create_app
+    from app.main import create_app
 
     app = create_app()
     with TestClient(app) as test_client:

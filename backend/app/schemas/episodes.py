@@ -7,7 +7,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from backend.app.schemas.assets import TopicModality
+from app.schemas.assets import TopicModality
 
 EpisodeSampleSelectionStrategy = Literal["nearest", "window"]
 

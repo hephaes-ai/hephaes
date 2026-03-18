@@ -7,15 +7,15 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from backend.app.db.models import Conversion
-from backend.app.db.session import get_db_session
-from backend.app.schemas.conversions import (
+from app.db.models import Conversion
+from app.db.session import get_db_session
+from app.schemas.conversions import (
     ConversionCreateRequest,
     ConversionDetailResponse,
     ConversionSummaryResponse,
 )
-from backend.app.schemas.jobs import JobResponse
-from backend.app.services.conversions import (
+from app.schemas.jobs import JobResponse
+from app.services.conversions import (
     ConversionExecutionError,
     ConversionNotFoundError,
     ConversionService,

@@ -7,15 +7,15 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from backend.app.db.session import get_db_session
-from backend.app.schemas.jobs import JobResponse
-from backend.app.schemas.visualization import (
+from app.db.session import get_db_session
+from app.schemas.jobs import JobResponse
+from app.schemas.visualization import (
     PrepareVisualizationResponse,
     ViewerSourceResponse,
 )
-from backend.app.services.assets import AssetNotFoundError, EpisodeDiscoveryUnavailableError
-from backend.app.services.episodes import EpisodeNotFoundError, EpisodePlaybackError
-from backend.app.services.visualization import (
+from app.services.assets import AssetNotFoundError, EpisodeDiscoveryUnavailableError
+from app.services.episodes import EpisodeNotFoundError, EpisodePlaybackError
+from app.services.visualization import (
     VisualizationError,
     VisualizationGenerationError,
     VisualizationService,

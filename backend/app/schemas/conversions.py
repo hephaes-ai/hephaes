@@ -7,7 +7,7 @@ from typing import Any, Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from backend.app.schemas.jobs import JobResponse
+from app.schemas.jobs import JobResponse
 
 ConversionStatus = Literal["queued", "running", "succeeded", "failed"]
 ParquetCompression = Literal["none", "snappy", "gzip", "brotli", "lz4", "zstd"]

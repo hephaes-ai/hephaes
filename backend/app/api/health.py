@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Request
 
-from backend.app.config import Settings
+from app.config import Settings
 
 router = APIRouter(tags=["health"])
 

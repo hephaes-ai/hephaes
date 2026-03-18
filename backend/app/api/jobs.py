@@ -7,9 +7,9 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from backend.app.db.session import get_db_session
-from backend.app.schemas.jobs import JobResponse
-from backend.app.services.jobs import JobNotFoundError, get_job_or_raise, list_jobs
+from app.db.session import get_db_session
+from app.schemas.jobs import JobResponse
+from app.services.jobs import JobNotFoundError, get_job_or_raise, list_jobs
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 DbSession = Annotated[Session, Depends(get_db_session)]

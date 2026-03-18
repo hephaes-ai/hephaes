@@ -11,9 +11,9 @@ from sqlalchemy.orm import Session
 from hephaes import Profiler
 from hephaes.models import BagMetadata
 
-from backend.app.db.models import Asset, AssetMetadata, utc_now
-from backend.app.services.assets import AssetNotFoundError, get_asset_or_raise
-from backend.app.services.jobs import JobService
+from app.db.models import Asset, AssetMetadata, utc_now
+from app.services.assets import AssetNotFoundError, get_asset_or_raise
+from app.services.jobs import JobService
 
 VISUAL_MODALITIES = {"image", "points", "scalar_series"}
 
