@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -18,10 +19,29 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <div className="mx-auto flex h-16 w-full max-w-6xl items-center justify-between px-4 sm:px-6">
           <div className="flex min-w-0 items-center gap-4">
             <div className="min-w-0">
-              <Link className="block text-sm font-semibold tracking-tight text-foreground" href="/">
-                Hephaes
+              <Link className="flex items-center gap-2 text-sm font-semibold tracking-tight text-foreground" href="/">
+                <span className="relative block size-8 shrink-0">
+                  <Image
+                    alt=""
+                    aria-hidden="true"
+                    className="object-contain dark:hidden"
+                    fill
+                    priority
+                    sizes="32px"
+                    src="/robot-head-logo-iso.png"
+                  />
+                  <Image
+                    alt=""
+                    aria-hidden="true"
+                    className="hidden object-contain dark:block"
+                    fill
+                    priority
+                    sizes="32px"
+                    src="/robot-head-logo-dark-bg.png"
+                  />
+                </span>
+                <span>Hephaes</span>
               </Link>
-              <p className="truncate text-xs text-muted-foreground">Local asset inventory</p>
             </div>
             <nav className="hidden sm:flex">
               <div className="flex items-center gap-1">
