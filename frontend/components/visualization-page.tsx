@@ -9,16 +9,20 @@ import {
   useAsset,
   useAssetEpisode,
   useAssetEpisodes,
+  usePrepareVisualization,
   useEpisodeSamples,
   useEpisodeTimeline,
   useEpisodeViewerSource,
+  useJob,
 } from "@/hooks/use-backend";
 import { BackendApiError, getErrorMessage } from "@/lib/api";
 import { formatDateTime, formatDuration } from "@/lib/format";
 import { resolveReturnHref } from "@/lib/navigation";
 import { buildVisualizeHref } from "@/lib/visualization";
 
+import { RerunViewer } from "@/components/rerun-viewer";
 import { VisualizationScrubber } from "@/components/visualization-scrubber";
+import { WorkflowStatusBadge } from "@/components/workflow-status-badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -120,6 +124,12 @@ export function VisualizationPage() {
   const episodeResponse = useAssetEpisode(assetId, resolvedEpisodeId);
   const timelineResponse = useEpisodeTimeline(assetId, resolvedEpisodeId);
   const viewerSourceResponse = useEpisodeViewerSource(assetId, resolvedEpisodeId);
+  const prepareVisualization = usePrepareVisualization();
+  const [preparationJobId, setPreparationJobId] = React.useState<string | null>(null);
+
+  const effectiveViewerSourceJobId =
+    viewerSourceResponse.data?.job_id ?? viewerSourceResponse.data?.preparation_job_id ?? preparationJobId;
+  const preparationJobResponse = useJob(effectiveViewerSourceJobId ?? "");
 
   const timeline = timelineResponse.data;
   const timelineStartNs = timeline?.start_timestamp_ns ?? timeline?.start_time_ns ?? 0;
@@ -170,6 +180,15 @@ export function VisualizationPage() {
   }, [assetId, currentTimestampNs, normalizedSelectedLaneIds, resolvedEpisodeId, samplesWindowNs]);
 
   const samplesResponse = useEpisodeSamples(assetId, resolvedEpisodeId, samplesQuery);
+
+  const viewerSourceStatus = viewerSourceResponse.data?.status ?? "none";
+  const viewerSourceErrorMessage = viewerSourceResponse.data?.error_message ?? null;
+  const isPreparingViewerSource = viewerSourceStatus === "preparing" || prepareVisualization.isPreparing;
+  const isViewerSourceReady = viewerSourceStatus === "ready" && Boolean(viewerSourceResponse.data?.source_url);
+  const hasViewerVersionMismatch =
+    viewerSourceStatus === "none" &&
+    Boolean(viewerSourceErrorMessage) &&
+    /incompatible|version/i.test(viewerSourceErrorMessage ?? "");
 
   const updateVisualizeState = React.useCallback(
     (updates: Record<string, string | null>) => {
@@ -331,6 +350,54 @@ export function VisualizationPage() {
 
     updateVisualizeState({ timestamp_ns: String(currentTimestampNs) });
   }, [currentTimestampNs, isScrubberDragging, searchParams, updateVisualizeState]);
+
+  React.useEffect(() => {
+    if (!resolvedEpisodeId) {
+      return;
+    }
+
+    if (!isPreparingViewerSource) {
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      void viewerSourceResponse.mutate();
+      if (effectiveViewerSourceJobId) {
+        void preparationJobResponse.mutate();
+      }
+    }, 1500);
+
+    return () => window.clearInterval(intervalId);
+  }, [
+    effectiveViewerSourceJobId,
+    isPreparingViewerSource,
+    preparationJobResponse,
+    resolvedEpisodeId,
+    viewerSourceResponse,
+  ]);
+
+  React.useEffect(() => {
+    if (viewerSourceResponse.data?.job_id) {
+      setPreparationJobId(viewerSourceResponse.data.job_id);
+    }
+  }, [viewerSourceResponse.data?.job_id]);
+
+  async function onPrepareVisualization() {
+    if (!assetId || !resolvedEpisodeId) {
+      return;
+    }
+
+    prepareVisualization.reset();
+
+    try {
+      const response = await prepareVisualization.trigger(assetId, resolvedEpisodeId);
+      setPreparationJobId(response.job.id);
+      await viewerSourceResponse.mutate();
+      await preparationJobResponse.mutate();
+    } catch {
+      // Error rendering is handled through prepareVisualization.error and existing alerts.
+    }
+  }
 
   if (!assetId) {
     return (
@@ -550,7 +617,7 @@ export function VisualizationPage() {
       <Card>
         <CardHeader>
           <CardTitle>Viewer panel</CardTitle>
-          <CardDescription>Official Rerun embedding arrives in phase 8C.</CardDescription>
+          <CardDescription>Embedded official Rerun viewer backed by backend viewer-source manifests.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           {!resolvedEpisodeId ? (
@@ -558,22 +625,134 @@ export function VisualizationPage() {
               <AlertTitle>Viewer is waiting for an episode</AlertTitle>
               <AlertDescription>Select an episode to load viewer-source status.</AlertDescription>
             </Alert>
-          ) : viewerSourceResponse.isLoading ? (
+          ) : viewerSourceResponse.isLoading && !viewerSourceResponse.data ? (
             <Skeleton className="h-24 rounded-lg" />
           ) : viewerSourceResponse.error ? (
-            <Alert variant="destructive">
-              <AlertTitle>Could not load viewer source</AlertTitle>
-              <AlertDescription>{getErrorMessage(viewerSourceResponse.error)}</AlertDescription>
-            </Alert>
+            <div className="space-y-3">
+              <Alert variant="destructive">
+                <AlertTitle>Could not load viewer source</AlertTitle>
+                <AlertDescription>{getErrorMessage(viewerSourceResponse.error)}</AlertDescription>
+              </Alert>
+              <Button onClick={() => void viewerSourceResponse.mutate()} size="sm" type="button" variant="outline">
+                Retry loading source
+              </Button>
+            </div>
+          ) : prepareVisualization.error ? (
+            <div className="space-y-3">
+              <Alert variant="destructive">
+                <AlertTitle>Could not prepare visualization</AlertTitle>
+                <AlertDescription>{getErrorMessage(prepareVisualization.error)}</AlertDescription>
+              </Alert>
+              <Button
+                disabled={prepareVisualization.isPreparing}
+                onClick={() => void onPrepareVisualization()}
+                size="sm"
+                type="button"
+              >
+                {prepareVisualization.isPreparing ? "Preparing..." : "Retry prepare"}
+              </Button>
+            </div>
+          ) : isViewerSourceReady ? (
+            <>
+              <div className="flex flex-wrap items-center gap-2">
+                <WorkflowStatusBadge status="succeeded" />
+                {viewerSourceResponse.data?.viewer_version ? (
+                  <Badge variant="outline">Viewer v{viewerSourceResponse.data.viewer_version}</Badge>
+                ) : null}
+                {viewerSourceResponse.data?.recording_version ? (
+                  <Badge variant="outline">Recording v{viewerSourceResponse.data.recording_version}</Badge>
+                ) : null}
+              </div>
+              <RerunViewer
+                sourceKind={viewerSourceResponse.data?.source_kind ?? null}
+                sourceUrl={viewerSourceResponse.data?.source_url ?? ""}
+              />
+            </>
+          ) : isPreparingViewerSource ? (
+            <div className="space-y-3">
+              <Alert>
+                <AlertTitle>Preparing viewer source</AlertTitle>
+                <AlertDescription>
+                  Visualization artifact generation is in progress. This panel will switch to the embedded viewer
+                  when the source is ready.
+                </AlertDescription>
+              </Alert>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <WorkflowStatusBadge
+                  status={preparationJobResponse.data?.status ?? (prepareVisualization.isPreparing ? "running" : "queued")}
+                />
+                {effectiveViewerSourceJobId ? <Badge variant="outline">Job {effectiveViewerSourceJobId}</Badge> : null}
+                <Button
+                  asChild
+                  size="sm"
+                  type="button"
+                  variant="outline"
+                >
+                  <Link href={`/jobs/${effectiveViewerSourceJobId}?from=${encodeURIComponent(pathname + (searchParamsString ? `?${searchParamsString}` : ""))}`}>
+                    Open job
+                  </Link>
+                </Button>
+              </div>
+            </div>
+          ) : viewerSourceStatus === "failed" ? (
+            <div className="space-y-3">
+              <Alert variant="destructive">
+                <AlertTitle>Viewer source preparation failed</AlertTitle>
+                <AlertDescription>
+                  {viewerSourceResponse.data?.error_message ?? "Preparation job failed before a usable source was produced."}
+                </AlertDescription>
+              </Alert>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  disabled={prepareVisualization.isPreparing}
+                  onClick={() => void onPrepareVisualization()}
+                  size="sm"
+                  type="button"
+                >
+                  {prepareVisualization.isPreparing ? "Preparing..." : "Retry prepare"}
+                </Button>
+                {effectiveViewerSourceJobId ? (
+                  <Button asChild size="sm" type="button" variant="outline">
+                    <Link href={`/jobs/${effectiveViewerSourceJobId}?from=${encodeURIComponent(pathname + (searchParamsString ? `?${searchParamsString}` : ""))}`}>
+                      Open job
+                    </Link>
+                  </Button>
+                ) : null}
+              </div>
+            </div>
+          ) : hasViewerVersionMismatch ? (
+            <div className="space-y-3">
+              <Alert variant="destructive">
+                <AlertTitle>Viewer/source version mismatch</AlertTitle>
+                <AlertDescription>{viewerSourceResponse.data?.error_message}</AlertDescription>
+              </Alert>
+              <Button
+                disabled={prepareVisualization.isPreparing}
+                onClick={() => void onPrepareVisualization()}
+                size="sm"
+                type="button"
+              >
+                {prepareVisualization.isPreparing ? "Preparing..." : "Regenerate viewer source"}
+              </Button>
+            </div>
           ) : (
-            <Alert>
-              <AlertTitle>Viewer source status: {viewerSourceResponse.data?.status ?? "missing"}</AlertTitle>
-              <AlertDescription>
-                {viewerSourceResponse.data?.source_url
-                  ? `Source URL ready: ${viewerSourceResponse.data.source_url}`
-                  : viewerSourceResponse.data?.detail ?? "Viewer source is not ready yet."}
-              </AlertDescription>
-            </Alert>
+            <div className="space-y-3">
+              <Alert>
+                <AlertTitle>Viewer source unavailable</AlertTitle>
+                <AlertDescription>
+                  Prepare visualization to generate an official viewer-compatible source for this episode.
+                </AlertDescription>
+              </Alert>
+              <Button
+                disabled={prepareVisualization.isPreparing}
+                onClick={() => void onPrepareVisualization()}
+                size="sm"
+                type="button"
+              >
+                {prepareVisualization.isPreparing ? "Preparing..." : "Prepare visualization"}
+              </Button>
+            </div>
           )}
         </CardContent>
       </Card>

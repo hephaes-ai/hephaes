@@ -82,14 +82,28 @@ export interface EpisodeDetailResponse {
   topic_count?: number | null;
 }
 
-export type ViewerSourceStatus = "ready" | "missing" | "preparing" | "error";
+export type ViewerSourceStatus = "none" | "preparing" | "ready" | "failed";
+export type ViewerSourceKind = "rrd_url" | "grpc_url";
 
 export interface EpisodeViewerSourceResponse {
-  detail: string | null;
-  preparation_job_id: string | null;
+  artifact_path: string | null;
+  episode_id: string;
+  error_message: string | null;
+  job_id: string | null;
+  recording_version: string | null;
+  source_kind: ViewerSourceKind | null;
   source_url: string | null;
   status: ViewerSourceStatus;
+  updated_at: string | null;
   viewer_version: string | null;
+
+  // Backward-compatible optional fields from earlier frontend contract versions.
+  detail?: string | null;
+  preparation_job_id?: string | null;
+}
+
+export interface PrepareVisualizationResponse {
+  job: JobSummary;
 }
 
 export interface EpisodeTimelineEvent {
@@ -302,6 +316,14 @@ function buildBackendUrl(path: string) {
   return `${getBackendBaseUrl()}${normalizedPath}`;
 }
 
+export function resolveBackendUrl(pathOrUrl: string) {
+  if (/^https?:\/\//i.test(pathOrUrl)) {
+    return pathOrUrl;
+  }
+
+  return buildBackendUrl(pathOrUrl);
+}
+
 function parseErrorDetail(payload: unknown, status: number) {
   if (typeof payload === "object" && payload !== null && "detail" in payload) {
     if (typeof payload.detail === "string") {
@@ -500,6 +522,12 @@ export function getAssetEpisode(assetId: string, episodeId: string) {
 
 export function getEpisodeViewerSource(assetId: string, episodeId: string) {
   return request<EpisodeViewerSourceResponse>(`/assets/${assetId}/episodes/${episodeId}/viewer-source`);
+}
+
+export function prepareEpisodeVisualization(assetId: string, episodeId: string) {
+  return request<PrepareVisualizationResponse>(`/assets/${assetId}/episodes/${episodeId}/prepare-visualization`, {
+    method: "POST",
+  });
 }
 
 export function getEpisodeTimeline(assetId: string, episodeId: string) {

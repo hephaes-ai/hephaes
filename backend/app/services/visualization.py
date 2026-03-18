@@ -227,50 +227,56 @@ def _generate_rrd(
     output_path: Path,
 ) -> Path:
     """Read episode streams and write a Rerun .rrd recording."""
-    import rerun as rr
+    try:
+        import rerun as rr
+    except ModuleNotFoundError as exc:
+        raise VisualizationGenerationError(
+            "rerun-sdk is not installed in the backend environment. "
+            "Install backend extras with: pip install -e '.[backend]'"
+        ) from exc
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     rr.init(f"hephaes/{episode_id}", spawn=False)
+    stream = rr.binary_stream()
 
-    with rr.binary_stream() as stream:
-        try:
-            with open_asset_reader(asset_file_path) as reader:
-                for message in reader.read_messages(topics=topics):
-                    payload = _normalize_payload(message.data)
-                    rr.set_time_nanos("timestamp", message.timestamp)
+    try:
+        with open_asset_reader(asset_file_path) as reader:
+            for message in reader.read_messages(topics=topics):
+                payload = _normalize_payload(message.data)
+                rr.set_time_nanos("timestamp", message.timestamp)
 
-                    if isinstance(payload, dict) and "width" in payload and "height" in payload:
-                        image_bytes = _decode_normalized_bytes(payload.get("data"))
-                        if image_bytes is not None:
-                            rr.log(
-                                message.topic,
-                                rr.Image(
-                                    bytes=image_bytes,
-                                    width=payload["width"],
-                                    height=payload["height"],
-                                    pixel_format=rr.PixelFormat.NV12
-                                    if payload.get("encoding") == "nv12"
-                                    else None,
-                                ),
-                            )
-                        else:
-                            rr.log(message.topic, rr.TextLog(str(payload)))
-                    elif isinstance(payload, dict) and "points" in payload:
-                        points = payload["points"]
-                        if isinstance(points, list) and points:
-                            positions = [[p.get("x", 0), p.get("y", 0), p.get("z", 0)] for p in points]
-                            rr.log(message.topic, rr.Points3D(positions))
-                        else:
-                            rr.log(message.topic, rr.TextLog(str(payload)))
+                if isinstance(payload, dict) and "width" in payload and "height" in payload:
+                    image_bytes = _decode_normalized_bytes(payload.get("data"))
+                    if image_bytes is not None:
+                        rr.log(
+                            message.topic,
+                            rr.Image(
+                                bytes=image_bytes,
+                                width=payload["width"],
+                                height=payload["height"],
+                                pixel_format=rr.PixelFormat.NV12
+                                if payload.get("encoding") == "nv12"
+                                else None,
+                            ),
+                        )
                     else:
                         rr.log(message.topic, rr.TextLog(str(payload)))
-        except Exception as exc:
-            raise VisualizationGenerationError(
-                f"failed to generate RRD recording for episode {episode_id}: {exc}"
-            ) from exc
+                elif isinstance(payload, dict) and "points" in payload:
+                    points = payload["points"]
+                    if isinstance(points, list) and points:
+                        positions = [[p.get("x", 0), p.get("y", 0), p.get("z", 0)] for p in points]
+                        rr.log(message.topic, rr.Points3D(positions))
+                    else:
+                        rr.log(message.topic, rr.TextLog(str(payload)))
+                else:
+                    rr.log(message.topic, rr.TextLog(str(payload)))
+    except Exception as exc:
+        raise VisualizationGenerationError(
+            f"failed to generate RRD recording for episode {episode_id}: {exc}"
+        ) from exc
 
-        output_path.write_bytes(stream.read())
+    output_path.write_bytes(stream.read(flush=True))
 
     return output_path
 

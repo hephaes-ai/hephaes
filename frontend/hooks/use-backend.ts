@@ -17,8 +17,10 @@ import {
   listAssets,
   listJobs,
   listTags,
+  prepareEpisodeVisualization,
   serializeAssetListQuery,
   type EpisodeSamplesQuery,
+  type PrepareVisualizationResponse,
   type AssetListQuery,
 } from "@/lib/api";
 
@@ -119,6 +121,60 @@ export function useEpisodeSamples(assetId: string, episodeId: string, query: Epi
       keepPreviousData: false,
     },
   );
+}
+
+export function usePrepareVisualization() {
+  const { mutate } = useSWRConfig();
+  const [isPreparing, setIsPreparing] = React.useState(false);
+  const [error, setError] = React.useState<unknown>(null);
+
+  const trigger = React.useCallback(
+    async (assetId: string, episodeId: string) => {
+      if (!assetId || !episodeId) {
+        throw new Error("assetId and episodeId are required");
+      }
+
+      setIsPreparing(true);
+      setError(null);
+
+      try {
+        const response = await prepareEpisodeVisualization(assetId, episodeId);
+
+        await Promise.all([
+          mutate(backendKeys.viewerSource(assetId, episodeId), undefined, { revalidate: true }),
+          mutate((key) => Array.isArray(key) && key[0] === "jobs", undefined, { revalidate: true }),
+        ]);
+
+        if (response.job?.id) {
+          await mutate(backendKeys.job(response.job.id), response.job, { revalidate: true });
+        }
+
+        return response;
+      } catch (nextError) {
+        setError(nextError);
+        throw nextError;
+      } finally {
+        setIsPreparing(false);
+      }
+    },
+    [mutate],
+  );
+
+  const reset = React.useCallback(() => {
+    setError(null);
+  }, []);
+
+  return {
+    error,
+    isPreparing,
+    reset,
+    trigger,
+  } as {
+    error: unknown;
+    isPreparing: boolean;
+    reset: () => void;
+    trigger: (assetId: string, episodeId: string) => Promise<PrepareVisualizationResponse>;
+  };
 }
 
 export function useBackendCache() {

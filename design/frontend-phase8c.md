@@ -11,15 +11,29 @@ Embed the official Rerun viewer using backend-provided viewer sources and comple
 - [backend-phase9.md](backend-phase9.md)
 - [backend-phase8.md](backend-phase8.md)
 
+## Current State (Already Implemented)
+
+The current frontend codebase already includes:
+
+- visualization route, episode selection, and return-navigation flow
+- timeline and samples integration with synchronized cursor playback
+- transport controls and speed controls
+- lane visibility toggles with URL persistence
+- per-lane payload disclosure in scrubber rows (replacing the prior standalone inspector panel)
+- viewer-source status card with loading/error/missing handling (placeholder viewer, no official embed yet)
+- timeline timestamp contract alignment (`start_timestamp_ns` / `end_timestamp_ns`) and cursor-synced payload fetch behavior
+
+These are phase 8A/8B outcomes and should not be re-scoped into 8C implementation tasks.
+
 ## Scope
 
-Implement:
+Phase 8C should implement only:
 
 - reusable official Rerun viewer wrapper component
 - prepare-visualization trigger and job handoff flow
 - viewer source readiness polling and live transition
 - explicit viewer integration states and recovery paths
-- final cross-surface UX polish for visualization
+- final visualization-specific UX polish around embedded viewer states
 
 ## Tasks
 
@@ -27,8 +41,8 @@ Implement:
 
 - Extend [frontend/lib/api.ts](../frontend/lib/api.ts) with typed support for:
   - POST /assets/{asset_id}/episodes/{episode_id}/prepare-visualization
-  - GET /jobs/{job_id} reuse through existing jobs APIs
-- Reuse existing workflow status utilities and badges for prep status display.
+- Reuse existing GET /jobs/{job_id} API and job status surfaces already present in jobs pages.
+- Add/extend hooks in [frontend/hooks/use-backend.ts](../frontend/hooks/use-backend.ts) to trigger preparation and revalidate viewer-source/job state.
 
 ### Rerun wrapper component
 
@@ -51,36 +65,26 @@ Implement:
 - Add Prepare visualization action when source is unavailable.
 - On prepare request:
   - trigger backend preparation
-  - display linked job state
+  - display linked job state (job id, status, and navigation to jobs/job detail)
   - poll until source readiness or failure
 - Transition automatically from preparation state into live viewer when source becomes available.
-
-### Cross-surface coherence
-
-- Keep navigation continuity between:
-  - inventory
-  - asset detail
-  - jobs and job detail
-  - visualization route
-- Reuse existing request feedback and status patterns from prior frontend phases.
-- Keep success states quiet and failures explicit.
 
 ### Polish and resilience
 
 - Ensure viewer container remains legible in light and dark modes.
 - Validate unsupported-data handling without crashing page controls.
-- Verify viewer load failures do not break transport/scrubber shell.
+- Verify viewer load failures do not break transport/scrubber shell or lane payload disclosure.
 
 ## Deliverable
 
-By the end of phase 8C, users can prepare visualization data when needed, load the official Rerun viewer from backend-provided sources, and recover clearly from unsupported or failed states.
+By the end of phase 8C, users can prepare visualization data when needed, load the official Rerun viewer from backend-provided sources, and recover clearly from unsupported or failed states while retaining synchronized scrubber/payload behavior from 8B.
 
 ## Verification
 
 - verify prepare-visualization flow with job handoff
 - verify automatic transition to live viewer when source is ready
 - verify missing-source, mismatch, and backend-error states
-- verify navigation continuity to and from jobs/inventory/detail routes
+- verify lane payload dropdowns remain functional while viewer states transition
 - run:
   - npm run lint
   - npm run typecheck
