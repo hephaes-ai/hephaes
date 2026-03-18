@@ -31,14 +31,14 @@ Install from source:
 
 ```bash
 cd hephaes
-pip install .
+python -m pip install .
 ```
 
 For local development and tests:
 
 ```bash
 cd hephaes
-pip install -e ".[dev]"
+python -m pip install -e ".[dev]"
 ```
 
 ## Quick Start

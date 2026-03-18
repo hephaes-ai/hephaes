@@ -15,7 +15,7 @@ Start the backend first from the repository root:
 
 ```bash
 cd backend
-uvicorn app.main:app --reload
+python -m uvicorn app.main:app --reload
 ```
 
 Then start the frontend:

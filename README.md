@@ -11,14 +11,14 @@ This repository is split into three top-level projects:
 Install both Python projects for local development from the repository root:
 
 ```bash
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
 ```
 
 Or install them individually:
 
 ```bash
-pip install -e "./hephaes[dev]"
-pip install -e "./backend[dev]"
+python -m pip install -e "./hephaes[dev]"
+python -m pip install -e "./backend[dev]"
 ```
 
 ## Layout

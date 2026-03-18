@@ -5,14 +5,14 @@
 From `backend/`:
 
 ```bash
-pip install -e ../hephaes
-pip install -e ".[dev]"
+python -m pip install -e ../hephaes
+python -m pip install -e ".[dev]"
 ```
 
 Or from the repository root:
 
 ```bash
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
 ```
 
 ## Run
@@ -20,7 +20,7 @@ pip install -r requirements.txt
 From `backend/`:
 
 ```bash
-uvicorn app.main:app --reload
+python -m uvicorn app.main:app --reload
 ```
 
 The health endpoint is available at:
