@@ -5,6 +5,7 @@
 - [architecture.md](./architecture.md): stack, app shell, providers, routing model, styling, and data flow
 - [inventory-and-assets.md](./inventory-and-assets.md): inventory route, asset detail route, indexing, tagging, filtering, and conversion entry points
 - [jobs-and-conversions.md](./jobs-and-conversions.md): jobs list/detail flows and the conversion workflow
+- [outputs-page-and-compute-actions.md](./outputs-page-and-compute-actions.md): phased plan for a dedicated outputs workspace and output-scoped compute actions
 - [replay-and-visualization.md](./replay-and-visualization.md): replay route, timeline/scrubber behavior, viewer-source preparation, and Rerun integration state
 - [shared-components-and-utils.md](./shared-components-and-utils.md): shared domain components, hooks, API helpers, utility modules, and UI primitives
 - [frontend-ui-guidelines.md](./frontend-ui-guidelines.md): canonical UI guidance that used to live under the repository root `design/`
