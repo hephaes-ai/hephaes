@@ -44,6 +44,7 @@ import {
   isWorkflowActiveStatus,
 } from "@/lib/format";
 import { resolveReturnHref } from "@/lib/navigation";
+import { buildReplayHref } from "@/lib/visualization";
 
 function AssetDetailSkeleton() {
   return (
@@ -233,6 +234,12 @@ export function AssetDetailPage({ assetId }: { assetId: string }) {
   const modalitySummary = Array.from(modalityCounts.entries()).sort(([left], [right]) =>
     left.localeCompare(right),
   );
+  const canReplay = Boolean(metadata?.visualization_summary?.has_visualizable_streams && data.episodes.length > 0);
+  const replayHref = buildReplayHref({
+    assetId: asset.id,
+    episodeId: data.episodes.length === 1 ? data.episodes[0].episode_id : null,
+    from: currentDetailHref,
+  });
   const rawMetadataEntries = Object.entries(metadata?.raw_metadata ?? {}).filter(([, value]) => {
     if (value === null || value === undefined) {
       return false;
@@ -404,6 +411,14 @@ export function AssetDetailPage({ assetId }: { assetId: string }) {
           </div>
           <div className="flex shrink-0 flex-wrap items-center gap-2">
             <AssetStatusBadge status={effectiveStatus} />
+            {canReplay ? (
+              <Button asChild size="sm" type="button" variant="secondary">
+                <Link href={replayHref}>
+                  <Eye className="size-3.5" />
+                  Replay
+                </Link>
+              </Button>
+            ) : null}
             <Button onClick={() => setIsConversionDialogOpen(true)} size="sm" type="button" variant="outline">
               <ArrowRightLeft className="size-3.5" />
               Convert
@@ -432,7 +447,7 @@ export function AssetDetailPage({ assetId }: { assetId: string }) {
 
       {effectiveStatus === "pending" && !metadata ? (
         <InlineNotice
-          description="Run indexing to extract duration, topic summaries, and visualization readiness for this asset."
+          description="Run indexing to extract duration, topic summaries, and replay readiness for this asset."
           title="This asset has not been indexed yet"
           tone="info"
         />
@@ -527,11 +542,11 @@ export function AssetDetailPage({ assetId }: { assetId: string }) {
                 <MetadataField label="Topic count" value={metadata.topic_count} />
                 <MetadataField label="Message count" value={metadata.message_count} />
                 <MetadataField
-                  label="Visual data"
+                  label="Replay data"
                   value={metadata.visualization_summary?.has_visualizable_streams ? "Available" : "Not available"}
                 />
                 <MetadataField
-                  label="Viewer lanes"
+                  label="Replay lanes"
                   value={metadata.visualization_summary?.default_lane_count ?? "Not available"}
                 />
               </dl>
@@ -591,7 +606,7 @@ export function AssetDetailPage({ assetId }: { assetId: string }) {
             />
           ) : (
             <MetadataEmptyState
-              description="Use the index action above to extract duration, topic summaries, and visualization readiness."
+              description="Use the index action above to extract duration, topic summaries, and replay readiness."
               title="Metadata has not been generated"
             />
           )}
@@ -640,7 +655,7 @@ export function AssetDetailPage({ assetId }: { assetId: string }) {
               ))
             ) : (
               <MetadataEmptyState
-                description="Jobs will appear here after indexing, conversion, or visualization prep runs are started for this asset."
+                description="Jobs will appear here after indexing, conversion, or replay-preparation runs are started for this asset."
                 title="No related jobs yet"
               />
             )}
@@ -720,8 +735,8 @@ export function AssetDetailPage({ assetId }: { assetId: string }) {
             >
               <Eye className="size-3.5" />
               {metadata.visualization_summary.has_visualizable_streams
-                ? `${metadata.visualization_summary.default_lane_count} visual lane${metadata.visualization_summary.default_lane_count === 1 ? "" : "s"} ready`
-                : "No visual streams"}
+                ? `${metadata.visualization_summary.default_lane_count} replay lane${metadata.visualization_summary.default_lane_count === 1 ? "" : "s"} ready`
+                : "No replay streams"}
             </Badge>
           ) : null}
         </CardHeader>

@@ -14,7 +14,6 @@ export interface SavedSearchDraft {
     tag?: string;
     type?: string;
     sort?: string;
-    view?: "table" | "compact";
   };
 }
 

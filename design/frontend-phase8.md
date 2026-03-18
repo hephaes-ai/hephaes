@@ -89,3 +89,13 @@ By the end of phase 8, a user should be able to:
 - scrub through a shared episode timeline with multiple aligned rows
 - replay synchronized multi-modal data in one view
 - inspect supported visual data through an embedded official Rerun viewer backed by a backend-provided source
+
+## Execution Split
+
+Phase 8 is intentionally split into smaller frontend phases to keep each PR reviewable and lower risk:
+
+- [frontend-phase8a.md](frontend-phase8a.md) for entry points, routing, API foundations, and visualization shell
+- [frontend-phase8b.md](frontend-phase8b.md) for transport controls, timeline model, multi-row scrubber, and inspector synchronization
+- [frontend-phase8c.md](frontend-phase8c.md) for official Rerun viewer embedding, preparation workflow, and cross-surface polish
+
+Use this file as the umbrella scope reference, and execute implementation from the split phase documents above.

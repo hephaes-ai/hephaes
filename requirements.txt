@@ -1,2 +1,2 @@
-# Local development and test environment.
--e .[dev]
+# Local development, tests, and backend runtime environment.
+-e .[dev,backend]
