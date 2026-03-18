@@ -9,10 +9,10 @@ import {
   ArrowUpDown,
   ChevronDown,
   ChevronUp,
-  FileSearch2,
   FolderOpen,
   RefreshCw,
   Search,
+  Upload,
   X,
 } from "lucide-react";
 
@@ -25,6 +25,14 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { NativeSelect } from "@/components/ui/native-select";
@@ -47,17 +55,18 @@ import type {
 } from "@/lib/api";
 import {
   attachTagToAsset,
+  BackendApiError,
   createTag,
   getErrorMessage,
   indexAsset,
-  registerAssetsFromDialog,
   reindexAllAssets,
+  scanDirectoryForAssets,
+  uploadAssetFile,
 } from "@/lib/api";
 import type { AssetSelectionScope } from "@/lib/future-workflows";
-import { usePersistentUiState } from "@/lib/local-ui-state";
 import { formatDateTime, formatFileSize, getIndexActionLabel } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { buildVisualizeHref } from "@/lib/visualization";
+import { buildReplayHref } from "@/lib/visualization";
 
 type InventorySort =
   | "file_name-asc"
@@ -68,7 +77,6 @@ type InventorySort =
   | "registered-asc";
 type SortColumn = "file_name" | "file_size" | "registered";
 type SortDirection = "asc" | "desc";
-type InventoryView = "table" | "compact";
 
 const DEFAULT_SORT: InventorySort = "registered-desc";
 const STATUS_OPTIONS: IndexingStatus[] = ["pending", "indexing", "indexed", "failed"];
@@ -83,6 +91,21 @@ interface ActiveFilterChip {
   key: string;
   label: string;
 }
+
+interface DirectoryScanFormState {
+  directoryPath: string;
+  recursive: boolean;
+}
+
+interface UploadProgressState {
+  completed: number;
+  total: number;
+}
+
+const DEFAULT_DIRECTORY_SCAN_FORM: DirectoryScanFormState = {
+  directoryPath: "",
+  recursive: true,
+};
 
 function FormNotice({ message }: { message: FormMessage }) {
   const className =
@@ -100,17 +123,57 @@ function FormNotice({ message }: { message: FormMessage }) {
   );
 }
 
+function formatCount(count: number, noun: string) {
+  return `${count} ${noun}${count === 1 ? "" : "s"}`;
+}
+
 function summarizeSkipped(skipped: AssetRegistrationSkip[]) {
   if (skipped.length === 0) {
     return "";
   }
 
-  const [firstSkip] = skipped;
-  if (skipped.length === 1) {
-    return firstSkip.detail;
+  const duplicateCount = skipped.filter((item) => item.reason === "duplicate").length;
+  const invalidCount = skipped.filter((item) => item.reason === "invalid_path").length;
+  const parts: string[] = [];
+
+  if (duplicateCount > 0) {
+    parts.push(`${formatCount(duplicateCount, "duplicate")} skipped`);
   }
 
-  return `${firstSkip.detail} ${skipped.length - 1} more file${skipped.length - 1 === 1 ? "" : "s"} were skipped.`;
+  if (invalidCount > 0) {
+    parts.push(`${formatCount(invalidCount, "invalid file")} skipped`);
+  }
+
+  const firstDetail = skipped[0]?.detail;
+  if (firstDetail) {
+    parts.push(firstDetail);
+  }
+
+  return parts.join(". ");
+}
+
+function classifyUploadedFileSkip(file: File, error: unknown): AssetRegistrationSkip | null {
+  if (!(error instanceof BackendApiError)) {
+    return null;
+  }
+
+  if (error.status === 409) {
+    return {
+      detail: error.message,
+      file_path: file.name,
+      reason: "duplicate",
+    };
+  }
+
+  if (error.status === 400) {
+    return {
+      detail: error.message,
+      file_path: file.name,
+      reason: "invalid_path",
+    };
+  }
+
+  return null;
 }
 
 function isValidSort(value: string | null): value is InventorySort {
@@ -122,10 +185,6 @@ function isValidSort(value: string | null): value is InventorySort {
     value === "registered-desc" ||
     value === "registered-asc"
   );
-}
-
-function isValidInventoryView(value: string | null): value is InventoryView {
-  return value === "table" || value === "compact";
 }
 
 function parseSort(value: string | null) {
@@ -143,8 +202,8 @@ function buildAssetDetailHref(assetId: string, inventoryHref: string) {
   return `/assets/${assetId}?from=${encodeURIComponent(inventoryHref)}`;
 }
 
-function buildInventoryVisualizeHref(assetId: string, inventoryHref: string) {
-  return buildVisualizeHref({
+function buildInventoryReplayHref(assetId: string, inventoryHref: string) {
+  return buildReplayHref({
     assetId,
     from: inventoryHref,
   });
@@ -311,7 +370,6 @@ function AssetsTable({
   pendingAssetIds,
   selectedAssetIds,
   sort,
-  view,
 }: {
   assets: AssetSummary[];
   inventoryHref: string;
@@ -322,7 +380,6 @@ function AssetsTable({
   pendingAssetIds: Set<string>;
   selectedAssetIds: Set<string>;
   sort: ReturnType<typeof parseSort>;
-  view: InventoryView;
 }) {
   const router = useRouter();
 
@@ -357,12 +414,7 @@ function AssetsTable({
 
   return (
     <div className="overflow-x-auto">
-      <Table
-        className={cn(
-          "min-w-[860px]",
-          view === "compact" && "[&_td]:py-2 [&_td]:align-top [&_th]:py-2.5 [&_th]:align-top",
-        )}
-      >
+      <Table className="min-w-[860px]">
         <TableHeader>
           <TableRow>
             <TableHead className="w-12">
@@ -449,7 +501,7 @@ function AssetsTable({
                   <div className="flex flex-wrap justify-end gap-2" data-stop-row-click="true">
                     {asset.indexing_status === "indexed" ? (
                       <Button asChild size="sm" type="button" variant="secondary">
-                        <Link href={buildInventoryVisualizeHref(asset.id, inventoryHref)}>Visualize</Link>
+                        <Link href={buildInventoryReplayHref(asset.id, inventoryHref)}>Replay</Link>
                       </Button>
                     ) : null}
                     <Button
@@ -518,6 +570,7 @@ export function InventoryPage() {
   const searchParams = useSearchParams();
   const { notify } = useFeedback();
   const { revalidateAssetLists, revalidateJobs, revalidateTags } = useBackendCache();
+  const uploadInputRef = React.useRef<HTMLInputElement | null>(null);
 
   const appliedSearch = searchParams.get("search")?.trim() ?? "";
   const activeTag = searchParams.get("tag")?.trim() ?? "";
@@ -530,17 +583,18 @@ export function InventoryPage() {
   const registeredAfter = searchParams.get("registered_after")?.trim() ?? "";
   const registeredBefore = searchParams.get("registered_before")?.trim() ?? "";
   const sort = parseSort(searchParams.get("sort"));
-  const view: InventoryView = isValidInventoryView(searchParams.get("view"))
-    ? (searchParams.get("view") as InventoryView)
-    : "table";
+  const searchParamsString = searchParams.toString();
 
   const [formMessage, setFormMessage] = React.useState<FormMessage | null>(null);
-  const [isChoosingFiles, setIsChoosingFiles] = React.useState(false);
+  const [isUploadingFiles, setIsUploadingFiles] = React.useState(false);
+  const [uploadProgress, setUploadProgress] = React.useState<UploadProgressState | null>(null);
+  const [isDirectoryScanDialogOpen, setIsDirectoryScanDialogOpen] = React.useState(false);
+  const [directoryScanForm, setDirectoryScanForm] =
+    React.useState<DirectoryScanFormState>(DEFAULT_DIRECTORY_SCAN_FORM);
+  const [directoryScanMessage, setDirectoryScanMessage] = React.useState<FormMessage | null>(null);
+  const [isScanningDirectory, setIsScanningDirectory] = React.useState(false);
   const [searchInput, setSearchInput] = React.useState(appliedSearch);
-  const [isBrowsePanelOpen, setIsBrowsePanelOpen] = usePersistentUiState(
-    "hephaes-inventory-browse-panel-open",
-    searchParams.toString().length > 0,
-  );
+  const [isBrowsePanelOpen, setIsBrowsePanelOpen] = React.useState(false);
   const [isConversionDialogOpen, setIsConversionDialogOpen] = React.useState(false);
   const [isBulkIndexingSelection, setIsBulkIndexingSelection] = React.useState(false);
   const [isIndexingPendingAssets, setIsIndexingPendingAssets] = React.useState(false);
@@ -553,10 +607,10 @@ export function InventoryPage() {
   }, [appliedSearch]);
 
   React.useEffect(() => {
-    if (searchParams.toString().length > 0 && !isBrowsePanelOpen) {
+    if (searchParamsString.length > 0) {
       setIsBrowsePanelOpen(true);
     }
-  }, [isBrowsePanelOpen, searchParams, setIsBrowsePanelOpen]);
+  }, [searchParamsString]);
 
   const normalizedMinDuration = parseNonNegativeNumber(minDuration) ?? undefined;
   const normalizedMaxDuration = parseNonNegativeNumber(maxDuration) ?? undefined;
@@ -703,80 +757,202 @@ export function InventoryPage() {
     });
   }
 
-  async function onChooseFiles() {
-    setIsChoosingFiles(true);
+  function onOpenUploadPicker() {
+    if (isUploadingFiles) {
+      return;
+    }
+
+    uploadInputRef.current?.click();
+  }
+
+  async function onUploadFiles(event: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(event.target.files ?? []);
+    event.target.value = "";
+
+    if (files.length === 0) {
+      return;
+    }
+
     setFormMessage(null);
+    setIsUploadingFiles(true);
+    setUploadProgress({
+      completed: 0,
+      total: files.length,
+    });
+
+    const registeredAssets: AssetSummary[] = [];
+    const skipped: AssetRegistrationSkip[] = [];
+    const unexpectedErrors: string[] = [];
 
     try {
-      const result = await registerAssetsFromDialog();
-
-      if (result.canceled) {
-        setFormMessage({
-          description: "The file picker was closed without selecting any files.",
-          title: "No files selected",
-          tone: "info",
-        });
-        return;
+      for (const [index, file] of files.entries()) {
+        try {
+          const asset = await uploadAssetFile(file);
+          registeredAssets.push(asset);
+        } catch (uploadError) {
+          const classifiedSkip = classifyUploadedFileSkip(file, uploadError);
+          if (classifiedSkip) {
+            skipped.push(classifiedSkip);
+          } else {
+            unexpectedErrors.push(`${file.name}: ${getErrorMessage(uploadError)}`);
+          }
+        } finally {
+          setUploadProgress({
+            completed: index + 1,
+            total: files.length,
+          });
+        }
       }
+
+      if (registeredAssets.length > 0) {
+        await revalidateAssetLists();
+      }
+
+      const descriptionParts: string[] = [];
+
+      if (registeredAssets.length > 0) {
+        descriptionParts.push(`${formatCount(registeredAssets.length, "file")} uploaded to inventory`);
+      }
+
+      if (skipped.length > 0) {
+        descriptionParts.push(summarizeSkipped(skipped));
+      }
+
+      if (unexpectedErrors.length > 0) {
+        descriptionParts.push(
+          `${unexpectedErrors[0]}${unexpectedErrors.length > 1 ? ` ${unexpectedErrors.length - 1} more upload${unexpectedErrors.length - 1 === 1 ? "" : "s"} failed.` : ""}`,
+        );
+      }
+
+      const description = descriptionParts.join(". ") || "No uploaded files changed the inventory.";
+      const tone: FormMessage["tone"] =
+        unexpectedErrors.length > 0 && registeredAssets.length === 0 && skipped.length === 0
+          ? "error"
+          : registeredAssets.length > 0 && skipped.length === 0 && unexpectedErrors.length === 0
+            ? "success"
+            : "info";
+      const title =
+        registeredAssets.length > 0 && skipped.length === 0 && unexpectedErrors.length === 0
+          ? "Uploads finished"
+          : registeredAssets.length > 0
+            ? "Uploads finished with warnings"
+            : unexpectedErrors.length > 0 && skipped.length === 0
+              ? "Uploads failed"
+              : "No uploaded files were added";
+
+      setFormMessage({
+        description,
+        title,
+        tone,
+      });
+      notify({
+        description,
+        title,
+        tone,
+      });
+    } finally {
+      setIsUploadingFiles(false);
+      setUploadProgress(null);
+    }
+  }
+
+  function onDirectoryScanDialogChange(nextOpen: boolean) {
+    if (!nextOpen && isScanningDirectory) {
+      return;
+    }
+
+    setIsDirectoryScanDialogOpen(nextOpen);
+
+    if (!nextOpen) {
+      setDirectoryScanForm(DEFAULT_DIRECTORY_SCAN_FORM);
+      setDirectoryScanMessage(null);
+    }
+  }
+
+  async function onScanDirectory(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    const normalizedPath = directoryScanForm.directoryPath.trim();
+    if (!normalizedPath) {
+      setDirectoryScanMessage({
+        description: "Enter a local directory path before scanning.",
+        title: "Directory required",
+        tone: "error",
+      });
+      return;
+    }
+
+    setDirectoryScanMessage(null);
+    setIsScanningDirectory(true);
+
+    try {
+      const result = await scanDirectoryForAssets({
+        directory_path: normalizedPath,
+        recursive: directoryScanForm.recursive,
+      });
 
       if (result.registered_assets.length > 0) {
         await revalidateAssetLists();
       }
 
-      const registeredCount = result.registered_assets.length;
-      const skippedCount = result.skipped.length;
-      const descriptionParts: string[] = [];
+      const descriptionParts = [
+        `Scanned ${result.scanned_directory} and found ${formatCount(result.discovered_file_count, "supported file")}`,
+      ];
 
-      if (registeredCount > 0) {
-        descriptionParts.push(
-          `${registeredCount} file${registeredCount === 1 ? "" : "s"} added to inventory.`,
-        );
+      if (result.registered_assets.length > 0) {
+        descriptionParts.push(`${formatCount(result.registered_assets.length, "file")} added to inventory`);
       }
 
-      if (skippedCount > 0) {
+      if (result.skipped.length > 0) {
         descriptionParts.push(summarizeSkipped(result.skipped));
       }
 
-      if (registeredCount > 0) {
-        const tone = skippedCount > 0 ? "info" : "success";
-        setFormMessage({
-          description: descriptionParts.join(" "),
-          title: skippedCount > 0 ? "Files added with warnings" : "Files added",
-          tone,
-        });
-        notify({
-          description: descriptionParts.join(" "),
-          title: skippedCount > 0 ? "Inventory updated" : "Files added",
-          tone,
-        });
-        return;
+      if (result.discovered_file_count === 0) {
+        descriptionParts.push("No supported .bag or .mcap files were discovered");
       }
 
-      setFormMessage({
-        description: descriptionParts.join(" ") || "No new files were added.",
-        title: "No files added",
-        tone: "error",
-      });
-      notify({
-        description: descriptionParts.join(" ") || "No new files were added.",
-        title: "Nothing changed",
-        tone: "error",
-      });
-    } catch (submitError) {
-      const message = getErrorMessage(submitError);
+      const description = descriptionParts.join(". ");
+      const tone: FormMessage["tone"] =
+        result.registered_assets.length > 0 && result.skipped.length === 0
+          ? "success"
+          : result.registered_assets.length > 0 || result.skipped.length > 0 || result.discovered_file_count === 0
+            ? "info"
+            : "error";
+      const title =
+        result.registered_assets.length > 0 && result.skipped.length === 0
+          ? "Directory scanned"
+          : result.registered_assets.length > 0
+            ? "Directory scanned with warnings"
+            : result.discovered_file_count === 0
+              ? "No supported files found"
+              : "No new files were added";
 
+      setIsDirectoryScanDialogOpen(false);
+      setDirectoryScanForm(DEFAULT_DIRECTORY_SCAN_FORM);
       setFormMessage({
+        description,
+        title,
+        tone,
+      });
+      notify({
+        description,
+        title,
+        tone,
+      });
+    } catch (scanError) {
+      const message = getErrorMessage(scanError);
+      setDirectoryScanMessage({
         description: message,
-        title: "File picker failed",
+        title: "Could not scan directory",
         tone: "error",
       });
       notify({
         description: message,
-        title: "Could not open file picker",
+        title: "Directory scan failed",
         tone: "error",
       });
     } finally {
-      setIsChoosingFiles(false);
+      setIsScanningDirectory(false);
     }
   }
 
@@ -896,12 +1072,16 @@ export function InventoryPage() {
   const resultsCountLabel = `${visibleAssets.length} result${visibleAssets.length === 1 ? "" : "s"}`;
   const totalCountLabel =
     typeof totalRegisteredCount === "number" ? `${totalRegisteredCount} registered` : "Loading total";
-  const inventoryHref = searchParams.toString() ? `${pathname}?${searchParams.toString()}` : pathname;
+  const inventoryHref = searchParamsString ? `${pathname}?${searchParamsString}` : pathname;
   const selectionScope = getAssetSelectionScope({
     hasSearch: appliedSearch.length > 0,
     hasServerFilters,
     selectedCount,
   });
+  const uploadButtonLabel =
+    isUploadingFiles && uploadProgress
+      ? `Uploading ${uploadProgress.completed}/${uploadProgress.total}`
+      : "Upload files";
 
   const isLoading = assetsResponse.isLoading;
   const isInventoryEmpty = !hasAppliedFilters && totalRegisteredCount === 0;
@@ -1208,58 +1388,17 @@ export function InventoryPage() {
   return (
     <div className="space-y-8">
       <section className="space-y-2">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="space-y-2">
-            <div className="flex flex-wrap items-center gap-3">
-              <h1 className="text-2xl font-semibold tracking-tight">Asset inventory</h1>
-              <span className="rounded-full border px-2 py-0.5 text-xs text-muted-foreground">
-                {totalCountLabel}
-              </span>
-            </div>
-            <p className="max-w-3xl text-sm text-muted-foreground">
-              Browse the live backend inventory with compact search, filters, and table sorting while keeping the
-              registered assets table as the main surface.
-            </p>
+        <div className="space-y-2">
+          <div className="flex flex-wrap items-center gap-3">
+            <h1 className="text-2xl font-semibold tracking-tight">Asset inventory</h1>
+            <span className="rounded-full border px-2 py-0.5 text-xs text-muted-foreground">
+              {totalCountLabel}
+            </span>
           </div>
-          <Button
-            className="shrink-0"
-            disabled={isChoosingFiles}
-            onClick={onChooseFiles}
-            size="sm"
-            type="button"
-            variant="outline"
-          >
-            <FileSearch2 className="size-4" />
-            {isChoosingFiles ? "Opening..." : "Add files"}
-          </Button>
-          <Button
-            className="shrink-0"
-            onClick={() =>
-              onShowPlannedFeature(
-                "Upload ingestion is planned",
-                "Upload-based ingestion is scaffolded for phase 7 and will be enabled when backend endpoints are available.",
-              )
-            }
-            size="sm"
-            type="button"
-            variant="ghost"
-          >
-            Upload files
-          </Button>
-          <Button
-            className="shrink-0"
-            onClick={() =>
-              onShowPlannedFeature(
-                "Directory scan is planned",
-                "Optional local directory scan registration will be added after backend support is available.",
-              )
-            }
-            size="sm"
-            type="button"
-            variant="ghost"
-          >
-            Scan directory
-          </Button>
+          <p className="max-w-3xl text-sm text-muted-foreground">
+            Browse the live backend inventory with search, filters, and table sorting while keeping the
+            registered assets table as the main surface.
+          </p>
         </div>
       </section>
 
@@ -1336,12 +1475,26 @@ export function InventoryPage() {
                 <ChevronDown className={cn("size-4 transition-transform", isBrowsePanelOpen && "rotate-180")} />
               </Button>
               <Button
-                onClick={() => updateBrowseState({ view: view === "table" ? "compact" : null })}
+                className="shrink-0"
+                disabled={isUploadingFiles}
+                onClick={onOpenUploadPicker}
                 size="sm"
                 type="button"
                 variant="outline"
               >
-                {view === "compact" ? "Compact view" : "Table view"}
+                <Upload className="size-4" />
+                {uploadButtonLabel}
+              </Button>
+              <Button
+                className="shrink-0"
+                disabled={isScanningDirectory}
+                onClick={() => setIsDirectoryScanDialogOpen(true)}
+                size="sm"
+                type="button"
+                variant="outline"
+              >
+                <FolderOpen className="size-4" />
+                {isScanningDirectory ? "Scanning..." : "Scan directory"}
               </Button>
               <Button
                 className="shrink-0"
@@ -1651,7 +1804,6 @@ export function InventoryPage() {
               pendingAssetIds={pendingAssetIds}
               selectedAssetIds={selectedAssetIds}
               sort={sort}
-              view={view}
             />
           ) : null}
 
@@ -1691,6 +1843,82 @@ export function InventoryPage() {
         assets={selectedVisibleAssets}
         onOpenChange={setIsConversionDialogOpen}
         open={isConversionDialogOpen}
+      />
+
+      <Dialog onOpenChange={onDirectoryScanDialogChange} open={isDirectoryScanDialogOpen}>
+        <DialogContent className="max-w-lg" showCloseButton={!isScanningDirectory}>
+          <DialogHeader>
+            <DialogTitle>Scan directory</DialogTitle>
+            <DialogDescription>
+              Register every supported `.bag` or `.mcap` file in a local directory without selecting them one by one.
+            </DialogDescription>
+          </DialogHeader>
+
+          <form className="space-y-4" onSubmit={onScanDirectory}>
+            {directoryScanMessage ? <FormNotice message={directoryScanMessage} /> : null}
+
+            <div className="space-y-2">
+              <Label className="text-xs uppercase tracking-wide text-muted-foreground" htmlFor="directory-scan-path">
+                Directory path
+              </Label>
+              <Input
+                disabled={isScanningDirectory}
+                id="directory-scan-path"
+                onChange={(event) =>
+                  setDirectoryScanForm((current) => ({
+                    ...current,
+                    directoryPath: event.target.value,
+                  }))
+                }
+                placeholder="/path/to/recordings"
+                value={directoryScanForm.directoryPath}
+              />
+            </div>
+
+            <label className="flex items-start gap-3 rounded-lg border bg-muted/20 px-3 py-3">
+              <Checkbox
+                checked={directoryScanForm.recursive}
+                disabled={isScanningDirectory}
+                onCheckedChange={(checked) =>
+                  setDirectoryScanForm((current) => ({
+                    ...current,
+                    recursive: checked === true,
+                  }))
+                }
+              />
+              <span className="space-y-1">
+                <span className="block text-sm font-medium text-foreground">Scan recursively</span>
+                <span className="block text-sm text-muted-foreground">
+                  Include supported files from nested directories instead of only the top-level folder.
+                </span>
+              </span>
+            </label>
+
+            <DialogFooter>
+              <Button
+                disabled={isScanningDirectory}
+                onClick={() => onDirectoryScanDialogChange(false)}
+                type="button"
+                variant="ghost"
+              >
+                Cancel
+              </Button>
+              <Button disabled={isScanningDirectory} type="submit">
+                {isScanningDirectory ? <RefreshCw className="size-3.5 animate-spin" /> : null}
+                {isScanningDirectory ? "Scanning..." : "Scan directory"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <input
+        accept=".bag,.mcap"
+        className="sr-only"
+        multiple
+        onChange={onUploadFiles}
+        ref={uploadInputRef}
+        type="file"
       />
     </div>
   );

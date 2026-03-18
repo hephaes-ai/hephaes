@@ -1,10 +1,10 @@
-export interface VisualizationHrefOptions {
+export interface ReplayHrefOptions {
   assetId: string;
   episodeId?: string | null;
   from?: string | null;
 }
 
-export function buildVisualizeHref({ assetId, episodeId, from }: VisualizationHrefOptions) {
+export function buildReplayHref({ assetId, episodeId, from }: ReplayHrefOptions) {
   const params = new URLSearchParams();
   params.set("asset_id", assetId);
 
@@ -17,5 +17,7 @@ export function buildVisualizeHref({ assetId, episodeId, from }: VisualizationHr
   }
 
   const query = params.toString();
-  return query ? `/visualize?${query}` : "/visualize";
+  return query ? `/replay?${query}` : "/replay";
 }
+
+export const buildVisualizeHref = buildReplayHref;

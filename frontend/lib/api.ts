@@ -207,6 +207,11 @@ export interface AssetRegistrationRequest {
   file_path: string;
 }
 
+export interface DirectoryScanRequest {
+  directory_path: string;
+  recursive: boolean;
+}
+
 export interface AssetRegistrationSkip {
   detail: string;
   file_path: string;
@@ -216,6 +221,14 @@ export interface AssetRegistrationSkip {
 export interface DialogAssetRegistrationResponse {
   canceled: boolean;
   registered_assets: AssetSummary[];
+  skipped: AssetRegistrationSkip[];
+}
+
+export interface DirectoryScanResponse {
+  discovered_file_count: number;
+  recursive: boolean;
+  registered_assets: AssetSummary[];
+  scanned_directory: string;
   skipped: AssetRegistrationSkip[];
 }
 
@@ -388,7 +401,7 @@ export function serializeAssetListQuery(query?: AssetListQuery | null) {
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
 
-  if (init?.body !== undefined && !(init.body instanceof FormData) && !headers.has("Content-Type")) {
+  if (typeof init?.body === "string" && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
 
@@ -483,8 +496,31 @@ export function registerAsset(payload: AssetRegistrationRequest) {
   });
 }
 
+export function uploadAssetFile(file: File) {
+  const headers = new Headers({
+    "X-File-Name": file.name,
+  });
+
+  if (file.type) {
+    headers.set("Content-Type", file.type);
+  }
+
+  return request<AssetSummary>("/assets/upload", {
+    body: file,
+    headers,
+    method: "POST",
+  });
+}
+
 export function registerAssetsFromDialog() {
   return request<DialogAssetRegistrationResponse>("/assets/register-dialog", {
+    method: "POST",
+  });
+}
+
+export function scanDirectoryForAssets(payload: DirectoryScanRequest) {
+  return request<DirectoryScanResponse>("/assets/scan-directory", {
+    body: JSON.stringify(payload),
     method: "POST",
   });
 }

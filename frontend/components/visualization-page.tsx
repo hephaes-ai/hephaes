@@ -9,18 +9,17 @@ import {
   useAsset,
   useAssetEpisode,
   useAssetEpisodes,
-  usePrepareVisualization,
   useEpisodeSamples,
   useEpisodeTimeline,
   useEpisodeViewerSource,
   useJob,
+  usePrepareVisualization,
 } from "@/hooks/use-backend";
-import { BackendApiError, getErrorMessage } from "@/lib/api";
+import { BackendApiError, getErrorMessage, resolveBackendUrl } from "@/lib/api";
 import { formatDateTime, formatDuration } from "@/lib/format";
 import { resolveReturnHref } from "@/lib/navigation";
-import { buildVisualizeHref } from "@/lib/visualization";
+import { buildReplayHref } from "@/lib/visualization";
 
-import { RerunViewer } from "@/components/rerun-viewer";
 import { VisualizationScrubber } from "@/components/visualization-scrubber";
 import { WorkflowStatusBadge } from "@/components/workflow-status-badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -82,15 +81,23 @@ function parseLaneIds(value: string | null) {
     .filter(Boolean);
 }
 
-function formatTimestampNs(timestampNs: number) {
-  const seconds = timestampNs / 1_000_000_000;
+function formatDurationNs(durationNs: number) {
+  const normalizedDurationNs = Math.max(0, durationNs);
+  const seconds = normalizedDurationNs / 1_000_000_000;
   if (seconds < 60) {
     return `${seconds.toFixed(2)} s`;
   }
 
   const totalSeconds = Math.floor(seconds);
+  const hours = Math.floor(totalSeconds / 3600);
   const minutes = Math.floor(totalSeconds / 60);
+  const remainingMinutes = minutes % 60;
   const remainingSeconds = totalSeconds % 60;
+
+  if (hours > 0) {
+    return `${hours}h ${remainingMinutes}m ${remainingSeconds}s`;
+  }
+
   return `${minutes}m ${remainingSeconds}s`;
 }
 
@@ -234,7 +241,7 @@ export function VisualizationPage() {
       return;
     }
 
-    const nextHref = buildVisualizeHref({
+    const nextHref = buildReplayHref({
       assetId,
       episodeId: nextEpisodeId,
       from: returnHref,
@@ -410,7 +417,7 @@ export function VisualizationPage() {
         </Button>
         <Alert variant="destructive">
           <AlertTitle>Missing asset</AlertTitle>
-          <AlertDescription>Open visualization from inventory or asset detail so an asset ID is provided.</AlertDescription>
+          <AlertDescription>Open replay from inventory or asset detail so an asset ID is provided.</AlertDescription>
         </Alert>
       </div>
     );
@@ -433,7 +440,7 @@ export function VisualizationPage() {
           </Link>
         </Button>
         <Alert variant="destructive">
-          <AlertTitle>{isNotFound ? "Visualization data not found" : "Could not load visualization"}</AlertTitle>
+          <AlertTitle>{isNotFound ? "Replay data not found" : "Could not load replay"}</AlertTitle>
           <AlertDescription>{getErrorMessage(error)}</AlertDescription>
         </Alert>
       </div>
@@ -457,7 +464,7 @@ export function VisualizationPage() {
         <Alert>
           <AlertTitle>No episodes available</AlertTitle>
           <AlertDescription>
-            This asset does not expose episode data yet. Run indexing or visualization preparation jobs and try again.
+            This asset does not expose replay episode data yet. Run indexing or replay-preparation jobs and try again.
           </AlertDescription>
         </Alert>
       </div>
@@ -468,6 +475,7 @@ export function VisualizationPage() {
   const hasVisualizableData =
     (episodeResponse.data?.has_visualizable_streams ?? selectedEpisode?.has_visualizable_streams) !== false;
   const effectiveTimestampNs = currentTimestampNs ?? timelineStartNs;
+  const cursorOffsetNs = Math.max(0, effectiveTimestampNs - timelineStartNs);
   const stepBackwardDisabled = effectiveTimestampNs <= timelineStartNs;
   const stepForwardDisabled = effectiveTimestampNs >= timelineEndNs;
   const responseTimestampNs = samplesResponse.data?.requested_timestamp_ns ?? null;
@@ -546,7 +554,7 @@ export function VisualizationPage() {
       <Card>
         <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="space-y-1">
-            <CardTitle className="text-xl">Visualization</CardTitle>
+            <CardTitle className="text-xl">Replay</CardTitle>
             <CardDescription>{assetDetail.asset.file_name}</CardDescription>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -578,7 +586,7 @@ export function VisualizationPage() {
             <Alert>
               <AlertTitle>Select an episode</AlertTitle>
               <AlertDescription>
-                This asset has multiple episodes. Choose one to load visualization playback data.
+                This asset has multiple episodes. Choose one to load replay playback data.
               </AlertDescription>
             </Alert>
           ) : null}
@@ -605,9 +613,9 @@ export function VisualizationPage() {
 
           {!hasVisualizableData ? (
             <Alert>
-              <AlertTitle>Episode has no supported visualizable data</AlertTitle>
+              <AlertTitle>Episode has no supported replay data</AlertTitle>
               <AlertDescription>
-                This episode is available but does not currently expose streams supported by the visualization viewer.
+                This episode is available but does not currently expose streams supported by the replay workflow.
               </AlertDescription>
             </Alert>
           ) : null}
@@ -616,21 +624,21 @@ export function VisualizationPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Viewer panel</CardTitle>
-          <CardDescription>Embedded official Rerun viewer backed by backend viewer-source manifests.</CardDescription>
+          <CardTitle>Replay source</CardTitle>
+          <CardDescription>Source preparation status for the replay workflow and scrubber-backed inspection.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           {!resolvedEpisodeId ? (
             <Alert>
-              <AlertTitle>Viewer is waiting for an episode</AlertTitle>
-              <AlertDescription>Select an episode to load viewer-source status.</AlertDescription>
+              <AlertTitle>Replay source is waiting for an episode</AlertTitle>
+              <AlertDescription>Select an episode to load replay-source status.</AlertDescription>
             </Alert>
           ) : viewerSourceResponse.isLoading && !viewerSourceResponse.data ? (
             <Skeleton className="h-24 rounded-lg" />
           ) : viewerSourceResponse.error ? (
             <div className="space-y-3">
               <Alert variant="destructive">
-                <AlertTitle>Could not load viewer source</AlertTitle>
+                <AlertTitle>Could not load replay source</AlertTitle>
                 <AlertDescription>{getErrorMessage(viewerSourceResponse.error)}</AlertDescription>
               </Alert>
               <Button onClick={() => void viewerSourceResponse.mutate()} size="sm" type="button" variant="outline">
@@ -640,7 +648,7 @@ export function VisualizationPage() {
           ) : prepareVisualization.error ? (
             <div className="space-y-3">
               <Alert variant="destructive">
-                <AlertTitle>Could not prepare visualization</AlertTitle>
+                <AlertTitle>Could not prepare replay source</AlertTitle>
                 <AlertDescription>{getErrorMessage(prepareVisualization.error)}</AlertDescription>
               </Alert>
               <Button
@@ -649,11 +657,11 @@ export function VisualizationPage() {
                 size="sm"
                 type="button"
               >
-                {prepareVisualization.isPreparing ? "Preparing..." : "Retry prepare"}
+                {prepareVisualization.isPreparing ? "Preparing..." : "Retry prepare replay"}
               </Button>
             </div>
           ) : isViewerSourceReady ? (
-            <>
+            <div className="space-y-3">
               <div className="flex flex-wrap items-center gap-2">
                 <WorkflowStatusBadge status="succeeded" />
                 {viewerSourceResponse.data?.viewer_version ? (
@@ -662,19 +670,54 @@ export function VisualizationPage() {
                 {viewerSourceResponse.data?.recording_version ? (
                   <Badge variant="outline">Recording v{viewerSourceResponse.data.recording_version}</Badge>
                 ) : null}
+                {viewerSourceResponse.data?.source_kind ? (
+                  <Badge variant="outline">
+                    {viewerSourceResponse.data.source_kind === "grpc_url" ? "gRPC stream" : "RRD recording"}
+                  </Badge>
+                ) : null}
               </div>
-              <RerunViewer
-                sourceKind={viewerSourceResponse.data?.source_kind ?? null}
-                sourceUrl={viewerSourceResponse.data?.source_url ?? ""}
-              />
-            </>
+
+              <Alert>
+                <AlertTitle>Replay source ready</AlertTitle>
+                <AlertDescription>
+                  The embedded Rerun viewer is temporarily disabled. Replay timeline controls and lane payload
+                  inspection below remain available.
+                </AlertDescription>
+              </Alert>
+
+              {viewerSourceResponse.data?.artifact_path ? (
+                <div className="rounded-lg border bg-muted/20 px-3 py-3">
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">Artifact path</p>
+                  <p className="mt-1 break-all text-sm text-foreground">{viewerSourceResponse.data.artifact_path}</p>
+                </div>
+              ) : null}
+
+              <div className="flex flex-wrap gap-2">
+                {viewerSourceResponse.data?.source_url ? (
+                  <Button asChild size="sm" type="button" variant="outline">
+                    <a href={resolveBackendUrl(viewerSourceResponse.data.source_url)} rel="noreferrer" target="_blank">
+                      Open source URL
+                    </a>
+                  </Button>
+                ) : null}
+                <Button
+                  disabled={prepareVisualization.isPreparing}
+                  onClick={() => void onPrepareVisualization()}
+                  size="sm"
+                  type="button"
+                  variant="outline"
+                >
+                  {prepareVisualization.isPreparing ? "Preparing..." : "Regenerate replay source"}
+                </Button>
+              </div>
+            </div>
           ) : isPreparingViewerSource ? (
             <div className="space-y-3">
               <Alert>
-                <AlertTitle>Preparing viewer source</AlertTitle>
+                <AlertTitle>Preparing replay source</AlertTitle>
                 <AlertDescription>
-                  Visualization artifact generation is in progress. This panel will switch to the embedded viewer
-                  when the source is ready.
+                  Replay source generation is in progress. Timeline controls and lane payloads remain available while
+                  preparation runs.
                 </AlertDescription>
               </Alert>
 
@@ -698,7 +741,7 @@ export function VisualizationPage() {
           ) : viewerSourceStatus === "failed" ? (
             <div className="space-y-3">
               <Alert variant="destructive">
-                <AlertTitle>Viewer source preparation failed</AlertTitle>
+                <AlertTitle>Replay source preparation failed</AlertTitle>
                 <AlertDescription>
                   {viewerSourceResponse.data?.error_message ?? "Preparation job failed before a usable source was produced."}
                 </AlertDescription>
@@ -710,7 +753,7 @@ export function VisualizationPage() {
                   size="sm"
                   type="button"
                 >
-                  {prepareVisualization.isPreparing ? "Preparing..." : "Retry prepare"}
+                  {prepareVisualization.isPreparing ? "Preparing..." : "Retry prepare replay"}
                 </Button>
                 {effectiveViewerSourceJobId ? (
                   <Button asChild size="sm" type="button" variant="outline">
@@ -724,7 +767,7 @@ export function VisualizationPage() {
           ) : hasViewerVersionMismatch ? (
             <div className="space-y-3">
               <Alert variant="destructive">
-                <AlertTitle>Viewer/source version mismatch</AlertTitle>
+                <AlertTitle>Replay source version mismatch</AlertTitle>
                 <AlertDescription>{viewerSourceResponse.data?.error_message}</AlertDescription>
               </Alert>
               <Button
@@ -733,15 +776,15 @@ export function VisualizationPage() {
                 size="sm"
                 type="button"
               >
-                {prepareVisualization.isPreparing ? "Preparing..." : "Regenerate viewer source"}
+                {prepareVisualization.isPreparing ? "Preparing..." : "Regenerate replay source"}
               </Button>
             </div>
           ) : (
             <div className="space-y-3">
               <Alert>
-                <AlertTitle>Viewer source unavailable</AlertTitle>
+                <AlertTitle>Replay source unavailable</AlertTitle>
                 <AlertDescription>
-                  Prepare visualization to generate an official viewer-compatible source for this episode.
+                  Prepare replay to generate a backend-managed source for this episode.
                 </AlertDescription>
               </Alert>
               <Button
@@ -750,7 +793,7 @@ export function VisualizationPage() {
                 size="sm"
                 type="button"
               >
-                {prepareVisualization.isPreparing ? "Preparing..." : "Prepare visualization"}
+                {prepareVisualization.isPreparing ? "Preparing..." : "Prepare replay"}
               </Button>
             </div>
           )}
@@ -833,11 +876,11 @@ export function VisualizationPage() {
               </Button>
             </div>
 
-            <div className="flex flex-wrap items-end gap-3 lg:justify-end">
-              <div className="flex flex-wrap items-center gap-2 lg:justify-end">
-                <Badge variant="outline">Cursor {formatTimestampNs(effectiveTimestampNs)}</Badge>
-                <Badge variant="outline">Window ±{formatTimestampNs(samplesWindowNs)}</Badge>
-              </div>
+              <div className="flex flex-wrap items-end gap-3 lg:justify-end">
+                <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+                <Badge variant="outline">Cursor +{formatDurationNs(cursorOffsetNs)}</Badge>
+                <Badge variant="outline">Window ±{formatDurationNs(samplesWindowNs)}</Badge>
+                </div>
 
               <div className="max-w-[140px] space-y-1">
                 <label className="text-xs uppercase tracking-wide text-muted-foreground" htmlFor="playback-speed">

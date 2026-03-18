@@ -48,5 +48,9 @@ npm run build
 
 ## Notes
 
-- The inventory uses a native file picker flow through `POST /assets/register-dialog`.
+- The inventory supports four ingestion flows:
+  - file-path registration through `POST /assets/register`
+  - native file picker registration through `POST /assets/register-dialog`
+  - browser uploads through `POST /assets/upload`
+  - directory scanning through `POST /assets/scan-directory`
 - The app uses shadcn components and supports light and dark mode from the header toggle.
