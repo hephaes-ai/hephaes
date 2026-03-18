@@ -1,6 +1,6 @@
 """Service-layer modules for the backend application."""
 
-from backend.app.services.assets import (
+from app.services.assets import (
     AssetAlreadyRegisteredError,
     AssetEpisodeSummary,
     AssetNotFoundError,
@@ -25,7 +25,7 @@ from backend.app.services.assets import (
     scan_directory_for_assets,
     upload_asset,
 )
-from backend.app.services.conversions import (
+from app.services.conversions import (
     ConversionExecutionError,
     ConversionNotFoundError,
     ConversionService,
@@ -35,7 +35,7 @@ from backend.app.services.conversions import (
     get_conversion_or_raise,
     list_conversions,
 )
-from backend.app.services.episodes import (
+from app.services.episodes import (
     EpisodeNotFoundError,
     EpisodePlaybackError,
     EpisodeStreamNotFoundError,
@@ -44,8 +44,8 @@ from backend.app.services.episodes import (
     get_episode_timeline,
     open_asset_reader,
 )
-from backend.app.services.indexing import AssetIndexingError, IndexingService, ReindexAllResult
-from backend.app.services.jobs import (
+from app.services.indexing import AssetIndexingError, IndexingService, ReindexAllResult
+from app.services.jobs import (
     JobNotFoundError,
     JobService,
     JobServiceError,
@@ -54,7 +54,7 @@ from backend.app.services.jobs import (
     get_job_or_raise,
     list_jobs as list_tracked_jobs,
 )
-from backend.app.services.tags import (
+from app.services.tags import (
     AssetTagAlreadyExistsError,
     AssetTagNotFoundError,
     TagAlreadyExistsError,
@@ -68,7 +68,7 @@ from backend.app.services.tags import (
     normalize_tag_name,
     remove_tag_from_asset,
 )
-from backend.app.services.visualization import (
+from app.services.visualization import (
     VisualizationError,
     VisualizationGenerationError,
     VisualizationNotFoundError,

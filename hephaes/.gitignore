@@ -1,0 +1,25 @@
+# Python build artifacts
+/build/
+/dist/
+/src/*.egg-info/
+/.eggs/
+
+# Byte-compiled / cache
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Test / tooling caches
+/.pytest_cache/
+/.mypy_cache/
+/.ruff_cache/
+/.coverage
+/htmlcov/
+
+# Demo artifacts
+/demo/output/
+
+# Large demo input files
+/demo/input/ros1.bag
+/demo/input/sample.mcap
+/demo/input/sample2.mcap

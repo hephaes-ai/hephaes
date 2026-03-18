@@ -2,24 +2,25 @@
 
 ## Install
 
-From the repository root:
+From `backend/`:
 
 ```bash
-pip install -e ".[dev,backend]"
+python -m pip install -e ../hephaes
+python -m pip install -e ".[dev]"
 ```
 
-If you do not need the dev extras:
+Or from the repository root:
 
 ```bash
-pip install ".[backend]"
+python -m pip install -r requirements.txt
 ```
 
 ## Run
 
-From the repository root:
+From `backend/`:
 
 ```bash
-uvicorn backend.app.main:app --reload
+python -m uvicorn app.main:app --reload
 ```
 
 The health endpoint is available at:
@@ -30,8 +31,8 @@ http://127.0.0.1:8000/health
 
 ## Test
 
-From the repository root:
+From `backend/`:
 
 ```bash
-pytest backend/tests -q
+pytest tests -q
 ```

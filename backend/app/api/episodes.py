@@ -7,8 +7,8 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
-from backend.app.db.session import get_db_session
-from backend.app.schemas.episodes import (
+from app.db.session import get_db_session
+from app.schemas.episodes import (
     EpisodeDetailResponse,
     EpisodeSampleDataResponse,
     EpisodeSamplesResponse,
@@ -18,8 +18,8 @@ from backend.app.schemas.episodes import (
     EpisodeTimelineLaneResponse,
     EpisodeTimelineResponse,
 )
-from backend.app.services.assets import AssetNotFoundError, EpisodeDiscoveryUnavailableError
-from backend.app.services.episodes import (
+from app.services.assets import AssetNotFoundError, EpisodeDiscoveryUnavailableError
+from app.services.episodes import (
     EpisodeNotFoundError,
     EpisodePlaybackError,
     EpisodeStreamNotFoundError,

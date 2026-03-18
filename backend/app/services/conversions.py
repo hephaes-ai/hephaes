@@ -17,11 +17,11 @@ from hephaes.models import (
     Topic,
 )
 
-from backend.app.config import get_settings
-from backend.app.db.models import Asset, Conversion, utc_now
-from backend.app.schemas.conversions import ConversionCreateRequest
-from backend.app.services.assets import AssetNotFoundError, get_asset_or_raise
-from backend.app.services.jobs import JobService
+from app.config import get_settings
+from app.db.models import Asset, Conversion, utc_now
+from app.schemas.conversions import ConversionCreateRequest
+from app.services.assets import AssetNotFoundError, get_asset_or_raise
+from app.services.jobs import JobService
 
 
 class ConversionServiceError(Exception):

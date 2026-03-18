@@ -13,15 +13,15 @@ from sqlalchemy.orm import Session
 
 from hephaes._converter_helpers import _normalize_payload
 
-from backend.app.config import get_settings
-from backend.app.db.models import Job
-from backend.app.services.assets import get_asset_or_raise
-from backend.app.services.episodes import (
+from app.config import get_settings
+from app.db.models import Job
+from app.services.assets import get_asset_or_raise
+from app.services.episodes import (
     _build_streams_for_episode,
     _episode_summary_for_asset,
     open_asset_reader,
 )
-from backend.app.services.jobs import JobService, find_latest_job_for_target
+from app.services.jobs import JobService, find_latest_job_for_target
 
 logger = logging.getLogger(__name__)
 

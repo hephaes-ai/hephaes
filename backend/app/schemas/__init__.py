@@ -1,6 +1,6 @@
 """Pydantic schema modules for the backend application."""
 
-from backend.app.schemas.assets import (
+from app.schemas.assets import (
     AssetMetadataResponse,
     AssetDetailResponse,
     AssetListItem,

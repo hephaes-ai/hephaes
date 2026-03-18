@@ -7,8 +7,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from backend.app.schemas.conversions import ConversionSummaryResponse
-from backend.app.schemas.jobs import JobResponse
+from app.schemas.conversions import ConversionSummaryResponse
+from app.schemas.jobs import JobResponse
 
 IndexingStatus = Literal["pending", "indexing", "indexed", "failed"]
 TopicModality = Literal["image", "points", "scalar_series", "other"]

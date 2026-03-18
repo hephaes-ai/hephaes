@@ -5,7 +5,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from backend.app.services import indexing as indexing_service
+from app.services import indexing as indexing_service
 from hephaes.models import BagMetadata, Topic
 
 

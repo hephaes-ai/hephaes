@@ -36,12 +36,6 @@ dependencies = [
 Homepage = "https://hephaes.ai"
 
 [project.optional-dependencies]
-backend = [
-  "fastapi>=0.115.0,<1.0.0",
-  "uvicorn>=0.34.0,<1.0.0",
-  "sqlalchemy>=2.0.0,<3.0.0",
-  "rerun-sdk>=0.22.0,<0.23.0",
-]
 dev = [
   "build>=1.2.2,<2.0.0",
   "httpx>=0.28.0,<1.0.0",

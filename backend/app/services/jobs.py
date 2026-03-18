@@ -7,7 +7,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from backend.app.db.models import Job, utc_now
+from app.db.models import Job, utc_now
 
 
 class JobServiceError(Exception):

@@ -7,9 +7,9 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from backend.app.db.session import get_db_session
-from backend.app.schemas.assets import TagCatalogResponse, TagCreateRequest
-from backend.app.services.tags import TagAlreadyExistsError, create_tag, list_tags
+from app.db.session import get_db_session
+from app.schemas.assets import TagCatalogResponse, TagCreateRequest
+from app.services.tags import TagAlreadyExistsError, create_tag, list_tags
 
 router = APIRouter(prefix="/tags", tags=["tags"])
 DbSession = Annotated[Session, Depends(get_db_session)]

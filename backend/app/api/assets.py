@@ -8,10 +8,10 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, s
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
-from backend.app.db.models import Asset
-from backend.app.db.session import get_db_session
-from backend.app.schemas.conversions import ConversionSummaryResponse
-from backend.app.schemas.assets import (
+from app.db.models import Asset
+from app.db.session import get_db_session
+from app.schemas.conversions import ConversionSummaryResponse
+from app.schemas.assets import (
     AssetDetailResponse,
     AssetListQueryParams,
     DirectoryScanRequest,
@@ -30,8 +30,8 @@ from backend.app.schemas.assets import (
     TagResponse,
     VisualizationSummary,
 )
-from backend.app.schemas.jobs import JobResponse
-from backend.app.services.assets import (
+from app.schemas.jobs import JobResponse
+from app.services.assets import (
     AssetAlreadyRegisteredError,
     AssetEpisodeSummary,
     AssetDialogUnavailableError,
@@ -51,8 +51,8 @@ from backend.app.services.assets import (
     scan_directory_for_assets,
     upload_asset,
 )
-from backend.app.services.indexing import AssetIndexingError, IndexingService
-from backend.app.services.tags import (
+from app.services.indexing import AssetIndexingError, IndexingService
+from app.services.tags import (
     AssetTagAlreadyExistsError,
     AssetTagNotFoundError,
     TagNotFoundError,
