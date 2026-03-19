@@ -66,6 +66,19 @@ Exit criteria:
 
 - backend code can call stable helper functions instead of re-deriving dashboard metrics ad hoc
 
+Implementation tasks:
+
+- [ ] Create `src/hephaes/metrics.py` as the phase-1 home for dashboard-friendly derivation helpers.
+- [ ] Implement topic classification helpers such as `infer_topic_modality(message_type)` and `infer_sensor_family(message_type)`.
+- [ ] Move the current message-type heuristic out of backend indexing and make `hephaes` the source of truth for modality and sensor-family inference.
+- [ ] Implement a helper that summarizes `BagMetadata.topics` into counts by modality and counts by sensor family.
+- [ ] Implement a helper that derives visualization-readiness signals from topic summaries, including `has_visualizable_streams` and `visualizable_stream_count`.
+- [ ] Implement a helper that derives dataset summary signals from `EpisodeManifest`, including format, rows written, field count, and source storage information.
+- [ ] Implement lightweight readiness-flag helpers from manifest metadata, such as `has_manifest`, `has_rows`, and `has_required_fields`.
+- [ ] Decide which helpers stay module-local in `hephaes.metrics` for now and which should be imported by downstream callers immediately.
+- [ ] Add unit tests for empty-topic bags, mixed-modality bags, unknown message types, and manifests with minimal fields only.
+- [ ] Add regression tests that lock in the current heuristic behavior before downstream layers start depending on it.
+
 ### Phase 2: Add Opt-In Quality Profiling
 
 Goal:
@@ -95,6 +108,18 @@ Exit criteria:
 
 - the backend can request deeper quality metrics intentionally
 - default profiling cost stays predictable
+
+Implementation tasks:
+
+- [ ] Define phase-2 quality models in `src/hephaes/metrics.py` or a new `src/hephaes/quality.py`, starting with `TopicCoverageSummary`, `MessageGapSummary`, and `QualityProfile`.
+- [ ] Add reader-scan helpers that compute per-topic first and last timestamps without changing the default `Profiler.profile()` behavior.
+- [ ] Implement opt-in message-gap detection using conservative heuristics so the first version reports obvious sparse or interrupted streams only.
+- [ ] Implement approximate overlap metrics for key modalities based on topic coverage windows rather than expensive pairwise alignment logic.
+- [ ] Decide and document the public API shape for deeper quality extraction, such as `extract_quality_metadata(reader)` versus `Profiler.profile(include_quality=True)`.
+- [ ] Ensure every deeper-quality field is optional so callers can distinguish "not computed" from "computed and empty".
+- [ ] Keep expensive scans off by default and add a regression test proving `Profiler.profile()` still returns the same baseline metadata when no quality option is requested.
+- [ ] Add tests for zero-message bags, single-topic bags, staggered topic start and stop windows, and obvious large-gap cases.
+- [ ] Add at least one benchmark-style test or measurement note to confirm the default profiling path does not take on hidden extra work.
 
 ### Phase 3: Enrich Conversion Manifests For Dashboard Use
 
@@ -130,6 +155,18 @@ Exit criteria:
 
 - backend output summaries can compute training-readiness metrics from manifests without artifact-specific logic scattered across services
 
+Implementation tasks:
+
+- [ ] Add optional manifest metric sections for dashboard use, such as `modality_summary`, `dataset_quality`, and `readiness_flags`.
+- [ ] Implement a helper in `src/hephaes/manifest.py` that builds those optional sections from already-available metadata rather than introducing a second source of truth.
+- [ ] Extend `build_episode_manifest()` to accept optional dashboard-oriented metric payloads without breaking existing callers.
+- [ ] Update `converter.py` to populate the new optional manifest sections only when the required inputs are already available or cheap to derive.
+- [ ] Derive required-field completeness from `field_names` using caller-provided required-field lists rather than hardcoding product policy into `hephaes`.
+- [ ] Derive label-coverage summary from `ManifestLabels` when those fields are present, while keeping absence of labels distinct from zero labels.
+- [ ] Preserve backward compatibility for older manifests by keeping all new fields optional and validating that old manifests still parse cleanly.
+- [ ] Add fixture-based tests for manifests written before and after the new fields are introduced.
+- [ ] Add golden-file tests for manifest serialization so the new fields do not accidentally reshape existing payloads.
+
 ### Phase 4: Stabilize Public Metric Models
 
 Goal:
@@ -151,6 +188,16 @@ Model responsibilities:
 Exit criteria:
 
 - dashboard-related metadata is part of the shared package contract rather than implicit backend logic
+
+Implementation tasks:
+
+- [ ] Promote the phase-1 and phase-2 helper return shapes into stable typed public models, either in `src/hephaes/models.py` or a dedicated exported metrics-model module.
+- [ ] Define and document the stable public models, including `BagQualitySummary`, `DatasetQualitySummary`, and `ReadinessFlags`.
+- [ ] Export the finalized public models and helpers from `src/hephaes/__init__.py`.
+- [ ] Add docstrings and module-level documentation that describe which fields are guaranteed, which are optional, and which are only present when opt-in profiling ran.
+- [ ] Add round-trip tests for the public models so serialized metric payloads remain stable across package releases.
+- [ ] Add compatibility tests for callers that still import the earlier phase helper locations, and decide whether a deprecation shim is needed.
+- [ ] Update package documentation so downstream consumers know when to use raw metadata models versus dashboard-oriented metric models.
 
 ## Implementation Notes
 
