@@ -1417,17 +1417,54 @@ export function InventoryPage() {
   return (
     <div className="space-y-8">
       <section className="space-y-2">
-        <div className="space-y-2">
-          <div className="flex flex-wrap items-center gap-3">
-            <h1 className="text-2xl font-semibold tracking-tight">Asset inventory</h1>
-            <span className="rounded-full border px-2 py-0.5 text-xs text-muted-foreground">
-              {totalCountLabel}
-            </span>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="space-y-2">
+            <div className="flex flex-wrap items-center gap-3">
+              <h1 className="text-2xl font-semibold tracking-tight">Asset inventory</h1>
+              <span className="rounded-full border px-2 py-0.5 text-xs text-muted-foreground">
+                {totalCountLabel}
+              </span>
+            </div>
+            <p className="max-w-3xl text-sm text-muted-foreground">
+              Search, filter, sort through assets.
+            </p>
           </div>
-          <p className="max-w-3xl text-sm text-muted-foreground">
-            Browse the live backend inventory with search, filters, and table sorting while keeping the
-            registered assets table as the main surface.
-          </p>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              className="shrink-0"
+              disabled={isUploadingFiles}
+              onClick={onOpenUploadPicker}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              <Upload className="size-4" />
+              {uploadButtonLabel}
+            </Button>
+            <Button
+              className="shrink-0"
+              disabled={isScanningDirectory}
+              onClick={() => setIsDirectoryScanDialogOpen(true)}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              <FolderOpen className="size-4" />
+              {isScanningDirectory ? "Scanning..." : "Scan directory"}
+            </Button>
+            <Button
+              className="shrink-0"
+              onClick={() => {
+                void Promise.all([revalidateAssetLists(), revalidateTags()]);
+              }}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              <RefreshCw className="size-4" />
+              Refresh
+            </Button>
+          </div>
         </div>
       </section>
 
@@ -1502,40 +1539,6 @@ export function InventoryPage() {
               >
                 Search & filters{hasAppliedFilters ? ` (${activeFilterChips.length})` : ""}
                 <ChevronDown className={cn("size-4 transition-transform", isBrowsePanelOpen && "rotate-180")} />
-              </Button>
-              <Button
-                className="shrink-0"
-                disabled={isUploadingFiles}
-                onClick={onOpenUploadPicker}
-                size="sm"
-                type="button"
-                variant="outline"
-              >
-                <Upload className="size-4" />
-                {uploadButtonLabel}
-              </Button>
-              <Button
-                className="shrink-0"
-                disabled={isScanningDirectory}
-                onClick={() => setIsDirectoryScanDialogOpen(true)}
-                size="sm"
-                type="button"
-                variant="outline"
-              >
-                <FolderOpen className="size-4" />
-                {isScanningDirectory ? "Scanning..." : "Scan directory"}
-              </Button>
-              <Button
-                className="shrink-0"
-                onClick={() => {
-                  void Promise.all([revalidateAssetLists(), revalidateTags()]);
-                }}
-                size="sm"
-                type="button"
-                variant="outline"
-              >
-                <RefreshCw className="size-4" />
-                Refresh
               </Button>
             </div>
           </div>
