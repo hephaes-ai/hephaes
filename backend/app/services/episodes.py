@@ -540,7 +540,7 @@ def _collect_windowed_scalar_samples(
     return scalar_window_samples
 
 
-def _collect_nearest_sample_messages(
+def _collect_latest_sample_messages(
     reader: RosReader,
     *,
     streams: list[EpisodeStreamSummary],
@@ -552,7 +552,7 @@ def _collect_nearest_sample_messages(
     if not topic_to_stream:
         return {}
 
-    nearest_samples: dict[str, tuple[int, Message]] = {}
+    latest_samples: dict[str, Message] = {}
     for message in reader.read_messages(
         topics=list(topic_to_stream),
         start_ns=start_ns,
@@ -562,12 +562,14 @@ def _collect_nearest_sample_messages(
         if stream is None:
             continue
 
-        distance = abs(message.timestamp - timestamp_ns)
-        previous = nearest_samples.get(stream.id)
-        if previous is None or distance < previous[0]:
-            nearest_samples[stream.id] = (distance, message)
+        if message.timestamp > timestamp_ns:
+            continue
 
-    return {stream_id: candidate[1] for stream_id, candidate in nearest_samples.items()}
+        previous = latest_samples.get(stream.id)
+        if previous is None or message.timestamp >= previous.timestamp:
+            latest_samples[stream.id] = message
+
+    return latest_samples
 
 
 def get_episode_samples(
@@ -587,21 +589,18 @@ def get_episode_samples(
 
     window_start_ns = max(0, timestamp_ns - window_before_ns)
     window_end_ns = timestamp_ns + window_after_ns
-    has_window = window_before_ns > 0 or window_after_ns > 0
 
     scalar_streams = [stream for stream in selected_streams if stream.modality == "scalar_series"]
-    nearest_candidate_streams = [
-        stream for stream in selected_streams if not (stream.modality == "scalar_series" and has_window)
-    ]
+    latest_candidate_streams = [stream for stream in selected_streams if stream.modality != "scalar_series"]
     scalar_window_samples: dict[str, list[EpisodeSampleData]] = {
         stream.id: [] for stream in scalar_streams
     }
-    nearest_sample_messages: dict[str, Message] = {}
+    latest_sample_messages: dict[str, Message] = {}
 
     if selected_streams:
         try:
             with open_asset_reader(asset.file_path) as reader:
-                if has_window and scalar_streams:
+                if scalar_streams:
                     scalar_window_samples = _collect_windowed_scalar_samples(
                         reader,
                         streams=scalar_streams,
@@ -609,12 +608,12 @@ def get_episode_samples(
                         window_end_ns=window_end_ns,
                     )
 
-                nearest_sample_messages = _collect_nearest_sample_messages(
+                latest_sample_messages = _collect_latest_sample_messages(
                     reader,
-                    streams=nearest_candidate_streams,
+                    streams=latest_candidate_streams,
                     timestamp_ns=timestamp_ns,
-                    start_ns=window_start_ns if has_window else None,
-                    stop_ns=_exclusive_stop_ns(window_end_ns) if has_window else None,
+                    start_ns=window_start_ns if window_before_ns > 0 or window_after_ns > 0 else None,
+                    stop_ns=_exclusive_stop_ns(timestamp_ns),
                 )
         except Exception as exc:
             raise EpisodePlaybackError(
@@ -623,16 +622,16 @@ def get_episode_samples(
 
     stream_results: list[EpisodeStreamSamples] = []
     for stream in selected_streams:
-        if stream.modality == "scalar_series" and has_window:
+        if stream.modality == "scalar_series":
             samples = sorted(
                 scalar_window_samples.get(stream.id, []),
                 key=lambda item: item.timestamp_ns,
             )
             selection_strategy = "window"
         else:
-            nearest_message = nearest_sample_messages.get(stream.id)
-            samples = [_sample_from_message(stream, nearest_message)] if nearest_message is not None else []
-            selection_strategy = "nearest"
+            latest_message = latest_sample_messages.get(stream.id)
+            samples = [_sample_from_message(stream, latest_message)] if latest_message is not None else []
+            selection_strategy = "latest_at_or_before"
 
         stream_results.append(
             EpisodeStreamSamples(

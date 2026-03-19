@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.schemas.assets import TopicModality
 
-EpisodeSampleSelectionStrategy = Literal["nearest", "window"]
+EpisodeSampleSelectionStrategy = Literal["latest_at_or_before", "window"]
 
 
 class EpisodeStreamResponse(BaseModel):
