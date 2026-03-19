@@ -7,7 +7,6 @@ import { ArrowLeft, ArrowRight, ArrowRightLeft, Database, Eye, RefreshCw, Waves 
 
 import { AssetStatusBadge } from "@/components/asset-status-badge";
 import { ConversionDialog } from "@/components/conversion-dialog";
-import { useFeedback } from "@/components/feedback-provider";
 import { TagActionPanel, TagBadgeList } from "@/components/tag-controls";
 import { WorkflowStatusBadge } from "@/components/workflow-status-badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -15,6 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { toast } from "@/components/ui/sonner";
 import {
   Table,
   TableBody,
@@ -141,7 +141,6 @@ function buildJobDetailHref(jobId: string, returnHref: string) {
 
 export function AssetDetailPage({ assetId }: { assetId: string }) {
   const searchParams = useSearchParams();
-  const { notify } = useFeedback();
   const { revalidateAssetLists, revalidateConversions, revalidateJobs, revalidateTags } = useBackendCache();
   const { data, error, isLoading, mutate } = useAsset(assetId);
   const tagsResponse = useTags();
@@ -273,10 +272,8 @@ export function AssetDetailPage({ assetId }: { assetId: string }) {
         title: "Could not index asset",
         tone: "error",
       });
-      notify({
+      toast.error("Indexing failed", {
         description: message,
-        title: "Indexing failed",
-        tone: "error",
       });
       await Promise.all([mutate(), revalidateAssetLists(), revalidateJobs()]);
     } finally {
@@ -312,10 +309,8 @@ export function AssetDetailPage({ assetId }: { assetId: string }) {
         title: "Could not add tag",
         tone: "error",
       });
-      notify({
+      toast.error("Tag update failed", {
         description: message,
-        title: "Tag update failed",
-        tone: "error",
       });
       await Promise.all([mutate(), refreshTagData()]);
     } finally {
@@ -358,10 +353,8 @@ export function AssetDetailPage({ assetId }: { assetId: string }) {
         title: "Could not create tag",
         tone: "error",
       });
-      notify({
+      toast.error("Tag creation failed", {
         description: message,
-        title: "Tag creation failed",
-        tone: "error",
       });
       await revalidateTags();
     } finally {
@@ -384,10 +377,8 @@ export function AssetDetailPage({ assetId }: { assetId: string }) {
         title: "Could not remove tag",
         tone: "error",
       });
-      notify({
+      toast.error("Tag removal failed", {
         description: message,
-        title: "Tag removal failed",
-        tone: "error",
       });
       await Promise.all([mutate(), refreshTagData()]);
     } finally {

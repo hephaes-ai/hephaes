@@ -10,6 +10,7 @@ import {
   Database,
   ExternalLink,
   ListFilter,
+  MoreHorizontal,
   RefreshCw,
   Search,
   Sparkles,
@@ -17,16 +18,22 @@ import {
   X,
 } from "lucide-react";
 
-import { useFeedback } from "@/components/feedback-provider";
 import { WorkflowStatusBadge } from "@/components/workflow-status-badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { toast } from "@/components/ui/sonner";
 import {
   Table,
   TableBody,
@@ -803,18 +810,20 @@ function OutputsTable({
         <TableHeader>
           <TableRow>
             <TableHead className="w-12">
-              <Checkbox
-                aria-label="Select all visible outputs"
-                checked={allVisibleSelected ? true : someVisibleSelected ? "indeterminate" : false}
-                onCheckedChange={() => onToggleAllVisible()}
-              />
+              <div className="flex items-center justify-center">
+                <Checkbox
+                  aria-label="Select all visible outputs"
+                  checked={allVisibleSelected ? true : someVisibleSelected ? "indeterminate" : false}
+                  onCheckedChange={() => onToggleAllVisible()}
+                />
+              </div>
             </TableHead>
             <TableHead>Output file</TableHead>
             <TableHead>Source assets</TableHead>
             <TableHead>Size</TableHead>
             <TableHead>Availability</TableHead>
             <TableHead>Latest action</TableHead>
-            <TableHead className="w-64 text-right">Actions</TableHead>
+            <TableHead className="w-12 text-right">Actions</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -830,17 +839,19 @@ function OutputsTable({
                 onClick={() => onSelectOutput(output.id)}
               >
                 <TableCell>
-                  <Checkbox
-                    aria-label={`Select ${output.file_name}`}
-                    checked={isBatchSelected}
-                    onCheckedChange={() => onToggleOutputSelection(output.id)}
-                    onClick={(event) => event.stopPropagation()}
-                  />
+                  <div className="flex items-center justify-center">
+                    <Checkbox
+                      aria-label={`Select ${output.file_name}`}
+                      checked={isBatchSelected}
+                      onCheckedChange={() => onToggleOutputSelection(output.id)}
+                      onClick={(event) => event.stopPropagation()}
+                    />
+                  </div>
                 </TableCell>
-                <TableCell className="max-w-0">
+                <TableCell>
                   <div className="space-y-2">
-                    <p className="font-medium text-foreground">{output.file_name}</p>
-                    <p className="truncate text-xs text-muted-foreground">{output.relative_path}</p>
+                    <p className="font-medium text-foreground whitespace-nowrap">{output.file_name}</p>
+                    <p className="text-xs text-muted-foreground">{output.relative_path}</p>
                     <div className="flex flex-wrap items-center gap-2">
                       <Badge variant="outline">{formatOutputFormat(output.format)}</Badge>
                       <OutputRoleBadge role={output.role} />
@@ -875,31 +886,50 @@ function OutputsTable({
                   )}
                 </TableCell>
                 <TableCell className="text-right">
-                  <div className="flex justify-end gap-2">
-                    <Button
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        onSelectOutput(output.id);
-                      }}
-                      size="sm"
-                      type="button"
-                      variant={isSelected ? "secondary" : "outline"}
-                    >
-                      Inspect
-                    </Button>
-                    <OutputContentButton output={output} size="sm" variant="outline" />
-                    <Button
-                      disabled={isRefreshing}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        void onRefreshMetadata([output]);
-                      }}
-                      size="sm"
-                      type="button"
-                    >
-                      Refresh
-                    </Button>
-                  </div>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="size-8"
+                        onClick={(event) => event.stopPropagation()}
+                      >
+                        <MoreHorizontal className="size-4" />
+                        <span className="sr-only">Actions</span>
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onSelectOutput(output.id);
+                        }}
+                      >
+                        Inspect
+                      </DropdownMenuItem>
+                      {output.availability_status === "ready" ? (
+                        <DropdownMenuItem asChild>
+                          <a
+                            href={resolveBackendUrl(output.content_url)}
+                            rel="noreferrer"
+                            target="_blank"
+                          >
+                            Open content
+                            <ExternalLink className="size-4" />
+                          </a>
+                        </DropdownMenuItem>
+                      ) : null}
+                      <DropdownMenuItem
+                        disabled={isRefreshing}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          void onRefreshMetadata([output]);
+                        }}
+                      >
+                        Refresh
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </TableCell>
               </TableRow>
             );
@@ -1007,7 +1037,7 @@ export function OutputsPage() {
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { notify } = useFeedback();
+
   const { isCreating, trigger } = useCreateOutputAction();
 
   const query = React.useMemo(() => buildOutputsQuery(searchParams), [searchParams]);
@@ -1233,10 +1263,8 @@ export function OutputsPage() {
   }
 
   function onShowVlmTaggingStub(scopeLabel: string) {
-    notify({
+    toast.info("Coming soon", {
       description: `VLM tagging is not wired to the backend yet for ${scopeLabel}.`,
-      title: "Coming soon",
-      tone: "info",
     });
   }
 
@@ -1262,19 +1290,14 @@ export function OutputsPage() {
       }
 
       const firstOutput = outputsToRefresh[0];
-      notify({
-        description:
-          outputsToRefresh.length === 1
-            ? `Metadata refreshed for ${firstOutput?.file_name ?? "the selected output"}.`
-            : `Metadata refreshed for ${outputsToRefresh.length} selected outputs.`,
-        title: "Output action completed",
-        tone: "success",
-      });
+      toast.success(
+        outputsToRefresh.length === 1
+          ? `Metadata refreshed for ${firstOutput?.file_name ?? "the selected output"}.`
+          : `Metadata refreshed for ${outputsToRefresh.length} selected outputs.`,
+      );
     } catch (error) {
-      notify({
+      toast.error("Could not refresh output metadata", {
         description: getErrorMessage(error),
-        title: "Could not refresh output metadata",
-        tone: "error",
       });
     }
   }
@@ -1344,9 +1367,37 @@ export function OutputsPage() {
                 {formatCount(outputs.length, "result")}
               </Badge>
               {selectedOutputs.length > 0 ? (
-                <Badge className="h-6" variant="outline">
-                  {formatCount(selectedOutputs.length, "selected output")}
-                </Badge>
+                <>
+                  <Badge className="h-6" variant="outline">
+                    {selectedOutputs.length} selected
+                  </Badge>
+                  <Button
+                    disabled={isCreating}
+                    onClick={() => void onRefreshMetadata(selectedOutputs)}
+                    size="sm"
+                    type="button"
+                  >
+                    <Wrench className="size-3.5" />
+                    Batch refresh metadata
+                  </Button>
+                  <Button
+                    disabled
+                    size="sm"
+                    type="button"
+                    variant="outline"
+                  >
+                    <Sparkles className="size-3.5" />
+                    Batch VLM tagging soon
+                  </Button>
+                  <Button
+                    onClick={() => updateFilters({ selection: null })}
+                    size="sm"
+                    type="button"
+                    variant="ghost"
+                  >
+                    Clear selection
+                  </Button>
+                </>
               ) : null}
               <Button
                 aria-expanded={isFiltersOpen}
@@ -1565,47 +1616,6 @@ export function OutputsPage() {
           </div>
         </CardHeader>
         <CardContent>
-          {selectedOutputs.length > 0 ? (
-            <div className="mb-4 flex flex-col gap-3 rounded-xl border bg-muted/20 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
-              <div className="space-y-1">
-                <p className="text-sm font-medium text-foreground">
-                  {formatCount(selectedOutputs.length, "selected output")}
-                </p>
-                <p className="text-sm text-muted-foreground">
-                  Multi-select state lives in the URL, so batch workflows and filtered views stay shareable.
-                </p>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  disabled={isCreating}
-                  onClick={() => void onRefreshMetadata(selectedOutputs)}
-                  size="sm"
-                  type="button"
-                >
-                  <Wrench className="size-3.5" />
-                  Batch refresh metadata
-                </Button>
-                <Button
-                  onClick={() => onShowVlmTaggingStub(`${selectedOutputs.length} selected outputs`)}
-                  size="sm"
-                  type="button"
-                  variant="outline"
-                >
-                  <Sparkles className="size-3.5" />
-                  Batch VLM tagging soon
-                </Button>
-                <Button
-                  onClick={() => updateFilters({ selection: null })}
-                  size="sm"
-                  type="button"
-                  variant="outline"
-                >
-                  Clear selection
-                </Button>
-              </div>
-            </div>
-          ) : null}
-
           {outputs.length === 0 ? (
             <OutputsEmptyState
               action={

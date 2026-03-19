@@ -10,6 +10,7 @@ import {
   ChevronDown,
   ChevronUp,
   FolderOpen,
+  MoreHorizontal,
   RefreshCw,
   Search,
   Tag,
@@ -19,13 +20,18 @@ import {
 
 import { AssetStatusBadge } from "@/components/asset-status-badge";
 import { ConversionDialog } from "@/components/conversion-dialog";
-import { useFeedback } from "@/components/feedback-provider";
 import { TagActionPanel, TagBadgeList } from "@/components/tag-controls";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Dialog,
   DialogContent,
@@ -458,7 +464,7 @@ function AssetsTable({
               />
             </TableHead>
             <TableHead>Last indexed</TableHead>
-            <TableHead className="w-28 text-right">Action</TableHead>
+            <TableHead className="w-12 text-right">Action</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -511,27 +517,34 @@ function AssetsTable({
                 <TableCell>{formatDateTime(asset.registered_time)}</TableCell>
                 <TableCell>{formatDateTime(asset.last_indexed_time, "Not indexed yet")}</TableCell>
                 <TableCell className="text-right">
-                  <div className="flex flex-wrap justify-end gap-2" data-stop-row-click="true">
-                    {outputCount > 0 ? (
-                      <Button asChild size="sm" type="button" variant="outline">
-                        <Link href={buildOutputsHref({ assetId: asset.id })}>Outputs</Link>
-                      </Button>
-                    ) : null}
-                    {asset.indexing_status === "indexed" ? (
-                      <Button asChild size="sm" type="button" variant="secondary">
-                        <Link href={buildInventoryReplayHref(asset.id, inventoryHref)}>Replay</Link>
-                      </Button>
-                    ) : null}
-                    <Button
-                      disabled={isRunningAction || asset.indexing_status === "indexing"}
-                      onClick={() => onRunAssetAction(asset)}
-                      size="sm"
-                      type="button"
-                      variant={asset.indexing_status === "failed" ? "destructive" : "outline"}
-                    >
-                      {isRunningAction ? <RefreshCw className="size-3.5 animate-spin" /> : null}
-                      {getIndexActionLabel(asset.indexing_status, isRunningAction)}
-                    </Button>
+                  <div data-stop-row-click="true">
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button size="icon" variant="ghost" className="size-8">
+                          <MoreHorizontal className="size-4" />
+                          <span className="sr-only">Actions</span>
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem
+                          disabled={isRunningAction || asset.indexing_status === "indexing"}
+                          onClick={() => onRunAssetAction(asset)}
+                        >
+                          {isRunningAction ? <RefreshCw className="size-4 animate-spin" /> : null}
+                          {getIndexActionLabel(asset.indexing_status, isRunningAction)}
+                        </DropdownMenuItem>
+                        {asset.indexing_status === "indexed" ? (
+                          <DropdownMenuItem asChild>
+                            <Link href={buildInventoryReplayHref(asset.id, inventoryHref)}>Replay</Link>
+                          </DropdownMenuItem>
+                        ) : null}
+                        {outputCount > 0 ? (
+                          <DropdownMenuItem asChild>
+                            <Link href={buildOutputsHref({ assetId: asset.id })}>Outputs</Link>
+                          </DropdownMenuItem>
+                        ) : null}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </div>
                 </TableCell>
               </TableRow>
@@ -563,7 +576,7 @@ function AssetsTableSkeleton() {
 
 export function InventoryPageFallback() {
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       <section className="space-y-2">
         <Skeleton className="h-8 w-40" />
         <Skeleton className="h-5 w-96 max-w-full" />
@@ -586,7 +599,6 @@ export function InventoryPage() {
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { notify } = useFeedback();
   const { revalidateAssetLists, revalidateJobs, revalidateTags } = useBackendCache();
   const uploadInputRef = React.useRef<HTMLInputElement | null>(null);
 
@@ -876,11 +888,7 @@ export function InventoryPage() {
         title,
         tone,
       });
-      notify({
-        description,
-        title,
-        tone,
-      });
+      toast[tone](title, { description });
     } finally {
       setIsUploadingFiles(false);
       setUploadProgress(null);
@@ -965,11 +973,7 @@ export function InventoryPage() {
         title,
         tone,
       });
-      notify({
-        description,
-        title,
-        tone,
-      });
+      toast[tone](title, { description });
     } catch (scanError) {
       const message = getErrorMessage(scanError);
       setDirectoryScanMessage({
@@ -977,11 +981,7 @@ export function InventoryPage() {
         title: "Could not scan directory",
         tone: "error",
       });
-      notify({
-        description: message,
-        title: "Directory scan failed",
-        tone: "error",
-      });
+      toast.error("Directory scan failed", { description: message });
     } finally {
       setIsScanningDirectory(false);
     }
@@ -1166,10 +1166,8 @@ export function InventoryPage() {
         title: "Indexing failed",
         tone: "error",
       });
-      notify({
+      toast.error("Could not index asset", {
         description: `${asset.file_name}: ${message}`,
-        title: "Could not index asset",
-        tone: "error",
       });
       await refreshAssetLists();
     } finally {
@@ -1229,11 +1227,7 @@ export function InventoryPage() {
           title: "Selection indexed with warnings",
           tone: "info",
         });
-        notify({
-          description,
-          title: "Partial indexing complete",
-          tone: "info",
-        });
+        toast.info("Partial indexing complete", { description });
         return;
       }
 
@@ -1243,11 +1237,7 @@ export function InventoryPage() {
         title: "Selected assets failed to index",
         tone: "error",
       });
-      notify({
-        description,
-        title: "Bulk indexing failed",
-        tone: "error",
-      });
+      toast.error("Bulk indexing failed", { description });
     } finally {
       setIsBulkIndexingSelection(false);
     }
@@ -1262,10 +1252,8 @@ export function InventoryPage() {
       await refreshAssetLists();
 
       if (result.total_requested === 0) {
-        notify({
+        toast.info("Nothing to index", {
           description: "There were no pending or failed assets to index.",
-          title: "Nothing to index",
-          tone: "info",
         });
         return;
       }
@@ -1278,11 +1266,7 @@ export function InventoryPage() {
           title: "Pending indexing completed with warnings",
           tone: "info",
         });
-        notify({
-          description,
-          title: "Index pending finished",
-          tone: "info",
-        });
+        toast.info("Index pending finished", { description });
         return;
       }
     } catch (indexError) {
@@ -1293,11 +1277,7 @@ export function InventoryPage() {
         title: "Could not index pending assets",
         tone: "error",
       });
-      notify({
-        description: message,
-        title: "Index pending failed",
-        tone: "error",
-      });
+      toast.error("Index pending failed", { description: message });
       await refreshAssetLists();
     } finally {
       setIsIndexingPendingAssets(false);
@@ -1345,11 +1325,7 @@ export function InventoryPage() {
           title: "Tags applied with warnings",
           tone: "info",
         });
-        notify({
-          description,
-          title: "Bulk tag update finished",
-          tone: "info",
-        });
+        toast.info("Bulk tag update finished", { description });
         return;
       }
 
@@ -1359,11 +1335,7 @@ export function InventoryPage() {
         title: "Could not apply tag",
         tone: "error",
       });
-      notify({
-        description,
-        title: "Bulk tag update failed",
-        tone: "error",
-      });
+      toast.error("Bulk tag update failed", { description });
     } finally {
       setIsUpdatingSelectionTags(false);
     }
@@ -1405,11 +1377,7 @@ export function InventoryPage() {
         title: "Could not create tag",
         tone: "error",
       });
-      notify({
-        description: message,
-        title: "Tag creation failed",
-        tone: "error",
-      });
+      toast.error("Tag creation failed", { description: message });
       await revalidateTags();
     } finally {
       setIsUpdatingSelectionTags(false);
@@ -1417,7 +1385,7 @@ export function InventoryPage() {
   }
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       <section className="space-y-2">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="space-y-2">
@@ -1489,11 +1457,6 @@ export function InventoryPage() {
               <Badge className="h-6" variant="secondary">
                 {resultsCountLabel}
               </Badge>
-              {typeof totalRegisteredCount === "number" && totalRegisteredCount !== visibleAssets.length ? (
-                <Badge className="h-6" variant="outline">
-                  of {totalRegisteredCount}
-                </Badge>
-              ) : null}
               {selectedCount > 0 ? (
                 <Badge className="h-6" variant="outline">
                   {selectedCount} selected

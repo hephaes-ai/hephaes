@@ -6,10 +6,10 @@ import { useSearchParams } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 
 import { OutputDetailContent } from "@/components/outputs-page";
-import { useFeedback } from "@/components/feedback-provider";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { toast } from "@/components/ui/sonner";
 import {
   useAssets,
   useBackendCache,
@@ -39,7 +39,6 @@ export function OutputDetailPageFallback() {
 
 export function OutputDetailPage({ outputId }: { outputId: string }) {
   const searchParams = useSearchParams();
-  const { notify } = useFeedback();
   const { isCreating, trigger } = useCreateOutputAction();
 
   const outputResponse = useOutput(outputId);
@@ -82,16 +81,10 @@ export function OutputDetailPage({ outputId }: { outputId: string }) {
     try {
       const reference = `${output.file_name} (${output.id})`;
       await navigator.clipboard.writeText(reference);
-      notify({
-        description: "Output reference copied to clipboard.",
-        title: "Copied",
-        tone: "success",
-      });
+      toast.success("Output reference copied to clipboard.");
     } catch (error) {
-      notify({
+      toast.error("Could not copy reference", {
         description: getErrorMessage(error),
-        title: "Could not copy reference",
-        tone: "error",
       });
     }
   }
@@ -99,16 +92,10 @@ export function OutputDetailPage({ outputId }: { outputId: string }) {
   async function onCopyResultJson(action: OutputActionDetail) {
     try {
       await navigator.clipboard.writeText(JSON.stringify(action.result, null, 2));
-      notify({
-        description: "Action result JSON copied to clipboard.",
-        title: "Copied",
-        tone: "success",
-      });
+      toast.success("Action result JSON copied to clipboard.");
     } catch (error) {
-      notify({
+      toast.error("Could not copy JSON", {
         description: getErrorMessage(error),
-        title: "Could not copy JSON",
-        tone: "error",
       });
     }
   }
@@ -126,28 +113,21 @@ export function OutputDetailPage({ outputId }: { outputId: string }) {
         });
       }
 
-      notify({
-        description:
-          outputsToRefresh.length === 1
-            ? `Metadata refresh queued for ${outputsToRefresh[0].file_name}.`
-            : `Metadata refreshed for ${outputsToRefresh.length} selected outputs.`,
-        title: "Metadata refresh started",
-        tone: "success",
-      });
+      toast.success(
+        outputsToRefresh.length === 1
+          ? `Metadata refresh queued for ${outputsToRefresh[0].file_name}.`
+          : `Metadata refreshed for ${outputsToRefresh.length} selected outputs.`,
+      );
     } catch (error) {
-      notify({
+      toast.error("Metadata refresh failed", {
         description: getErrorMessage(error),
-        title: "Metadata refresh failed",
-        tone: "error",
       });
     }
   }
 
   function onShowVlmTaggingStub(scopeLabel: string) {
-    notify({
+    toast.info("Coming soon", {
       description: `VLM tagging for "${scopeLabel}" is not yet available. This action will be enabled in a future release.`,
-      title: "Coming soon",
-      tone: "info",
     });
   }
 

@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { ArrowRight, ListFilter, RefreshCw } from "lucide-react";
+import { ChevronDown, ListFilter, RefreshCw } from "lucide-react";
 
 import { useAssets, useJobs } from "@/hooks/use-backend";
 import type { AssetSummary, JobStatus, JobType } from "@/lib/api";
@@ -13,11 +13,13 @@ import {
   formatJobType,
   isWorkflowActiveStatus,
 } from "@/lib/format";
+import { cn } from "@/lib/utils";
 
 import { WorkflowStatusBadge } from "@/components/workflow-status-badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -137,6 +139,9 @@ export function JobsPage() {
 
   const activeJobCount = jobs.filter((job) => isWorkflowActiveStatus(job.status)).length;
   const shouldPollJobs = jobs.some((job) => isWorkflowActiveStatus(job.status));
+  const hasAppliedFilters = !!(activeType || activeStatus);
+  const activeFilterCount = (activeType ? 1 : 0) + (activeStatus ? 1 : 0);
+  const [isFiltersOpen, setIsFiltersOpen] = React.useState(hasAppliedFilters);
 
   React.useEffect(() => {
     if (!shouldPollJobs) {
@@ -208,7 +213,7 @@ export function JobsPage() {
               </span>
             </div>
             <p className="max-w-3xl text-sm text-muted-foreground">
-              Monitor backend indexing, conversion, and visualization-preparation work without leaving the app.
+              Monitor indexing, conversion, visualization jobs.
             </p>
           </div>
           <Button
@@ -224,136 +229,151 @@ export function JobsPage() {
         </div>
       </section>
 
-      <Card>
-        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <CardTitle className="flex items-center gap-2">
-              <ListFilter className="size-4" />
-              Filters
-            </CardTitle>
-            <CardDescription>Keep the jobs view focused without turning it into a dashboard.</CardDescription>
-          </div>
-          {activeType || activeStatus ? (
-            <Button
-              onClick={() => updateFilters({ status: null, type: null })}
-              size="sm"
-              type="button"
-              variant="ghost"
-            >
-              Clear filters
-            </Button>
-          ) : null}
-        </CardHeader>
-        <CardContent>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-2">
-              <label className="text-xs uppercase tracking-wide text-muted-foreground" htmlFor="job-type-filter">
-                Job type
-              </label>
-              <NativeSelect
-                id="job-type-filter"
-                onChange={(event) => updateFilters({ type: event.target.value || null })}
-                value={activeType}
-              >
-                <option value="">All job types</option>
-                {JOB_TYPE_OPTIONS.map((jobType) => (
-                  <option key={jobType} value={jobType}>
-                    {formatJobType(jobType)}
-                  </option>
-                ))}
-              </NativeSelect>
-            </div>
-            <div className="space-y-2">
-              <label className="text-xs uppercase tracking-wide text-muted-foreground" htmlFor="job-status-filter">
-                Status
-              </label>
-              <NativeSelect
-                id="job-status-filter"
-                onChange={(event) => updateFilters({ status: event.target.value || null })}
-                value={activeStatus}
-              >
-                <option value="">All statuses</option>
-                {JOB_STATUS_OPTIONS.map((jobStatus) => (
-                  <option key={jobStatus} value={jobStatus}>
-                    {jobStatus}
-                  </option>
-                ))}
-              </NativeSelect>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {filteredJobs.length === 0 ? (
-        jobs.length === 0 ? (
-          <JobsEmptyState />
-        ) : (
-          <div className="rounded-xl border border-dashed px-6 py-16 text-center">
-            <h2 className="text-sm font-medium text-foreground">No matching jobs</h2>
-            <p className="mx-auto mt-2 max-w-2xl text-sm text-muted-foreground">
-              Try clearing one of the active filters to see the rest of the backend job history.
-            </p>
-          </div>
-        )
+      {jobs.length === 0 ? (
+        <JobsEmptyState />
       ) : (
         <Card>
-          <CardHeader>
-            <CardTitle>Job history</CardTitle>
-            <CardDescription>
-              {filteredJobs.length} result{filteredJobs.length === 1 ? "" : "s"} from the durable jobs system.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="overflow-x-auto">
-              <Table className="min-w-[820px]">
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Type</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Target assets</TableHead>
-                    <TableHead>Created</TableHead>
-                    <TableHead>Updated</TableHead>
-                    <TableHead className="w-[96px] text-right">Open</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredJobs.map((job) => (
-                    <TableRow key={job.id}>
-                      <TableCell className="font-medium">{formatJobType(job.type)}</TableCell>
-                      <TableCell>
-                        <WorkflowStatusBadge status={job.status} />
-                      </TableCell>
-                      <TableCell>
-                        <div className="space-y-2">
-                          <AssetTargetLinks
-                            assetIds={job.target_asset_ids_json}
-                            assetsById={assetsById}
-                            currentHref={currentHref}
-                          />
-                          {job.target_asset_ids_json.length > 0 ? (
-                            <p className="text-xs text-muted-foreground">
-                              {job.target_asset_ids_json.length} asset
-                              {job.target_asset_ids_json.length === 1 ? "" : "s"}
-                            </p>
-                          ) : null}
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-muted-foreground">{formatDateTime(job.created_at)}</TableCell>
-                      <TableCell className="text-muted-foreground">{formatDateTime(job.updated_at)}</TableCell>
-                      <TableCell className="text-right">
-                        <Button asChild size="sm" variant="ghost">
-                          <Link href={buildJobDetailHref(job.id, currentHref)}>
-                            Open
-                            <ArrowRight className="size-3.5" />
-                          </Link>
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+          <CardHeader className="space-y-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <CardTitle>Job history</CardTitle>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge className="h-6" variant="secondary">
+                  {filteredJobs.length} result{filteredJobs.length === 1 ? "" : "s"}
+                </Badge>
+                <Button
+                  aria-expanded={isFiltersOpen}
+                  onClick={() => setIsFiltersOpen((current) => !current)}
+                  size="sm"
+                  type="button"
+                  variant="outline"
+                >
+                  <ListFilter className="size-4" />
+                  Filters{hasAppliedFilters ? ` (${activeFilterCount})` : ""}
+                  <ChevronDown className={cn("size-4 transition-transform", isFiltersOpen && "rotate-180")} />
+                </Button>
+              </div>
             </div>
-          </CardContent>
+
+            <div
+              className={cn(
+                "grid transition-all duration-200 ease-out",
+                isFiltersOpen ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0",
+              )}
+            >
+              <div className="overflow-hidden">
+                <div className="space-y-4 rounded-xl border bg-muted/20 p-4">
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-2">
+                      <label className="text-xs uppercase tracking-wide text-muted-foreground" htmlFor="job-type-filter">
+                        Job type
+                      </label>
+                      <NativeSelect
+                        id="job-type-filter"
+                        onChange={(event) => updateFilters({ type: event.target.value || null })}
+                        value={activeType}
+                      >
+                        <option value="">All job types</option>
+                        {JOB_TYPE_OPTIONS.map((jobType) => (
+                          <option key={jobType} value={jobType}>
+                            {formatJobType(jobType)}
+                          </option>
+                        ))}
+                      </NativeSelect>
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-xs uppercase tracking-wide text-muted-foreground" htmlFor="job-status-filter">
+                        Status
+                      </label>
+                      <NativeSelect
+                        id="job-status-filter"
+                        onChange={(event) => updateFilters({ status: event.target.value || null })}
+                        value={activeStatus}
+                      >
+                        <option value="">All statuses</option>
+                        {JOB_STATUS_OPTIONS.map((jobStatus) => (
+                          <option key={jobStatus} value={jobStatus}>
+                            {jobStatus}
+                          </option>
+                        ))}
+                      </NativeSelect>
+                    </div>
+                  </div>
+                  {hasAppliedFilters ? (
+                    <div className="flex justify-end">
+                      <Button
+                        onClick={() => updateFilters({ status: null, type: null })}
+                        size="sm"
+                        type="button"
+                        variant="ghost"
+                      >
+                        Clear filters
+                      </Button>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+          </CardHeader>
+
+          {filteredJobs.length === 0 ? (
+            <CardContent>
+              <div className="rounded-xl border border-dashed px-6 py-16 text-center">
+                <h2 className="text-sm font-medium text-foreground">No matching jobs</h2>
+                <p className="mx-auto mt-2 max-w-2xl text-sm text-muted-foreground">
+                  Try clearing one of the active filters to see the rest of the backend job history.
+                </p>
+              </div>
+            </CardContent>
+          ) : (
+            <CardContent>
+              <div className="overflow-x-auto">
+                <Table className="min-w-[820px]">
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Type</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Target assets</TableHead>
+                      <TableHead>Created</TableHead>
+                      <TableHead>Updated</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredJobs.map((job) => (
+                      <TableRow
+                        className="cursor-pointer"
+                        key={job.id}
+                        onClick={() => router.push(buildJobDetailHref(job.id, currentHref))}
+                      >
+                        <TableCell className="font-medium">{formatJobType(job.type)}</TableCell>
+                        <TableCell>
+                          <WorkflowStatusBadge status={job.status} />
+                        </TableCell>
+                        <TableCell>
+                          <div className="space-y-2">
+                            <AssetTargetLinks
+                              assetIds={job.target_asset_ids_json}
+                              assetsById={assetsById}
+                              currentHref={currentHref}
+                            />
+                            {job.target_asset_ids_json.length > 0 ? (
+                              <p className="text-xs text-muted-foreground">
+                                {job.target_asset_ids_json.length} asset
+                                {job.target_asset_ids_json.length === 1 ? "" : "s"}
+                              </p>
+                            ) : null}
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">{formatDateTime(job.created_at)}</TableCell>
+                        <TableCell className="text-muted-foreground">{formatDateTime(job.updated_at)}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
+          )}
         </Card>
       )}
     </div>

@@ -5,7 +5,6 @@ import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { ArrowRightLeft, CheckCircle2, LoaderCircle, TriangleAlert } from "lucide-react";
 
-import { useFeedback } from "@/components/feedback-provider";
 import { WorkflowStatusBadge } from "@/components/workflow-status-badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -22,6 +21,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { NativeSelect } from "@/components/ui/native-select";
+import { toast } from "@/components/ui/sonner";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { useBackendCache } from "@/hooks/use-backend";
@@ -247,7 +247,6 @@ export function ConversionDialog({
 }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const { notify } = useFeedback();
   const {
     revalidateAssetDetail,
     revalidateConversionDetail,
@@ -393,10 +392,8 @@ export function ConversionDialog({
         title: "Could not create conversion",
         tone: "error",
       });
-      notify({
+      toast.error("Conversion failed", {
         description: message,
-        title: "Conversion failed",
-        tone: "error",
       });
     } finally {
       setIsSubmitting(false);
