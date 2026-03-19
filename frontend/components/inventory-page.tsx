@@ -1489,11 +1489,6 @@ export function InventoryPage() {
               <Badge className="h-6" variant="secondary">
                 {resultsCountLabel}
               </Badge>
-              {typeof totalRegisteredCount === "number" && totalRegisteredCount !== visibleAssets.length ? (
-                <Badge className="h-6" variant="outline">
-                  of {totalRegisteredCount}
-                </Badge>
-              ) : null}
               {selectedCount > 0 ? (
                 <Badge className="h-6" variant="outline">
                   {selectedCount} selected
