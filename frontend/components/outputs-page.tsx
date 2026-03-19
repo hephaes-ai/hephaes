@@ -439,14 +439,29 @@ function OutputRoleBadge({ role }: { role: OutputRole }) {
 function OutputSourceLinks({
   assetIds,
   assetsById,
+  compact = false,
   currentHref,
 }: {
   assetIds: string[];
   assetsById: Map<string, AssetSummary>;
+  compact?: boolean;
   currentHref: string;
 }) {
   if (assetIds.length === 0) {
     return <span className="text-sm text-muted-foreground">No assets</span>;
+  }
+
+  if (compact && assetIds.length > 1) {
+    return (
+      <Badge
+        className="font-mono text-xs"
+        onClick={(event) => event.stopPropagation()}
+        title={`${assetIds.length} source assets`}
+        variant="outline"
+      >
+        +{assetIds.length}
+      </Badge>
+    );
   }
 
   return (
@@ -872,7 +887,7 @@ function OutputsTable({
 
   return (
     <div className="hidden overflow-x-auto md:block">
-      <Table className="min-w-[1100px]">
+      <Table className="min-w-[980px]">
         <TableHeader>
           <TableRow>
             <TableHead className="w-12">
@@ -883,8 +898,6 @@ function OutputsTable({
               />
             </TableHead>
             <TableHead>Output file</TableHead>
-            <TableHead>Format</TableHead>
-            <TableHead>Role</TableHead>
             <TableHead>Source assets</TableHead>
             <TableHead>Size</TableHead>
             <TableHead>Availability</TableHead>
@@ -913,17 +926,22 @@ function OutputsTable({
                   />
                 </TableCell>
                 <TableCell className="max-w-0">
-                  <div className="space-y-1">
+                  <div className="space-y-2">
                     <p className="font-medium text-foreground">{output.file_name}</p>
                     <p className="truncate text-xs text-muted-foreground">{output.relative_path}</p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge variant="outline">{formatOutputFormat(output.format)}</Badge>
+                      <OutputRoleBadge role={output.role} />
+                    </div>
                   </div>
                 </TableCell>
-                <TableCell>{formatOutputFormat(output.format)}</TableCell>
                 <TableCell>
-                  <OutputRoleBadge role={output.role} />
-                </TableCell>
-                <TableCell>
-                  <OutputSourceLinks assetIds={output.asset_ids} assetsById={assetsById} currentHref={currentHref} />
+                  <OutputSourceLinks
+                    assetIds={output.asset_ids}
+                    assetsById={assetsById}
+                    compact
+                    currentHref={currentHref}
+                  />
                 </TableCell>
                 <TableCell>{formatFileSize(output.size_bytes)}</TableCell>
                 <TableCell>
@@ -1008,9 +1026,13 @@ function OutputsCards({
         return (
           <div className="space-y-3 rounded-xl border bg-muted/15 px-4 py-4" key={output.id}>
             <div className="flex items-start justify-between gap-3">
-              <div className="space-y-1">
+              <div className="space-y-2">
                 <p className="font-medium text-foreground">{output.file_name}</p>
                 <p className="break-all text-xs text-muted-foreground">{output.relative_path}</p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge variant="outline">{formatOutputFormat(output.format)}</Badge>
+                  <OutputRoleBadge role={output.role} />
+                </div>
               </div>
               <Checkbox
                 aria-label={`Select ${output.file_name}`}
@@ -1020,8 +1042,6 @@ function OutputsCards({
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              <Badge variant="outline">{formatOutputFormat(output.format)}</Badge>
-              <OutputRoleBadge role={output.role} />
               <OutputAvailabilityBadge availability={output.availability_status} />
               {isBatchSelected ? <Badge variant="secondary">Selected</Badge> : null}
             </div>
@@ -1038,7 +1058,12 @@ function OutputsCards({
 
             <div className="space-y-2">
               <p className="text-xs uppercase tracking-wide text-muted-foreground">Source assets</p>
-              <OutputSourceLinks assetIds={output.asset_ids} assetsById={assetsById} currentHref={currentHref} />
+              <OutputSourceLinks
+                assetIds={output.asset_ids}
+                assetsById={assetsById}
+                compact
+                currentHref={currentHref}
+              />
             </div>
 
             <p className="text-sm text-muted-foreground">
