@@ -22,6 +22,7 @@ from app.db.models import Asset, Conversion, utc_now
 from app.schemas.conversions import ConversionCreateRequest
 from app.services.assets import AssetNotFoundError, get_asset_or_raise
 from app.services.jobs import JobService
+from app.services.outputs import sync_output_artifacts_for_conversion
 
 
 class ConversionServiceError(Exception):
@@ -211,13 +212,15 @@ class ConversionService:
             )
             output_files = [str(path) for path in converter.convert()]
             self.job_service.mark_job_succeeded(job.id, output_path=str(output_dir))
-            return _update_conversion_status(
+            completed_conversion = _update_conversion_status(
                 self.session,
                 conversion=conversion,
                 status="succeeded",
                 output_files=output_files,
                 error_message=None,
             )
+            sync_output_artifacts_for_conversion(self.session, completed_conversion, commit=True)
+            return get_conversion_or_raise(self.session, completed_conversion.id)
         except Exception as exc:
             self.session.rollback()
             self.job_service.mark_job_failed(job.id, error_message=str(exc))

@@ -14,6 +14,7 @@ from app.api.conversions import router as conversions_router
 from app.api.episodes import router as episodes_router
 from app.api.health import router as health_router
 from app.api.jobs import router as jobs_router
+from app.api.outputs import output_actions_router, router as outputs_router
 from app.api.tags import router as tags_router
 from app.api.visualization import router as visualization_router
 from app.config import get_settings
@@ -53,6 +54,8 @@ def create_app() -> FastAPI:
     app.include_router(episodes_router)
     app.include_router(conversions_router)
     app.include_router(jobs_router)
+    app.include_router(outputs_router)
+    app.include_router(output_actions_router)
     app.include_router(tags_router)
     app.include_router(visualization_router)
 
