@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { ArrowRight, ChevronDown, ListFilter, RefreshCw } from "lucide-react";
+import { ChevronDown, ListFilter, RefreshCw } from "lucide-react";
 
 import { useAssets, useJobs } from "@/hooks/use-backend";
 import type { AssetSummary, JobStatus, JobType } from "@/lib/api";
@@ -337,12 +337,15 @@ export function JobsPage() {
                       <TableHead>Target assets</TableHead>
                       <TableHead>Created</TableHead>
                       <TableHead>Updated</TableHead>
-                      <TableHead className="w-[96px] text-right">Open</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {filteredJobs.map((job) => (
-                      <TableRow key={job.id}>
+                      <TableRow
+                        className="cursor-pointer"
+                        key={job.id}
+                        onClick={() => router.push(buildJobDetailHref(job.id, currentHref))}
+                      >
                         <TableCell className="font-medium">{formatJobType(job.type)}</TableCell>
                         <TableCell>
                           <WorkflowStatusBadge status={job.status} />
@@ -364,14 +367,6 @@ export function JobsPage() {
                         </TableCell>
                         <TableCell className="text-muted-foreground">{formatDateTime(job.created_at)}</TableCell>
                         <TableCell className="text-muted-foreground">{formatDateTime(job.updated_at)}</TableCell>
-                        <TableCell className="text-right">
-                          <Button asChild size="sm" variant="ghost">
-                            <Link href={buildJobDetailHref(job.id, currentHref)}>
-                              Open
-                              <ArrowRight className="size-3.5" />
-                            </Link>
-                          </Button>
-                        </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
