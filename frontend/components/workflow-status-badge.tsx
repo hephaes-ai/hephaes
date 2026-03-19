@@ -1,9 +1,9 @@
-import type { ConversionStatus, JobStatus } from "@/lib/api";
+import type { ConversionStatus, JobStatus, OutputActionStatus } from "@/lib/api";
 import { formatWorkflowStatus } from "@/lib/format";
 
 import { Badge } from "@/components/ui/badge";
 
-function getWorkflowStatusClassName(status: JobStatus | ConversionStatus) {
+function getWorkflowStatusClassName(status: JobStatus | ConversionStatus | OutputActionStatus) {
   if (status === "succeeded") {
     return "border-emerald-500/30 bg-emerald-500/10 text-emerald-900 dark:text-emerald-200";
   }
@@ -22,7 +22,7 @@ function getWorkflowStatusClassName(status: JobStatus | ConversionStatus) {
 export function WorkflowStatusBadge({
   status,
 }: {
-  status: JobStatus | ConversionStatus;
+  status: JobStatus | ConversionStatus | OutputActionStatus;
 }) {
   return (
     <Badge

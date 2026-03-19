@@ -3,9 +3,10 @@
 import * as React from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { ArrowRight, Copy, Database, ListFilter, RefreshCw } from "lucide-react";
+import { ArrowRight, Copy, Database, ListFilter, RefreshCw, Sparkles } from "lucide-react";
 
 import { useFeedback } from "@/components/feedback-provider";
+import { OutputActionDialog } from "@/components/output-action-dialog";
 import { WorkflowStatusBadge } from "@/components/workflow-status-badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -22,13 +23,22 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { useAssets, useOutput, useOutputs } from "@/hooks/use-backend";
-import type { AssetSummary, OutputAvailability, OutputDetail, OutputFormat, OutputsQuery } from "@/lib/api";
+import { useAssets, useOutput, useOutputActions, useOutputs } from "@/hooks/use-backend";
+import type {
+  AssetSummary,
+  OutputActionDetail,
+  OutputAvailability,
+  OutputDetail,
+  OutputFormat,
+  OutputsQuery,
+} from "@/lib/api";
 import { getErrorMessage } from "@/lib/api";
 import {
   formatDateTime,
+  formatOutputActionType,
   formatOutputAvailability,
   formatOutputFormat,
+  isWorkflowActiveStatus,
 } from "@/lib/format";
 
 const OUTPUT_FORMAT_OPTIONS: OutputFormat[] = ["parquet", "tfrecord", "json", "unknown"];
@@ -148,19 +158,67 @@ function OutputSourceLinks({
   );
 }
 
+function getLatestActionsByOutput(actions: OutputActionDetail[]) {
+  const latestActions = new Map<string, OutputActionDetail>();
+
+  for (const action of actions) {
+    const currentAction = latestActions.get(action.output_id);
+
+    if (!currentAction) {
+      latestActions.set(action.output_id, action);
+      continue;
+    }
+
+    const currentTimestamp = new Date(currentAction.updated_at).getTime();
+    const nextTimestamp = new Date(action.updated_at).getTime();
+
+    if (nextTimestamp >= currentTimestamp) {
+      latestActions.set(action.output_id, action);
+    }
+  }
+
+  return latestActions;
+}
+
+function formatOutputActionSummary(action: OutputActionDetail) {
+  if (action.summary_text) {
+    return action.summary_text;
+  }
+
+  if (action.status === "queued") {
+    return "Waiting to begin.";
+  }
+
+  if (action.status === "running") {
+    return "Processing samples now.";
+  }
+
+  if (action.error_message) {
+    return action.error_message;
+  }
+
+  return "No summary available yet.";
+}
+
 function OutputDetailPanel({
   assetsById,
   currentHref,
   onClearSelection,
   onCopyPath,
+  onCopyResultJson,
+  onRunVlmTagging,
   output,
+  outputActions,
   selectionMissing,
 }: {
   assetsById: Map<string, AssetSummary>;
   currentHref: string;
   onClearSelection: () => void;
   onCopyPath: (output: OutputDetail) => Promise<void>;
+  onCopyResultJson: (action: OutputActionDetail) => Promise<void>;
+  onRunVlmTagging: (output: OutputDetail) => void;
   output: OutputDetail | null;
+  outputActions: OutputActionDetail[];
   selectionMissing: boolean;
 }) {
   if (selectionMissing) {
@@ -197,6 +255,7 @@ function OutputDetailPanel({
   const siblingOutputs = output.sibling_output_files.filter(
     (siblingOutput) => siblingOutput !== output.output_file,
   );
+  const latestAction = outputActions[0] ?? null;
 
   return (
     <div className="space-y-6">
@@ -211,6 +270,10 @@ function OutputDetailPanel({
             <Button onClick={() => void onCopyPath(output)} size="sm" type="button" variant="outline">
               <Copy className="size-3.5" />
               Copy path
+            </Button>
+            <Button onClick={() => onRunVlmTagging(output)} size="sm" type="button">
+              <Sparkles className="size-3.5" />
+              Run VLM tagging
             </Button>
           </div>
         </CardHeader>
@@ -230,6 +293,16 @@ function OutputDetailPanel({
               <dd className="break-all text-sm font-medium text-foreground">{output.output_file}</dd>
             </div>
           </dl>
+
+          {latestAction ? (
+            <div className="space-y-2 rounded-lg border bg-muted/15 px-3 py-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant="outline">{formatOutputActionType(latestAction.action_type)}</Badge>
+                <WorkflowStatusBadge status={latestAction.status} />
+              </div>
+              <p className="text-sm text-foreground">{formatOutputActionSummary(latestAction)}</p>
+            </div>
+          ) : null}
 
           <div className="space-y-2">
             <p className="text-xs uppercase tracking-wide text-muted-foreground">Source assets</p>
@@ -271,6 +344,71 @@ function OutputDetailPanel({
         </Card>
       ) : null}
 
+      <Card>
+        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <CardTitle>Compute actions</CardTitle>
+            <CardDescription>
+              Track output-scoped work such as VLM tagging without leaving the outputs page.
+            </CardDescription>
+          </div>
+          <Button onClick={() => onRunVlmTagging(output)} size="sm" type="button" variant="outline">
+            <Sparkles className="size-3.5" />
+            Run VLM tagging
+          </Button>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {outputActions.length > 0 ? (
+            outputActions.map((action) => (
+              <div key={action.id} className="space-y-3 rounded-xl border bg-muted/15 px-4 py-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0 space-y-1">
+                    <p className="text-sm font-medium text-foreground">
+                      {formatOutputActionType(action.action_type)}
+                    </p>
+                    <p className="break-all font-mono text-xs text-muted-foreground">{action.id}</p>
+                  </div>
+                  <WorkflowStatusBadge status={action.status} />
+                </div>
+                <dl className="grid gap-3 sm:grid-cols-2">
+                  <MetadataField label="Created" value={formatDateTime(action.created_at)} />
+                  <MetadataField label="Finished" value={formatDateTime(action.finished_at)} />
+                  <MetadataField label="Target field" value={action.config.target_field} />
+                  <MetadataField label="Sample cap" value={action.config.sample_cap} />
+                </dl>
+                <p className="text-sm text-foreground">{formatOutputActionSummary(action)}</p>
+                {action.output_path ? (
+                  <div className="space-y-1">
+                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Result path</p>
+                    <p className="break-all text-sm text-foreground">{action.output_path}</p>
+                  </div>
+                ) : null}
+                {action.result_json ? (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-xs uppercase tracking-wide text-muted-foreground">Result JSON</p>
+                      <Button onClick={() => void onCopyResultJson(action)} size="sm" type="button" variant="ghost">
+                        Copy JSON
+                      </Button>
+                    </div>
+                    <pre className="overflow-x-auto rounded-lg border bg-muted/20 p-3 text-xs text-foreground">
+                      {JSON.stringify(action.result_json, null, 2)}
+                    </pre>
+                  </div>
+                ) : null}
+              </div>
+            ))
+          ) : (
+            <div className="rounded-lg border border-dashed px-4 py-8 text-sm text-muted-foreground">
+              <p className="font-medium text-foreground">No compute actions yet</p>
+              <p className="mt-2">
+                Launch VLM tagging here when you want to start downstream work on this output.
+              </p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       {siblingOutputs.length > 0 ? (
         <Card>
           <CardHeader>
@@ -298,14 +436,18 @@ function OutputDetailPanel({
 function OutputsTable({
   assetsById,
   currentHref,
+  latestActionsByOutput,
   onCopyPath,
+  onRunVlmTagging,
   onSelectOutput,
   outputs,
   selectedOutputId,
 }: {
   assetsById: Map<string, AssetSummary>;
   currentHref: string;
+  latestActionsByOutput: Map<string, OutputActionDetail>;
   onCopyPath: (output: OutputDetail) => Promise<void>;
+  onRunVlmTagging: (output: OutputDetail) => void;
   onSelectOutput: (outputId: string) => void;
   outputs: OutputDetail[];
   selectedOutputId: string;
@@ -320,12 +462,14 @@ function OutputsTable({
             <TableHead>Source assets</TableHead>
             <TableHead>Created</TableHead>
             <TableHead>Availability</TableHead>
-            <TableHead className="w-44 text-right">Actions</TableHead>
+            <TableHead>Latest action</TableHead>
+            <TableHead className="w-56 text-right">Actions</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {outputs.map((output) => {
             const isSelected = output.id === selectedOutputId;
+            const latestAction = latestActionsByOutput.get(output.id) ?? null;
 
             return (
               <TableRow
@@ -346,6 +490,21 @@ function OutputsTable({
                 <TableCell>{formatDateTime(output.created_at)}</TableCell>
                 <TableCell>
                   <OutputAvailabilityBadge availability={output.availability} />
+                </TableCell>
+                <TableCell>
+                  {latestAction ? (
+                    <div className="space-y-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge variant="outline">{formatOutputActionType(latestAction.action_type)}</Badge>
+                        <WorkflowStatusBadge status={latestAction.status} />
+                      </div>
+                      <p className="line-clamp-2 text-xs text-muted-foreground">
+                        {formatOutputActionSummary(latestAction)}
+                      </p>
+                    </div>
+                  ) : (
+                    <span className="text-sm text-muted-foreground">No actions yet</span>
+                  )}
                 </TableCell>
                 <TableCell className="text-right">
                   <div className="flex justify-end gap-2">
@@ -371,6 +530,16 @@ function OutputsTable({
                     >
                       Copy path
                     </Button>
+                    <Button
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onRunVlmTagging(output);
+                      }}
+                      size="sm"
+                      type="button"
+                    >
+                      VLM tags
+                    </Button>
                   </div>
                 </TableCell>
               </TableRow>
@@ -385,43 +554,63 @@ function OutputsTable({
 function OutputsCards({
   assetsById,
   currentHref,
+  latestActionsByOutput,
   onCopyPath,
+  onRunVlmTagging,
   onSelectOutput,
   outputs,
 }: {
   assetsById: Map<string, AssetSummary>;
   currentHref: string;
+  latestActionsByOutput: Map<string, OutputActionDetail>;
   onCopyPath: (output: OutputDetail) => Promise<void>;
+  onRunVlmTagging: (output: OutputDetail) => void;
   onSelectOutput: (outputId: string) => void;
   outputs: OutputDetail[];
 }) {
   return (
     <div className="space-y-3 md:hidden">
-      {outputs.map((output) => (
-        <div key={output.id} className="space-y-3 rounded-xl border bg-muted/15 px-4 py-4">
-          <div className="space-y-1">
-            <p className="font-medium text-foreground">{output.file_name}</p>
-            <p className="break-all text-xs text-muted-foreground">{output.relative_path}</p>
+      {outputs.map((output) => {
+        const latestAction = latestActionsByOutput.get(output.id) ?? null;
+
+        return (
+          <div key={output.id} className="space-y-3 rounded-xl border bg-muted/15 px-4 py-4">
+            <div className="space-y-1">
+              <p className="font-medium text-foreground">{output.file_name}</p>
+              <p className="break-all text-xs text-muted-foreground">{output.relative_path}</p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant="outline">{formatOutputFormat(output.format)}</Badge>
+              <OutputAvailabilityBadge availability={output.availability} />
+            </div>
+            {latestAction ? (
+              <div className="space-y-2 rounded-lg border bg-muted/20 px-3 py-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge variant="outline">{formatOutputActionType(latestAction.action_type)}</Badge>
+                  <WorkflowStatusBadge status={latestAction.status} />
+                </div>
+                <p className="text-sm text-muted-foreground">{formatOutputActionSummary(latestAction)}</p>
+              </div>
+            ) : null}
+            <div className="space-y-2">
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">Source assets</p>
+              <OutputSourceLinks assetIds={output.asset_ids} assetsById={assetsById} currentHref={currentHref} />
+            </div>
+            <p className="text-sm text-muted-foreground">Created {formatDateTime(output.created_at)}</p>
+            <div className="flex flex-wrap gap-2">
+              <Button onClick={() => onSelectOutput(output.id)} size="sm" type="button" variant="secondary">
+                Inspect
+              </Button>
+              <Button onClick={() => void onCopyPath(output)} size="sm" type="button" variant="outline">
+                Copy path
+              </Button>
+              <Button onClick={() => onRunVlmTagging(output)} size="sm" type="button">
+                VLM tags
+              </Button>
+            </div>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge variant="outline">{formatOutputFormat(output.format)}</Badge>
-            <OutputAvailabilityBadge availability={output.availability} />
-          </div>
-          <div className="space-y-2">
-            <p className="text-xs uppercase tracking-wide text-muted-foreground">Source assets</p>
-            <OutputSourceLinks assetIds={output.asset_ids} assetsById={assetsById} currentHref={currentHref} />
-          </div>
-          <p className="text-sm text-muted-foreground">Created {formatDateTime(output.created_at)}</p>
-          <div className="flex flex-wrap gap-2">
-            <Button onClick={() => onSelectOutput(output.id)} size="sm" type="button" variant="secondary">
-              Inspect
-            </Button>
-            <Button onClick={() => void onCopyPath(output)} size="sm" type="button" variant="outline">
-              Copy path
-            </Button>
-          </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -431,22 +620,51 @@ export function OutputsPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { notify } = useFeedback();
+  const [actionDialogOutput, setActionDialogOutput] = React.useState<OutputDetail | null>(null);
   const query = React.useMemo(() => buildOutputsQuery(searchParams), [searchParams]);
   const outputsResponse = useOutputs(query);
+  const outputActionsResponse = useOutputActions();
   const selectedOutputId = searchParams.get("output")?.trim() ?? "";
   const selectedOutputResponse = useOutput(selectedOutputId);
   const assetsResponse = useAssets();
-  const outputs = outputsResponse.data ?? [];
+  const outputs = React.useMemo(() => outputsResponse.data ?? [], [outputsResponse.data]);
+  const outputActions = React.useMemo(
+    () => outputActionsResponse.data ?? [],
+    [outputActionsResponse.data],
+  );
   const currentHref = React.useMemo(() => {
     const queryString = searchParams.toString();
     return queryString ? `${pathname}?${queryString}` : pathname;
   }, [pathname, searchParams]);
   const selectedOutput =
     outputs.find((output) => output.id === selectedOutputId) ?? selectedOutputResponse.data ?? null;
+  const latestActionsByOutput = React.useMemo(
+    () => getLatestActionsByOutput(outputActions),
+    [outputActions],
+  );
+  const selectedOutputActions = React.useMemo(
+    () =>
+      selectedOutput
+        ? outputActions
+            .filter((action) => action.output_id === selectedOutput.id)
+            .sort((left, right) => {
+              const updatedDifference =
+                new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime();
+
+              if (updatedDifference !== 0) {
+                return updatedDifference;
+              }
+
+              return right.id.localeCompare(left.id);
+            })
+        : [],
+    [outputActions, selectedOutput],
+  );
   const assetsById = React.useMemo(
     () => new Map((assetsResponse.data ?? []).map((asset) => [asset.id, asset])),
     [assetsResponse.data],
   );
+  const activeActionCount = outputActions.filter((action) => isWorkflowActiveStatus(action.status)).length;
   const hasAppliedFilters = Boolean(
     query.asset_id ||
       query.availability ||
@@ -454,6 +672,18 @@ export function OutputsPage() {
       query.format ||
       query.search,
   );
+
+  React.useEffect(() => {
+    if (activeActionCount === 0) {
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      void outputActionsResponse.mutate();
+    }, 1000);
+
+    return () => window.clearInterval(intervalId);
+  }, [activeActionCount, outputActionsResponse]);
 
   function updateFilters(updates: Record<string, string | null>) {
     const nextParams = new URLSearchParams(searchParams.toString());
@@ -493,6 +723,27 @@ export function OutputsPage() {
     }
   }
 
+  async function onCopyResultJson(action: OutputActionDetail) {
+    if (!action.result_json) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(action.result_json, null, 2));
+      notify({
+        description: action.id,
+        title: "Result JSON copied",
+        tone: "success",
+      });
+    } catch (error) {
+      notify({
+        description: getErrorMessage(error),
+        title: "Could not copy result JSON",
+        tone: "error",
+      });
+    }
+  }
+
   if (outputsResponse.isLoading && !outputsResponse.data) {
     return <OutputsPageSkeleton />;
   }
@@ -522,6 +773,9 @@ export function OutputsPage() {
               <h1 className="text-2xl font-semibold tracking-tight">Outputs</h1>
               <span className="rounded-full border px-2 py-0.5 text-xs text-muted-foreground">
                 {formatCount(outputs.length, "output")}
+              </span>
+              <span className="rounded-full border px-2 py-0.5 text-xs text-muted-foreground">
+                {formatCount(activeActionCount, "active action")}
               </span>
             </div>
             <p className="max-w-3xl text-sm text-muted-foreground">
@@ -693,7 +947,9 @@ export function OutputsPage() {
                 <OutputsTable
                   assetsById={assetsById}
                   currentHref={currentHref}
+                  latestActionsByOutput={latestActionsByOutput}
                   onCopyPath={onCopyPath}
+                  onRunVlmTagging={(output) => setActionDialogOutput(output)}
                   onSelectOutput={(outputId) => updateFilters({ output: outputId })}
                   outputs={outputs}
                   selectedOutputId={selectedOutputId}
@@ -701,7 +957,9 @@ export function OutputsPage() {
                 <OutputsCards
                   assetsById={assetsById}
                   currentHref={currentHref}
+                  latestActionsByOutput={latestActionsByOutput}
                   onCopyPath={onCopyPath}
+                  onRunVlmTagging={(output) => setActionDialogOutput(output)}
                   onSelectOutput={(outputId) => updateFilters({ output: outputId })}
                   outputs={outputs}
                 />
@@ -714,7 +972,10 @@ export function OutputsPage() {
             currentHref={currentHref}
             onClearSelection={() => updateFilters({ output: null })}
             onCopyPath={onCopyPath}
+            onCopyResultJson={onCopyResultJson}
+            onRunVlmTagging={(output) => setActionDialogOutput(output)}
             output={selectedOutput}
+            outputActions={selectedOutputActions}
             selectionMissing={Boolean(
               selectedOutputId &&
                 !selectedOutput &&
@@ -724,6 +985,21 @@ export function OutputsPage() {
           />
         </div>
       )}
+
+      <OutputActionDialog
+        onCreated={(action) => {
+          if (selectedOutputId !== action.output_id) {
+            updateFilters({ output: action.output_id });
+          }
+        }}
+        onOpenChange={(open) => {
+          if (!open) {
+            setActionDialogOutput(null);
+          }
+        }}
+        open={Boolean(actionDialogOutput)}
+        output={actionDialogOutput}
+      />
     </div>
   );
 }

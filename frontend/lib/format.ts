@@ -3,6 +3,8 @@ import type {
   IndexingStatus,
   JobStatus,
   JobType,
+  OutputActionType,
+  OutputActionStatus,
   OutputAvailability,
   OutputFormat,
 } from "@/lib/api";
@@ -113,10 +115,18 @@ export function formatOutputAvailability(availability: OutputAvailability) {
   return formatSentenceCase(availability);
 }
 
-export function formatWorkflowStatus(status: JobStatus | ConversionStatus) {
+export function formatOutputActionType(actionType: OutputActionType) {
+  if (actionType === "vlm_tagging") {
+    return "VLM tagging";
+  }
+
+  return formatSentenceCase(actionType);
+}
+
+export function formatWorkflowStatus(status: JobStatus | ConversionStatus | OutputActionStatus) {
   return formatSentenceCase(status);
 }
 
-export function isWorkflowActiveStatus(status: JobStatus | ConversionStatus) {
+export function isWorkflowActiveStatus(status: JobStatus | ConversionStatus | OutputActionStatus) {
   return status === "queued" || status === "running";
 }

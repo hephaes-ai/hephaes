@@ -6,6 +6,8 @@ export type ConversionStatus = "queued" | "running" | "succeeded" | "failed";
 export type ConversionFormat = "parquet" | "tfrecord";
 export type OutputFormat = ConversionFormat | "json" | "unknown";
 export type OutputAvailability = "ready";
+export type OutputActionType = "vlm_tagging";
+export type OutputActionStatus = "queued" | "running" | "succeeded" | "failed";
 export type ResampleMethod = "interpolate" | "downsample";
 
 export interface HealthResponse {
@@ -340,6 +342,37 @@ export interface OutputDetail extends OutputSummary {
   sibling_output_files: string[];
 }
 
+export interface VlmTaggingActionConfig {
+  overwrite: boolean;
+  prompt_template: string;
+  sample_cap: number;
+  target_field: string;
+}
+
+export interface CreateOutputActionRequest {
+  action_type: "vlm_tagging";
+  config: VlmTaggingActionConfig;
+}
+
+export interface OutputActionSummary {
+  action_type: OutputActionType;
+  created_at: string;
+  error_message: string | null;
+  finished_at: string | null;
+  id: string;
+  output_id: string;
+  output_path: string | null;
+  started_at: string | null;
+  status: OutputActionStatus;
+  summary_text: string | null;
+  updated_at: string;
+}
+
+export interface OutputActionDetail extends OutputActionSummary {
+  config: VlmTaggingActionConfig;
+  result_json: Record<string, unknown> | null;
+}
+
 export class BackendApiError extends Error {
   status: number;
 
@@ -552,6 +585,189 @@ function sortOutputs(outputs: OutputDetail[]) {
   });
 }
 
+const OUTPUT_ACTIONS_STORAGE_KEY = "hephaes-output-actions:v1";
+
+interface StoredOutputActionRecord extends OutputActionDetail {
+  queued_until: string;
+  running_until: string;
+}
+
+function createLocalActionId() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+
+  return `action-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function readStoredOutputActionRecords() {
+  if (typeof window === "undefined") {
+    return [] as StoredOutputActionRecord[];
+  }
+
+  try {
+    const rawValue = window.localStorage.getItem(OUTPUT_ACTIONS_STORAGE_KEY);
+
+    if (!rawValue) {
+      return [] as StoredOutputActionRecord[];
+    }
+
+    const parsedValue = JSON.parse(rawValue);
+    return Array.isArray(parsedValue) ? (parsedValue as StoredOutputActionRecord[]) : [];
+  } catch {
+    return [] as StoredOutputActionRecord[];
+  }
+}
+
+function writeStoredOutputActionRecords(records: StoredOutputActionRecord[]) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(OUTPUT_ACTIONS_STORAGE_KEY, JSON.stringify(records));
+  } catch {
+    // Ignore storage failures so the rest of the UI remains usable.
+  }
+}
+
+function hashString(value: string) {
+  let hash = 0;
+
+  for (let index = 0; index < value.length; index += 1) {
+    hash = (hash * 31 + value.charCodeAt(index)) >>> 0;
+  }
+
+  return hash;
+}
+
+function buildOutputActionResult(record: StoredOutputActionRecord) {
+  const parsedOutputId = parseOutputId(record.output_id);
+  const sourceOutputPath = parsedOutputId?.outputFile ?? null;
+  const hash = hashString(`${record.id}:${record.output_id}:${record.config.prompt_template}`);
+  const sampleCount = Math.max(1, Math.floor(record.config.sample_cap));
+  const taggedItemCount = Math.max(1, Math.min(sampleCount, 1 + (hash % sampleCount)));
+  const availableTags = [
+    "indoor",
+    "outdoor",
+    "vehicle",
+    "person",
+    "robotics",
+    "warehouse",
+    "roadway",
+    "camera",
+    "navigation",
+    "obstacle",
+    "telemetry",
+    "label-ready",
+  ];
+  const topTags = availableTags
+    .slice(hash % Math.max(availableTags.length - 3, 1), (hash % Math.max(availableTags.length - 3, 1)) + 3);
+  const outputPath = sourceOutputPath
+    ? `${sourceOutputPath}.vlm-tags.json`
+    : `local://output-actions/${record.id}/vlm-tags.json`;
+
+  return {
+    output_path: outputPath,
+    result_json: {
+      model_hint: "frontend-local-simulation",
+      overwrite: record.config.overwrite,
+      prompt_template: record.config.prompt_template,
+      sample_count: sampleCount,
+      tagged_item_count: taggedItemCount,
+      target_field: record.config.target_field,
+      top_tags: topTags,
+    } satisfies Record<string, unknown>,
+    summary_text: `Tagged ${taggedItemCount} sample${taggedItemCount === 1 ? "" : "s"} from ${record.config.target_field}`,
+  };
+}
+
+function materializeStoredOutputActionRecord(
+  record: StoredOutputActionRecord,
+  nowTimestamp = Date.now(),
+): StoredOutputActionRecord {
+  if (record.status === "failed") {
+    return record;
+  }
+
+  const queuedUntilTimestamp = new Date(record.queued_until).getTime();
+  const runningUntilTimestamp = new Date(record.running_until).getTime();
+  const startedAt = Number.isFinite(queuedUntilTimestamp)
+    ? new Date(queuedUntilTimestamp).toISOString()
+    : record.started_at;
+  const finishedAt = Number.isFinite(runningUntilTimestamp)
+    ? new Date(runningUntilTimestamp).toISOString()
+    : record.finished_at;
+
+  if (!Number.isFinite(queuedUntilTimestamp) || !Number.isFinite(runningUntilTimestamp)) {
+    return record;
+  }
+
+  if (nowTimestamp < queuedUntilTimestamp) {
+    return {
+      ...record,
+      error_message: null,
+      finished_at: null,
+      output_path: null,
+      result_json: null,
+      started_at: null,
+      status: "queued",
+      summary_text: null,
+      updated_at: record.created_at,
+    };
+  }
+
+  if (nowTimestamp < runningUntilTimestamp) {
+    return {
+      ...record,
+      error_message: null,
+      finished_at: null,
+      output_path: null,
+      result_json: null,
+      started_at: startedAt,
+      status: "running",
+      summary_text: null,
+      updated_at: new Date(nowTimestamp).toISOString(),
+    };
+  }
+
+  const result = buildOutputActionResult(record);
+
+  return {
+    ...record,
+    error_message: null,
+    finished_at: finishedAt,
+    output_path: result.output_path,
+    result_json: result.result_json,
+    started_at: startedAt,
+    status: "succeeded",
+    summary_text: result.summary_text,
+    updated_at: finishedAt ?? record.updated_at,
+  };
+}
+
+function synchronizeStoredOutputActionRecords() {
+  const currentRecords = readStoredOutputActionRecords();
+  const nextRecords = currentRecords
+    .map((record) => materializeStoredOutputActionRecord(record))
+    .sort((left, right) => {
+      const updatedDifference =
+        new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime();
+
+      if (updatedDifference !== 0) {
+        return updatedDifference;
+      }
+
+      return right.id.localeCompare(left.id);
+    });
+
+  if (JSON.stringify(currentRecords) !== JSON.stringify(nextRecords)) {
+    writeStoredOutputActionRecords(nextRecords);
+  }
+
+  return nextRecords;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
 
@@ -724,6 +940,62 @@ export async function getOutput(outputId: string) {
   }
 
   return buildOutputDetail(conversion, matchingOutputFile);
+}
+
+export async function listOutputActions(outputId?: string) {
+  const actions = synchronizeStoredOutputActionRecords();
+
+  return outputId
+    ? actions.filter((action) => action.output_id === outputId)
+    : actions;
+}
+
+export async function getOutputAction(actionId: string) {
+  const actions = synchronizeStoredOutputActionRecords();
+  const matchingAction = actions.find((action) => action.id === actionId);
+
+  if (!matchingAction) {
+    throw new BackendApiError(`output action not found: ${actionId}`, 404);
+  }
+
+  return matchingAction;
+}
+
+export async function createOutputAction(outputId: string, payload: CreateOutputActionRequest) {
+  const output = await getOutput(outputId);
+  const now = new Date();
+  const createdAt = now.toISOString();
+  const actionId = createLocalActionId();
+  const queueDelayMs = 800;
+  const runDurationMs = Math.max(
+    1800,
+    Math.min(5000, 1200 + Math.floor(payload.config.sample_cap) * 70),
+  );
+  const queuedUntil = new Date(now.getTime() + queueDelayMs).toISOString();
+  const runningUntil = new Date(now.getTime() + queueDelayMs + runDurationMs).toISOString();
+
+  const nextAction: StoredOutputActionRecord = {
+    action_type: payload.action_type,
+    config: payload.config,
+    created_at: createdAt,
+    error_message: null,
+    finished_at: null,
+    id: actionId,
+    output_id: output.id,
+    output_path: null,
+    queued_until: queuedUntil,
+    result_json: null,
+    running_until: runningUntil,
+    started_at: null,
+    status: "queued",
+    summary_text: null,
+    updated_at: createdAt,
+  };
+
+  const currentActions = readStoredOutputActionRecords().filter((action) => action.id !== actionId);
+  writeStoredOutputActionRecords([nextAction, ...currentActions]);
+
+  return materializeStoredOutputActionRecord(nextAction);
 }
 
 export function listJobs() {
