@@ -10,6 +10,7 @@ import {
   Database,
   ExternalLink,
   ListFilter,
+  MoreHorizontal,
   RefreshCw,
   Search,
   Sparkles,
@@ -24,6 +25,12 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -814,7 +821,7 @@ function OutputsTable({
             <TableHead>Size</TableHead>
             <TableHead>Availability</TableHead>
             <TableHead>Latest action</TableHead>
-            <TableHead className="w-64 text-right">Actions</TableHead>
+            <TableHead className="w-12 text-right">Actions</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -875,31 +882,50 @@ function OutputsTable({
                   )}
                 </TableCell>
                 <TableCell className="text-right">
-                  <div className="flex justify-end gap-2">
-                    <Button
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        onSelectOutput(output.id);
-                      }}
-                      size="sm"
-                      type="button"
-                      variant={isSelected ? "secondary" : "outline"}
-                    >
-                      Inspect
-                    </Button>
-                    <OutputContentButton output={output} size="sm" variant="outline" />
-                    <Button
-                      disabled={isRefreshing}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        void onRefreshMetadata([output]);
-                      }}
-                      size="sm"
-                      type="button"
-                    >
-                      Refresh
-                    </Button>
-                  </div>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="size-8"
+                        onClick={(event) => event.stopPropagation()}
+                      >
+                        <MoreHorizontal className="size-4" />
+                        <span className="sr-only">Actions</span>
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onSelectOutput(output.id);
+                        }}
+                      >
+                        Inspect
+                      </DropdownMenuItem>
+                      {output.availability_status === "ready" ? (
+                        <DropdownMenuItem asChild>
+                          <a
+                            href={resolveBackendUrl(output.content_url)}
+                            rel="noreferrer"
+                            target="_blank"
+                          >
+                            Open content
+                            <ExternalLink className="size-4" />
+                          </a>
+                        </DropdownMenuItem>
+                      ) : null}
+                      <DropdownMenuItem
+                        disabled={isRefreshing}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          void onRefreshMetadata([output]);
+                        }}
+                      >
+                        Refresh
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </TableCell>
               </TableRow>
             );
