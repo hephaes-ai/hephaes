@@ -16,11 +16,12 @@ import {
   usePrepareVisualization,
 } from "@/hooks/use-backend"
 import { useEpisodeReplay } from "@/hooks/use-episode-replay"
-import { BackendApiError, getErrorMessage, resolveBackendUrl } from "@/lib/api"
+import { BackendApiError, getErrorMessage } from "@/lib/api"
 import { formatDateTime, formatDuration } from "@/lib/format"
 import { resolveReturnHref } from "@/lib/navigation"
 import { buildReplayHref } from "@/lib/visualization"
 
+import { RerunViewer } from "@/components/rerun-viewer"
 import { VisualizationScrubber } from "@/components/visualization-scrubber"
 import { WorkflowStatusBadge } from "@/components/workflow-status-badge"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -143,6 +144,11 @@ export function VisualizationPage() {
     selectedEpisodeId || (episodes.length === 1 ? episodes[0].episode_id : "")
 
   const episodeResponse = useAssetEpisode(assetId, resolvedEpisodeId)
+  const selectedEpisode =
+    episodes.find((episode) => episode.episode_id === resolvedEpisodeId) ?? null
+  const hasVisualizableData =
+    (episodeResponse.data?.has_visualizable_streams ??
+      selectedEpisode?.has_visualizable_streams) !== false
   const timelineResponse = useEpisodeTimeline(assetId, resolvedEpisodeId)
   const viewerSourceResponse = useEpisodeViewerSource(
     assetId,
@@ -152,6 +158,7 @@ export function VisualizationPage() {
   const [preparationJobId, setPreparationJobId] = React.useState<string | null>(
     null
   )
+  const autoPreparationAttemptKeyRef = React.useRef<string | null>(null)
 
   const effectiveViewerSourceJobId =
     viewerSourceResponse.data?.job_id ??
@@ -268,6 +275,13 @@ export function VisualizationPage() {
     viewerSourceStatus === "none" &&
     Boolean(viewerSourceErrorMessage) &&
     /incompatible|version/i.test(viewerSourceErrorMessage ?? "")
+  const autoPrepareViewerSourceKey =
+    assetId &&
+    resolvedEpisodeId &&
+    hasVisualizableData &&
+    viewerSourceStatus === "none"
+      ? `${assetId}:${resolvedEpisodeId}:${hasViewerVersionMismatch ? "viewer-version-mismatch" : "missing-viewer-source"}`
+      : null
 
   const updateVisualizeState = React.useCallback(
     (updates: Record<string, string | null>) => {
@@ -478,7 +492,7 @@ export function VisualizationPage() {
     }
   }, [viewerSourceResponse.data?.job_id])
 
-  async function onPrepareVisualization() {
+  const onPrepareVisualization = React.useCallback(async () => {
     if (!assetId || !resolvedEpisodeId) {
       return
     }
@@ -496,7 +510,40 @@ export function VisualizationPage() {
     } catch {
       // Error rendering is handled through prepareVisualization.error and existing alerts.
     }
-  }
+  }, [
+    assetId,
+    preparationJobResponse,
+    prepareVisualization,
+    resolvedEpisodeId,
+    viewerSourceResponse,
+  ])
+
+  React.useEffect(() => {
+    if (!autoPrepareViewerSourceKey) {
+      return
+    }
+
+    if (
+      viewerSourceResponse.isLoading ||
+      viewerSourceResponse.error ||
+      prepareVisualization.isPreparing
+    ) {
+      return
+    }
+
+    if (autoPreparationAttemptKeyRef.current === autoPrepareViewerSourceKey) {
+      return
+    }
+
+    autoPreparationAttemptKeyRef.current = autoPrepareViewerSourceKey
+    void onPrepareVisualization()
+  }, [
+    autoPrepareViewerSourceKey,
+    onPrepareVisualization,
+    prepareVisualization.isPreparing,
+    viewerSourceResponse.error,
+    viewerSourceResponse.isLoading,
+  ])
 
   if (!assetId) {
     return (
@@ -569,11 +616,6 @@ export function VisualizationPage() {
     )
   }
 
-  const selectedEpisode =
-    episodes.find((episode) => episode.episode_id === resolvedEpisodeId) ?? null
-  const hasVisualizableData =
-    (episodeResponse.data?.has_visualizable_streams ??
-      selectedEpisode?.has_visualizable_streams) !== false
   const effectiveTimestampNs = currentTimestampNs ?? timelineStartNs
   const cursorOffsetNs = Math.max(0, effectiveTimestampNs - timelineStartNs)
   const stepBackwardDisabled = effectiveTimestampNs <= timelineStartNs
@@ -773,14 +815,7 @@ export function VisualizationPage() {
       </Card>
 
       <Card>
-        <CardHeader>
-          <CardTitle>Replay source</CardTitle>
-          <CardDescription>
-            Source preparation status for the replay workflow and
-            scrubber-backed inspection.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
+        <CardContent className="space-y-3 pt-6">
           {!resolvedEpisodeId ? (
             <Alert>
               <AlertTitle>Replay source is waiting for an episode</AlertTitle>
@@ -849,40 +884,18 @@ export function VisualizationPage() {
                 ) : null}
               </div>
 
-              <Alert>
-                <AlertTitle>Replay source ready</AlertTitle>
-                <AlertDescription>
-                  The embedded Rerun viewer is temporarily disabled. Replay
-                  timeline controls and lane payload inspection below remain
-                  available.
-                </AlertDescription>
-              </Alert>
-
-              {viewerSourceResponse.data?.artifact_path ? (
-                <div className="rounded-lg border bg-muted/20 px-3 py-3">
-                  <p className="text-xs tracking-wide text-muted-foreground uppercase">
-                    Artifact path
-                  </p>
-                  <p className="mt-1 text-sm break-all text-foreground">
-                    {viewerSourceResponse.data.artifact_path}
-                  </p>
-                </div>
+              {viewerSourceResponse.data?.source_url ? (
+                <RerunViewer
+                  currentTimestampNs={effectiveTimestampNs}
+                  isPlaying={isPlaying}
+                  sourceKind={viewerSourceResponse.data.source_kind}
+                  sourceUrl={viewerSourceResponse.data.source_url}
+                  updatedAt={viewerSourceResponse.data.updated_at}
+                  viewerVersion={viewerSourceResponse.data.viewer_version}
+                />
               ) : null}
 
               <div className="flex flex-wrap gap-2">
-                {viewerSourceResponse.data?.source_url ? (
-                  <Button asChild size="sm" type="button" variant="outline">
-                    <a
-                      href={resolveBackendUrl(
-                        viewerSourceResponse.data.source_url
-                      )}
-                      rel="noreferrer"
-                      target="_blank"
-                    >
-                      Open source URL
-                    </a>
-                  </Button>
-                ) : null}
                 <Button
                   disabled={prepareVisualization.isPreparing}
                   onClick={() => void onPrepareVisualization()}
@@ -982,20 +995,10 @@ export function VisualizationPage() {
               <Alert>
                 <AlertTitle>Replay source unavailable</AlertTitle>
                 <AlertDescription>
-                  Prepare replay to generate a backend-managed source for this
-                  episode.
+                  Replay preparation starts automatically for this episode when
+                  you open the page.
                 </AlertDescription>
               </Alert>
-              <Button
-                disabled={prepareVisualization.isPreparing}
-                onClick={() => void onPrepareVisualization()}
-                size="sm"
-                type="button"
-              >
-                {prepareVisualization.isPreparing
-                  ? "Preparing..."
-                  : "Prepare replay"}
-              </Button>
             </div>
           )}
         </CardContent>
