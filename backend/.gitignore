@@ -17,5 +17,4 @@ __pycache__/
 /htmlcov/
 
 # Local backend database files
-/data/*.db
-/data/*.db-*
+/data/*
