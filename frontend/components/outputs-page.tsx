@@ -1354,22 +1354,6 @@ export function OutputsPage() {
     }
   }
 
-  async function onCopyViewLink() {
-    try {
-      await navigator.clipboard.writeText(window.location.href);
-      notify({
-        description: "Current filters and selection are now copied.",
-        title: "View link copied",
-        tone: "success",
-      });
-    } catch (error) {
-      notify({
-        description: getErrorMessage(error),
-        title: "Could not copy view link",
-        tone: "error",
-      });
-    }
-  }
 
   function onSearchSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -1492,10 +1476,6 @@ export function OutputsPage() {
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Button onClick={() => void onCopyViewLink()} size="sm" type="button" variant="outline">
-              <Copy className="size-4" />
-              Copy view link
-            </Button>
             <Button
               disabled={outputsResponse.isLoading}
               onClick={() => void outputsResponse.mutate()}

@@ -12,6 +12,7 @@ import {
   FolderOpen,
   RefreshCw,
   Search,
+  Tag,
   Upload,
   X,
 } from "lucide-react";
@@ -613,6 +614,7 @@ export function InventoryPage() {
   const [searchInput, setSearchInput] = React.useState(appliedSearch);
   const [isBrowsePanelOpen, setIsBrowsePanelOpen] = React.useState(false);
   const [isConversionDialogOpen, setIsConversionDialogOpen] = React.useState(false);
+  const [isTagDialogOpen, setIsTagDialogOpen] = React.useState(false);
   const [isBulkIndexingSelection, setIsBulkIndexingSelection] = React.useState(false);
   const [isIndexingPendingAssets, setIsIndexingPendingAssets] = React.useState(false);
   const [isUpdatingSelectionTags, setIsUpdatingSelectionTags] = React.useState(false);
@@ -1455,7 +1457,11 @@ export function InventoryPage() {
             <Button
               className="shrink-0"
               onClick={() => {
-                void Promise.all([revalidateAssetLists(), revalidateTags()]);
+                void assetsResponse.mutate();
+                if (hasServerFilters) {
+                  void allAssetsResponse.mutate();
+                }
+                void revalidateTags();
               }}
               size="sm"
               type="button"
@@ -1523,6 +1529,12 @@ export function InventoryPage() {
                 <Button onClick={() => setIsConversionDialogOpen(true)} size="sm" type="button" variant="outline">
                   <ArrowRightLeft className="size-3.5" />
                   Convert
+                </Button>
+              ) : null}
+              {selectedCount > 0 ? (
+                <Button onClick={() => setIsTagDialogOpen(true)} size="sm" type="button" variant="outline">
+                  <Tag className="size-3.5" />
+                  Tag
                 </Button>
               ) : null}
               {selectedCount > 0 ? (
@@ -1791,28 +1803,6 @@ export function InventoryPage() {
             </div>
           </div>
 
-          {selectedCount > 0 ? (
-            <div className="space-y-3 rounded-xl border bg-muted/20 p-4">
-              <div className="space-y-1">
-                <p className="text-sm font-medium text-foreground">Selected assets</p>
-                <p className="text-sm text-muted-foreground">
-                  Apply an existing tag or create a new one for the current selection.
-                </p>
-                <p className="text-xs text-muted-foreground">Selection scope: {selectionScope.replace(/-/g, " ")}</p>
-              </div>
-              <TagActionPanel
-                applyButtonLabel="Apply tag"
-                availableTags={availableTags}
-                createButtonLabel="Create and apply"
-                createInputLabel="Create a new tag"
-                disabled={isUpdatingSelectionTags}
-                emptyState="Create a tag first, then apply it to the selected assets."
-                onApplyTag={onApplyExistingTagToSelection}
-                onCreateTag={onCreateAndApplyTagToSelection}
-                selectLabel="Apply an existing tag"
-              />
-            </div>
-          ) : null}
         </CardHeader>
 
         <CardContent className="space-y-4">
@@ -1877,6 +1867,28 @@ export function InventoryPage() {
         onOpenChange={setIsConversionDialogOpen}
         open={isConversionDialogOpen}
       />
+
+      <Dialog onOpenChange={setIsTagDialogOpen} open={isTagDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Tag selected assets</DialogTitle>
+            <DialogDescription>
+              Apply an existing tag or create a new one for the {selectedCount} selected asset{selectedCount !== 1 ? "s" : ""}.
+            </DialogDescription>
+          </DialogHeader>
+          <TagActionPanel
+            applyButtonLabel="Apply tag"
+            availableTags={availableTags}
+            createButtonLabel="Create and apply"
+            createInputLabel="Create a new tag"
+            disabled={isUpdatingSelectionTags}
+            emptyState="Create a tag first, then apply it to the selected assets."
+            onApplyTag={onApplyExistingTagToSelection}
+            onCreateTag={onCreateAndApplyTagToSelection}
+            selectLabel="Apply an existing tag"
+          />
+        </DialogContent>
+      </Dialog>
 
       <Dialog onOpenChange={onDirectoryScanDialogChange} open={isDirectoryScanDialogOpen}>
         <DialogContent className="max-w-lg" showCloseButton={!isScanningDirectory}>
