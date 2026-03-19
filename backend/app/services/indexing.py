@@ -9,13 +9,12 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from hephaes import Profiler
+from hephaes.metrics import infer_topic_modality, summarize_bag_topics
 from hephaes.models import BagMetadata
 
 from app.db.models import Asset, AssetMetadata, utc_now
 from app.services.assets import AssetNotFoundError, get_asset_or_raise
 from app.services.jobs import JobService
-
-VISUAL_MODALITIES = {"image", "points", "scalar_series"}
 
 
 class AssetIndexingError(Exception):
@@ -34,35 +33,6 @@ def profile_asset_file(file_path: str) -> BagMetadata:
     return Profiler([file_path], max_workers=1).profile()[0]
 
 
-def _topic_modality(message_type: str) -> tuple[str, str]:
-    normalized = message_type.lower()
-
-    if "image" in normalized:
-        return "image", "camera"
-    if any(token in normalized for token in ("pointcloud", "point_cloud", "laser", "scan")):
-        return "points", "lidar"
-    if "imu" in normalized:
-        return "scalar_series", "imu"
-    if any(
-        token in normalized
-        for token in (
-            "odometry",
-            "twist",
-            "pose",
-            "jointstate",
-            "joint_state",
-            "navsatfix",
-            "gps",
-            "temperature",
-            "battery",
-            "magneticfield",
-            "fluidpressure",
-        )
-    ):
-        return "scalar_series", "telemetry"
-    return "other", "other"
-
-
 def _timestamp_ns_to_datetime(timestamp_ns: int | None) -> datetime | None:
     if timestamp_ns is None:
         return None
@@ -71,11 +41,16 @@ def _timestamp_ns_to_datetime(timestamp_ns: int | None) -> datetime | None:
 
 
 def _build_metadata_payload(asset: Asset, profile: BagMetadata) -> dict[str, object]:
+    topic_summary = summarize_bag_topics(profile)
     topics_payload: list[dict[str, object]] = []
-    sensor_types: list[str] = []
+    sensor_types = [
+        sensor_family
+        for sensor_family in topic_summary.sensor_family_counts
+        if sensor_family != "other"
+    ]
 
     for topic in profile.topics:
-        modality, sensor_type = _topic_modality(topic.message_type)
+        modality = infer_topic_modality(topic.message_type)
         topics_payload.append(
             {
                 "name": topic.name,
@@ -85,15 +60,9 @@ def _build_metadata_payload(asset: Asset, profile: BagMetadata) -> dict[str, obj
                 "modality": modality,
             }
         )
-        if sensor_type != "other" and sensor_type not in sensor_types:
-            sensor_types.append(sensor_type)
 
     if not sensor_types and topics_payload:
         sensor_types = ["other"]
-
-    visualizable_topic_count = sum(
-        1 for topic in topics_payload if str(topic["modality"]) in VISUAL_MODALITIES
-    )
 
     return {
         "duration": profile.duration_seconds,
@@ -117,8 +86,8 @@ def _build_metadata_payload(asset: Asset, profile: BagMetadata) -> dict[str, obj
             "duration": profile.duration_seconds,
         },
         "visualization_summary_json": {
-            "has_visualizable_streams": visualizable_topic_count > 0,
-            "default_lane_count": visualizable_topic_count,
+            "has_visualizable_streams": topic_summary.visualization.has_visualizable_streams,
+            "default_lane_count": topic_summary.visualization.visualizable_stream_count,
         },
     }
 
