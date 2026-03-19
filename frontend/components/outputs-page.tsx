@@ -844,10 +844,10 @@ function OutputsTable({
                     onClick={(event) => event.stopPropagation()}
                   />
                 </TableCell>
-                <TableCell className="max-w-0">
+                <TableCell>
                   <div className="space-y-2">
-                    <p className="font-medium text-foreground">{output.file_name}</p>
-                    <p className="truncate text-xs text-muted-foreground">{output.relative_path}</p>
+                    <p className="font-medium text-foreground whitespace-nowrap">{output.file_name}</p>
+                    <p className="text-xs text-muted-foreground">{output.relative_path}</p>
                     <div className="flex flex-wrap items-center gap-2">
                       <Badge variant="outline">{formatOutputFormat(output.format)}</Badge>
                       <OutputRoleBadge role={output.role} />
