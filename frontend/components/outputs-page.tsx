@@ -810,11 +810,13 @@ function OutputsTable({
         <TableHeader>
           <TableRow>
             <TableHead className="w-12">
-              <Checkbox
-                aria-label="Select all visible outputs"
-                checked={allVisibleSelected ? true : someVisibleSelected ? "indeterminate" : false}
-                onCheckedChange={() => onToggleAllVisible()}
-              />
+              <div className="flex items-center justify-center">
+                <Checkbox
+                  aria-label="Select all visible outputs"
+                  checked={allVisibleSelected ? true : someVisibleSelected ? "indeterminate" : false}
+                  onCheckedChange={() => onToggleAllVisible()}
+                />
+              </div>
             </TableHead>
             <TableHead>Output file</TableHead>
             <TableHead>Source assets</TableHead>
@@ -837,12 +839,14 @@ function OutputsTable({
                 onClick={() => onSelectOutput(output.id)}
               >
                 <TableCell>
-                  <Checkbox
-                    aria-label={`Select ${output.file_name}`}
-                    checked={isBatchSelected}
-                    onCheckedChange={() => onToggleOutputSelection(output.id)}
-                    onClick={(event) => event.stopPropagation()}
-                  />
+                  <div className="flex items-center justify-center">
+                    <Checkbox
+                      aria-label={`Select ${output.file_name}`}
+                      checked={isBatchSelected}
+                      onCheckedChange={() => onToggleOutputSelection(output.id)}
+                      onClick={(event) => event.stopPropagation()}
+                    />
+                  </div>
                 </TableCell>
                 <TableCell>
                   <div className="space-y-2">
