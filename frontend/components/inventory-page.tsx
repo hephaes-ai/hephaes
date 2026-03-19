@@ -10,6 +10,7 @@ import {
   ChevronDown,
   ChevronUp,
   FolderOpen,
+  MoreHorizontal,
   RefreshCw,
   Search,
   Tag,
@@ -26,6 +27,12 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Dialog,
   DialogContent,
@@ -458,7 +465,7 @@ function AssetsTable({
               />
             </TableHead>
             <TableHead>Last indexed</TableHead>
-            <TableHead className="w-28 text-right">Action</TableHead>
+            <TableHead className="w-12 text-right">Action</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -511,27 +518,34 @@ function AssetsTable({
                 <TableCell>{formatDateTime(asset.registered_time)}</TableCell>
                 <TableCell>{formatDateTime(asset.last_indexed_time, "Not indexed yet")}</TableCell>
                 <TableCell className="text-right">
-                  <div className="flex flex-wrap justify-end gap-2" data-stop-row-click="true">
-                    {outputCount > 0 ? (
-                      <Button asChild size="sm" type="button" variant="outline">
-                        <Link href={buildOutputsHref({ assetId: asset.id })}>Outputs</Link>
-                      </Button>
-                    ) : null}
-                    {asset.indexing_status === "indexed" ? (
-                      <Button asChild size="sm" type="button" variant="secondary">
-                        <Link href={buildInventoryReplayHref(asset.id, inventoryHref)}>Replay</Link>
-                      </Button>
-                    ) : null}
-                    <Button
-                      disabled={isRunningAction || asset.indexing_status === "indexing"}
-                      onClick={() => onRunAssetAction(asset)}
-                      size="sm"
-                      type="button"
-                      variant={asset.indexing_status === "failed" ? "destructive" : "outline"}
-                    >
-                      {isRunningAction ? <RefreshCw className="size-3.5 animate-spin" /> : null}
-                      {getIndexActionLabel(asset.indexing_status, isRunningAction)}
-                    </Button>
+                  <div data-stop-row-click="true">
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button size="icon" variant="ghost" className="size-8">
+                          <MoreHorizontal className="size-4" />
+                          <span className="sr-only">Actions</span>
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem
+                          disabled={isRunningAction || asset.indexing_status === "indexing"}
+                          onClick={() => onRunAssetAction(asset)}
+                        >
+                          {isRunningAction ? <RefreshCw className="size-4 animate-spin" /> : null}
+                          {getIndexActionLabel(asset.indexing_status, isRunningAction)}
+                        </DropdownMenuItem>
+                        {asset.indexing_status === "indexed" ? (
+                          <DropdownMenuItem asChild>
+                            <Link href={buildInventoryReplayHref(asset.id, inventoryHref)}>Replay</Link>
+                          </DropdownMenuItem>
+                        ) : null}
+                        {outputCount > 0 ? (
+                          <DropdownMenuItem asChild>
+                            <Link href={buildOutputsHref({ assetId: asset.id })}>Outputs</Link>
+                          </DropdownMenuItem>
+                        ) : null}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </div>
                 </TableCell>
               </TableRow>
