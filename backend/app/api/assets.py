@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, s
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
+from app.api._status import HTTP_422_UNPROCESSABLE_CONTENT
 from app.db.models import Asset
 from app.db.session import get_db_session
 from app.schemas.conversions import ConversionSummaryResponse
@@ -89,7 +90,7 @@ def parse_list_assets_query(
         )
     except ValidationError as exc:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            status_code=HTTP_422_UNPROCESSABLE_CONTENT,
             detail=exc.errors(),
         ) from exc
 
@@ -282,7 +283,7 @@ def index_asset_route(asset_id: str, session: DbSession) -> AssetDetailResponse:
     except AssetNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except AssetIndexingError as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
+        raise HTTPException(status_code=HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
 
     return build_asset_detail_response(session, asset)
 
@@ -372,7 +373,7 @@ def get_asset_episodes_route(asset_id: str, session: DbSession) -> list[EpisodeS
     except AssetNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except EpisodeDiscoveryUnavailableError as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
+        raise HTTPException(status_code=HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
 
     return [build_episode_summary_response(episode) for episode in episodes]
 

@@ -229,3 +229,105 @@ class Conversion(Base):
     )
 
     job: Mapped[Job] = relationship(back_populates="conversion")
+    output_artifacts: Mapped[list["OutputArtifact"]] = relationship(
+        back_populates="conversion",
+        cascade="all, delete-orphan",
+        order_by="OutputArtifact.created_at.desc()",
+    )
+
+
+class OutputArtifact(Base):
+    """Durable record for one emitted file from a conversion output directory."""
+
+    __tablename__ = "output_artifacts"
+    __table_args__ = (
+        CheckConstraint("size_bytes >= 0", name="ck_output_artifacts_size_bytes_non_negative"),
+        CheckConstraint(
+            "availability_status IN ('ready', 'missing', 'invalid')",
+            name="ck_output_artifacts_availability_status_valid",
+        ),
+        UniqueConstraint(
+            "conversion_id",
+            "relative_path",
+            name="uq_output_artifacts_conversion_id_relative_path",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    conversion_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("conversions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    job_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    source_asset_ids_json: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    relative_path: Mapped[str] = mapped_column(String, nullable=False)
+    file_name: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    format: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    role: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    media_type: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    availability_status: Mapped[str] = mapped_column(String(32), nullable=False, default="ready", index=True)
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+        index=True,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+        onupdate=utc_now,
+    )
+
+    conversion: Mapped[Conversion] = relationship(back_populates="output_artifacts")
+    output_actions: Mapped[list["OutputAction"]] = relationship(
+        back_populates="output_artifact",
+        cascade="all, delete-orphan",
+        order_by="OutputAction.created_at.desc()",
+    )
+
+
+class OutputAction(Base):
+    """Durable record for one output-scoped compute action."""
+
+    __tablename__ = "output_actions"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('queued', 'running', 'succeeded', 'failed')",
+            name="ck_output_actions_status_valid",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    output_artifact_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("output_artifacts.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    action_type: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="queued", index=True)
+    config_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    result_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    output_path: Mapped[str | None] = mapped_column(String, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+        index=True,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+        onupdate=utc_now,
+    )
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    output_artifact: Mapped[OutputArtifact] = relationship(back_populates="output_actions")

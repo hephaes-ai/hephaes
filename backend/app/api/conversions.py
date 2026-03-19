@@ -7,6 +7,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.api._status import HTTP_422_UNPROCESSABLE_CONTENT
 from app.db.models import Conversion
 from app.db.session import get_db_session
 from app.schemas.conversions import (
@@ -60,9 +61,9 @@ def create_conversion_route(payload: ConversionCreateRequest, session: DbSession
     try:
         conversion = service.run_conversion(payload)
     except ConversionValidationError as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
+        raise HTTPException(status_code=HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
     except ConversionExecutionError as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
+        raise HTTPException(status_code=HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
 
     return build_conversion_detail_response(conversion)
 
