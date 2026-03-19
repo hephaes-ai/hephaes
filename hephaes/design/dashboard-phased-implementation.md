@@ -40,11 +40,31 @@ Those are already consumed downstream by the backend indexing and conversion pat
 
 ## Recommended Phases
 
+### Cross-Package Dependency Order
+
+The intended dashboard rollout across packages is:
+
+1. `hephaes` phase 1
+2. `frontend` phase 1 and `backend` phase 1
+3. `backend` phase 2
+4. `frontend` phase 2
+5. `hephaes` phase 2
+6. `hephaes` phase 3
+7. `backend` phase 3
+8. `frontend` phase 3
+9. `hephaes` phase 4
+10. `backend` phase 4 only if live aggregation proves too slow
+
 ### Phase 1: Add Pure Metric-Derivation Helpers
 
 Goal:
 
 - expose reusable helpers that derive dashboard-friendly summaries from existing metadata models
+
+Dependencies:
+
+- this phase has no dependency on new frontend or backend dashboard work
+- this phase is the shared foundation for backend phase 2 summary routes and backend phase 3 quality rollups
 
 Recommended additions:
 
@@ -84,6 +104,11 @@ Implementation tasks:
 Goal:
 
 - expose richer quality signals without making the default profiler path unexpectedly expensive
+
+Dependencies:
+
+- start this after frontend phase 1 and backend phase 2 have validated which deeper bag-quality signals are worth computing
+- this phase unblocks backend phase 3 quality rollups, but it is not required for frontend phase 2
 
 Recommended design:
 
@@ -126,6 +151,11 @@ Implementation tasks:
 Goal:
 
 - make dataset-readiness metrics easy to compute from produced artifacts
+
+Dependencies:
+
+- start this after backend phase 2 and frontend phase 2 confirm which readiness signals deserve durable manifest fields
+- this phase unblocks backend phase 3 readiness rollups and frontend phase 3 ML-readiness cards
 
 The manifest already stores valuable output information:
 
@@ -172,6 +202,11 @@ Implementation tasks:
 Goal:
 
 - give downstream layers durable typed models for quality and readiness summaries
+
+Dependencies:
+
+- do not freeze these public models until earlier `hephaes` phases have been exercised by backend and frontend consumers
+- this phase should follow the first real downstream use of phases 1 through 3 rather than lead it
 
 Recommended models:
 
