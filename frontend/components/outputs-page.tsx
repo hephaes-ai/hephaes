@@ -18,7 +18,6 @@ import {
   X,
 } from "lucide-react";
 
-import { useFeedback } from "@/components/feedback-provider";
 import { WorkflowStatusBadge } from "@/components/workflow-status-badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -34,6 +33,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { toast } from "@/components/ui/sonner";
 import {
   Table,
   TableBody,
@@ -1037,7 +1037,7 @@ export function OutputsPage() {
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { notify } = useFeedback();
+
   const { isCreating, trigger } = useCreateOutputAction();
 
   const query = React.useMemo(() => buildOutputsQuery(searchParams), [searchParams]);
@@ -1263,10 +1263,8 @@ export function OutputsPage() {
   }
 
   function onShowVlmTaggingStub(scopeLabel: string) {
-    notify({
+    toast.info("Coming soon", {
       description: `VLM tagging is not wired to the backend yet for ${scopeLabel}.`,
-      title: "Coming soon",
-      tone: "info",
     });
   }
 
@@ -1292,19 +1290,14 @@ export function OutputsPage() {
       }
 
       const firstOutput = outputsToRefresh[0];
-      notify({
-        description:
-          outputsToRefresh.length === 1
-            ? `Metadata refreshed for ${firstOutput?.file_name ?? "the selected output"}.`
-            : `Metadata refreshed for ${outputsToRefresh.length} selected outputs.`,
-        title: "Output action completed",
-        tone: "success",
-      });
+      toast.success(
+        outputsToRefresh.length === 1
+          ? `Metadata refreshed for ${firstOutput?.file_name ?? "the selected output"}.`
+          : `Metadata refreshed for ${outputsToRefresh.length} selected outputs.`,
+      );
     } catch (error) {
-      notify({
+      toast.error("Could not refresh output metadata", {
         description: getErrorMessage(error),
-        title: "Could not refresh output metadata",
-        tone: "error",
       });
     }
   }
@@ -1374,9 +1367,37 @@ export function OutputsPage() {
                 {formatCount(outputs.length, "result")}
               </Badge>
               {selectedOutputs.length > 0 ? (
-                <Badge className="h-6" variant="outline">
-                  {formatCount(selectedOutputs.length, "selected output")}
-                </Badge>
+                <>
+                  <Badge className="h-6" variant="outline">
+                    {selectedOutputs.length} selected
+                  </Badge>
+                  <Button
+                    disabled={isCreating}
+                    onClick={() => void onRefreshMetadata(selectedOutputs)}
+                    size="sm"
+                    type="button"
+                  >
+                    <Wrench className="size-3.5" />
+                    Batch refresh metadata
+                  </Button>
+                  <Button
+                    disabled
+                    size="sm"
+                    type="button"
+                    variant="outline"
+                  >
+                    <Sparkles className="size-3.5" />
+                    Batch VLM tagging soon
+                  </Button>
+                  <Button
+                    onClick={() => updateFilters({ selection: null })}
+                    size="sm"
+                    type="button"
+                    variant="ghost"
+                  >
+                    Clear selection
+                  </Button>
+                </>
               ) : null}
               <Button
                 aria-expanded={isFiltersOpen}
@@ -1595,47 +1616,6 @@ export function OutputsPage() {
           </div>
         </CardHeader>
         <CardContent>
-          {selectedOutputs.length > 0 ? (
-            <div className="mb-4 flex flex-col gap-3 rounded-xl border bg-muted/20 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
-              <div className="space-y-1">
-                <p className="text-sm font-medium text-foreground">
-                  {formatCount(selectedOutputs.length, "selected output")}
-                </p>
-                <p className="text-sm text-muted-foreground">
-                  Multi-select state lives in the URL, so batch workflows and filtered views stay shareable.
-                </p>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  disabled={isCreating}
-                  onClick={() => void onRefreshMetadata(selectedOutputs)}
-                  size="sm"
-                  type="button"
-                >
-                  <Wrench className="size-3.5" />
-                  Batch refresh metadata
-                </Button>
-                <Button
-                  onClick={() => onShowVlmTaggingStub(`${selectedOutputs.length} selected outputs`)}
-                  size="sm"
-                  type="button"
-                  variant="outline"
-                >
-                  <Sparkles className="size-3.5" />
-                  Batch VLM tagging soon
-                </Button>
-                <Button
-                  onClick={() => updateFilters({ selection: null })}
-                  size="sm"
-                  type="button"
-                  variant="outline"
-                >
-                  Clear selection
-                </Button>
-              </div>
-            </div>
-          ) : null}
-
           {outputs.length === 0 ? (
             <OutputsEmptyState
               action={
