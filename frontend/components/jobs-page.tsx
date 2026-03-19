@@ -213,7 +213,7 @@ export function JobsPage() {
               </span>
             </div>
             <p className="max-w-3xl text-sm text-muted-foreground">
-              Monitor backend indexing, conversion, and visualization-preparation work without leaving the app.
+              Monitor indexing, conversion, visualization jobs.
             </p>
           </div>
           <Button
