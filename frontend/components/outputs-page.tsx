@@ -6,12 +6,17 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { ArrowRight, Copy, Database, ListFilter, RefreshCw, Sparkles } from "lucide-react";
 
 import { useFeedback } from "@/components/feedback-provider";
-import { OutputActionDialog } from "@/components/output-action-dialog";
+import {
+  getDefaultOutputActionPrefill,
+  OutputActionDialog,
+  type OutputActionDialogPrefill,
+} from "@/components/output-action-dialog";
 import { WorkflowStatusBadge } from "@/components/workflow-status-badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -38,11 +43,48 @@ import {
   formatOutputActionType,
   formatOutputAvailability,
   formatOutputFormat,
+  formatSentenceCase,
   isWorkflowActiveStatus,
 } from "@/lib/format";
 
 const OUTPUT_FORMAT_OPTIONS: OutputFormat[] = ["parquet", "tfrecord", "json", "unknown"];
 const OUTPUT_AVAILABILITY_OPTIONS: OutputAvailability[] = ["ready"];
+const OUTPUT_PRESET_OPTIONS = [
+  {
+    description: "Surface finished Parquet and TFRecord datasets first.",
+    label: "Ready datasets",
+    value: "ready_datasets",
+  },
+  {
+    description: "Show outputs with queued or running compute work.",
+    label: "Active compute",
+    value: "active_compute",
+  },
+  {
+    description: "Focus on JSON sidecars such as manifests and summaries.",
+    label: "JSON sidecars",
+    value: "json_sidecars",
+  },
+] as const;
+type OutputPreset = (typeof OUTPUT_PRESET_OPTIONS)[number]["value"];
+
+interface OutputPreviewFact {
+  label: string;
+  value: string;
+}
+
+interface OutputPreviewMapping {
+  sourceTopics: string[];
+  targetField: string;
+}
+
+interface OutputPreviewModel {
+  description: string;
+  facts: OutputPreviewFact[];
+  mappings: OutputPreviewMapping[];
+  notes: string[];
+  title: string;
+}
 
 function buildAssetDetailHref(assetId: string, returnHref: string) {
   return `/assets/${assetId}?from=${encodeURIComponent(returnHref)}`;
@@ -71,6 +113,289 @@ function buildOutputsQuery(searchParams: URLSearchParams): OutputsQuery {
       ? (format as OutputFormat)
       : undefined,
     search: search || undefined,
+  };
+}
+
+function parseOutputSelection(value: string | null) {
+  return Array.from(
+    new Set(
+      (value ?? "")
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean),
+    ),
+  );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function getNestedRecord(
+  object: Record<string, unknown>,
+  key: string,
+): Record<string, unknown> | null {
+  const value = object[key];
+  return isRecord(value) ? value : null;
+}
+
+function getStringValue(value: unknown) {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+function getBooleanValue(value: unknown) {
+  return typeof value === "boolean" ? value : null;
+}
+
+function getNumberValue(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function formatPreviewValue(value: string | null, fallback = "Not configured") {
+  return value ?? fallback;
+}
+
+function formatResampleSummary(resampleConfig: Record<string, unknown> | null) {
+  if (!resampleConfig) {
+    return "Original cadence";
+  }
+
+  const method = getStringValue(resampleConfig.method);
+  const frequency = getNumberValue(resampleConfig.freq_hz);
+
+  if (!method && frequency === null) {
+    return "Configured";
+  }
+
+  if (!method) {
+    return `${frequency} Hz`;
+  }
+
+  if (frequency === null) {
+    return formatSentenceCase(method);
+  }
+
+  return `${formatSentenceCase(method)} at ${frequency} Hz`;
+}
+
+function getPreviewMappings(config: Record<string, unknown>): OutputPreviewMapping[] {
+  if (!isRecord(config.mapping)) {
+    return [];
+  }
+
+  return Object.entries(config.mapping).flatMap(([targetField, sourceTopics]) => {
+    if (!Array.isArray(sourceTopics)) {
+      return [];
+    }
+
+    const normalizedSourceTopics = sourceTopics.filter(
+      (sourceTopic): sourceTopic is string =>
+        typeof sourceTopic === "string" && sourceTopic.trim().length > 0,
+    );
+
+    if (!targetField.trim() || normalizedSourceTopics.length === 0) {
+      return [];
+    }
+
+    return [
+      {
+        sourceTopics: normalizedSourceTopics,
+        targetField,
+      },
+    ];
+  });
+}
+
+function getJsonArtifactRole(fileName: string) {
+  const normalizedFileName = fileName.toLowerCase();
+
+  if (normalizedFileName.includes("manifest")) {
+    return "Manifest sidecar";
+  }
+
+  if (normalizedFileName.includes("schema")) {
+    return "Schema sidecar";
+  }
+
+  if (normalizedFileName.includes("tag")) {
+    return "Tag output";
+  }
+
+  return "JSON artifact";
+}
+
+function countSiblingDatasets(output: OutputDetail) {
+  return output.sibling_output_files.filter(
+    (siblingOutput) =>
+      siblingOutput !== output.output_file &&
+      /\.(parquet|tfrecord|tfrecords)$/i.test(siblingOutput),
+  ).length;
+}
+
+function buildOutputPreview(output: OutputDetail, actionCount: number): OutputPreviewModel {
+  const outputConfig = getNestedRecord(output.config, "output");
+  const resampleConfig = getNestedRecord(output.config, "resample");
+  const mappings = getPreviewMappings(output.config);
+  const writeManifest = getBooleanValue(output.config.write_manifest);
+  const siblingDatasetCount = countSiblingDatasets(output);
+
+  if (output.format === "parquet") {
+    return {
+      description: "Columnar dataset summary for analytics-style review and downstream compute.",
+      facts: [
+        {
+          label: "Compression",
+          value: formatPreviewValue(
+            getStringValue(outputConfig?.compression)
+              ? formatSentenceCase(getStringValue(outputConfig?.compression) as string)
+              : null,
+            "Default",
+          ),
+        },
+        {
+          label: "Mapped fields",
+          value: String(mappings.length || 0),
+        },
+        {
+          label: "Manifest",
+          value:
+            writeManifest === null ? "Not specified" : writeManifest ? "Written" : "Skipped",
+        },
+        {
+          label: "Resample",
+          value: formatResampleSummary(resampleConfig),
+        },
+      ],
+      mappings,
+      notes: [
+        "Parquet outputs are a good fit for quick tabular inspection, filtering, and batch analytics.",
+        siblingDatasetCount > 0
+          ? `This conversion also reported ${formatCount(siblingDatasetCount, "sibling dataset")} alongside the selected file.`
+          : "No additional dataset siblings were reported for this conversion.",
+      ],
+      title: "Parquet preview",
+    };
+  }
+
+  if (output.format === "tfrecord") {
+    return {
+      description: "Sequential record summary tailored for ML ingestion and sample-based compute.",
+      facts: [
+        {
+          label: "Compression",
+          value: formatPreviewValue(
+            getStringValue(outputConfig?.compression)
+              ? formatSentenceCase(getStringValue(outputConfig?.compression) as string)
+              : null,
+            "Default",
+          ),
+        },
+        {
+          label: "Payload encoding",
+          value: formatPreviewValue(
+            getStringValue(outputConfig?.payload_encoding)
+              ? formatSentenceCase(getStringValue(outputConfig?.payload_encoding) as string)
+              : null,
+          ),
+        },
+        {
+          label: "Null encoding",
+          value: formatPreviewValue(
+            getStringValue(outputConfig?.null_encoding)
+              ? formatSentenceCase(getStringValue(outputConfig?.null_encoding) as string)
+              : null,
+          ),
+        },
+        {
+          label: "Mapped fields",
+          value: String(mappings.length || 0),
+        },
+      ],
+      mappings,
+      notes: [
+        "TFRecord outputs are optimized for sequential readers and model-serving style pipelines.",
+        actionCount > 0
+          ? `This output already has ${formatCount(actionCount, "compute action")} attached to it.`
+          : "No compute actions have been launched from this TFRecord yet.",
+      ],
+      title: "TFRecord preview",
+    };
+  }
+
+  if (output.format === "json") {
+    return {
+      description: "JSON sidecar summary based on file naming and conversion siblings.",
+      facts: [
+        {
+          label: "Artifact role",
+          value: getJsonArtifactRole(output.file_name),
+        },
+        {
+          label: "Sibling datasets",
+          value: String(siblingDatasetCount),
+        },
+        {
+          label: "Mapped fields",
+          value: String(mappings.length || 0),
+        },
+        {
+          label: "Compute actions",
+          value: String(actionCount),
+        },
+      ],
+      mappings,
+      notes: [
+        siblingDatasetCount > 0
+          ? "This JSON file appears to accompany one or more dataset artifacts from the same conversion."
+          : "No dataset siblings were reported, so this may be the primary artifact for the run.",
+        "JSON outputs are useful as lightweight manifests, summaries, or intermediate compute results.",
+      ],
+      title: "JSON preview",
+    };
+  }
+
+  return {
+    description: "Fallback summary for derived artifacts that do not map to a richer preview yet.",
+    facts: [
+      {
+        label: "Artifact role",
+        value: "Derived output",
+      },
+      {
+        label: "Mapped fields",
+        value: String(mappings.length || 0),
+      },
+      {
+        label: "Sibling files",
+        value: String(output.sibling_output_files.length),
+      },
+      {
+        label: "Compute actions",
+        value: String(actionCount),
+      },
+    ],
+    mappings,
+    notes: [
+      "This output type does not have a dedicated preview card yet, so the page falls back to metadata and config.",
+    ],
+    title: "Artifact preview",
+  };
+}
+
+function parseActionPrefill(searchParams: URLSearchParams): OutputActionDialogPrefill {
+  const sampleCap = searchParams.get("sample_cap")?.trim() ?? "";
+  const sampleCapValue = Number(sampleCap);
+
+  return {
+    overwrite: ["1", "true", "yes"].includes(
+      (searchParams.get("overwrite") ?? "").trim().toLowerCase(),
+    ),
+    promptTemplate: searchParams.get("prompt")?.trim() || undefined,
+    sampleCap:
+      sampleCap && Number.isFinite(sampleCapValue) && sampleCapValue > 0
+        ? sampleCapValue
+        : undefined,
+    targetField: searchParams.get("target_field")?.trim() || undefined,
   };
 }
 
@@ -198,6 +523,68 @@ function formatOutputActionSummary(action: OutputActionDetail) {
   }
 
   return "No summary available yet.";
+}
+
+function OutputPreviewPanel({
+  actionCount,
+  output,
+}: {
+  actionCount: number;
+  output: OutputDetail;
+}) {
+  const preview = buildOutputPreview(output, actionCount);
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{preview.title}</CardTitle>
+        <CardDescription>{preview.description}</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-5">
+        <div className="grid gap-3 sm:grid-cols-2">
+          {preview.facts.map((fact) => (
+            <div className="rounded-lg border bg-muted/15 px-4 py-3" key={fact.label}>
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">{fact.label}</p>
+              <p className="mt-1 text-sm font-medium text-foreground">{fact.value}</p>
+            </div>
+          ))}
+        </div>
+
+        {preview.mappings.length > 0 ? (
+          <div className="space-y-2">
+            <p className="text-xs uppercase tracking-wide text-muted-foreground">Mapped fields</p>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {preview.mappings.slice(0, 6).map((mapping) => (
+                <div className="rounded-lg border bg-muted/15 px-3 py-3" key={mapping.targetField}>
+                  <p className="text-sm font-medium text-foreground">{mapping.targetField}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {mapping.sourceTopics.slice(0, 2).join(", ")}
+                    {mapping.sourceTopics.length > 2
+                      ? ` +${mapping.sourceTopics.length - 2} more`
+                      : ""}
+                  </p>
+                </div>
+              ))}
+            </div>
+            {preview.mappings.length > 6 ? (
+              <p className="text-xs text-muted-foreground">
+                Showing the first 6 mapped fields from the stored conversion config.
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+
+        <div className="space-y-2">
+          <p className="text-xs uppercase tracking-wide text-muted-foreground">Preview notes</p>
+          {preview.notes.map((note) => (
+            <div className="rounded-lg border bg-muted/10 px-3 py-3 text-sm text-foreground" key={note}>
+              {note}
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  );
 }
 
 function OutputDetailPanel({
@@ -328,6 +715,8 @@ function OutputDetailPanel({
         </CardContent>
       </Card>
 
+      <OutputPreviewPanel actionCount={outputActions.length} output={output} />
+
       {Object.keys(output.config).length > 0 ? (
         <Card>
           <CardHeader>
@@ -434,29 +823,46 @@ function OutputDetailPanel({
 }
 
 function OutputsTable({
+  allVisibleSelected,
   assetsById,
   currentHref,
   latestActionsByOutput,
   onCopyPath,
   onRunVlmTagging,
   onSelectOutput,
+  onToggleAllVisible,
+  onToggleOutputSelection,
   outputs,
+  selectedOutputIds,
   selectedOutputId,
 }: {
+  allVisibleSelected: boolean;
   assetsById: Map<string, AssetSummary>;
   currentHref: string;
   latestActionsByOutput: Map<string, OutputActionDetail>;
   onCopyPath: (output: OutputDetail) => Promise<void>;
   onRunVlmTagging: (output: OutputDetail) => void;
   onSelectOutput: (outputId: string) => void;
+  onToggleAllVisible: () => void;
+  onToggleOutputSelection: (outputId: string) => void;
   outputs: OutputDetail[];
+  selectedOutputIds: Set<string>;
   selectedOutputId: string;
 }) {
+  const someVisibleSelected = !allVisibleSelected && outputs.some((output) => selectedOutputIds.has(output.id));
+
   return (
     <div className="hidden overflow-x-auto md:block">
-      <Table className="min-w-[860px]">
+      <Table className="min-w-[940px]">
         <TableHeader>
           <TableRow>
+            <TableHead className="w-12">
+              <Checkbox
+                aria-label="Select all visible outputs"
+                checked={allVisibleSelected ? true : someVisibleSelected ? "indeterminate" : false}
+                onCheckedChange={() => onToggleAllVisible()}
+              />
+            </TableHead>
             <TableHead>Output file</TableHead>
             <TableHead>Format</TableHead>
             <TableHead>Source assets</TableHead>
@@ -469,6 +875,7 @@ function OutputsTable({
         <TableBody>
           {outputs.map((output) => {
             const isSelected = output.id === selectedOutputId;
+            const isBatchSelected = selectedOutputIds.has(output.id);
             const latestAction = latestActionsByOutput.get(output.id) ?? null;
 
             return (
@@ -477,6 +884,14 @@ function OutputsTable({
                 className={isSelected ? "bg-muted/35" : undefined}
                 onClick={() => onSelectOutput(output.id)}
               >
+                <TableCell>
+                  <Checkbox
+                    aria-label={`Select ${output.file_name}`}
+                    checked={isBatchSelected}
+                    onCheckedChange={() => onToggleOutputSelection(output.id)}
+                    onClick={(event) => event.stopPropagation()}
+                  />
+                </TableCell>
                 <TableCell className="max-w-0">
                   <div className="space-y-1">
                     <p className="font-medium text-foreground">{output.file_name}</p>
@@ -558,7 +973,9 @@ function OutputsCards({
   onCopyPath,
   onRunVlmTagging,
   onSelectOutput,
+  onToggleOutputSelection,
   outputs,
+  selectedOutputIds,
 }: {
   assetsById: Map<string, AssetSummary>;
   currentHref: string;
@@ -566,22 +983,33 @@ function OutputsCards({
   onCopyPath: (output: OutputDetail) => Promise<void>;
   onRunVlmTagging: (output: OutputDetail) => void;
   onSelectOutput: (outputId: string) => void;
+  onToggleOutputSelection: (outputId: string) => void;
   outputs: OutputDetail[];
+  selectedOutputIds: Set<string>;
 }) {
   return (
     <div className="space-y-3 md:hidden">
       {outputs.map((output) => {
+        const isBatchSelected = selectedOutputIds.has(output.id);
         const latestAction = latestActionsByOutput.get(output.id) ?? null;
 
         return (
           <div key={output.id} className="space-y-3 rounded-xl border bg-muted/15 px-4 py-4">
-            <div className="space-y-1">
-              <p className="font-medium text-foreground">{output.file_name}</p>
-              <p className="break-all text-xs text-muted-foreground">{output.relative_path}</p>
+            <div className="flex items-start justify-between gap-3">
+              <div className="space-y-1">
+                <p className="font-medium text-foreground">{output.file_name}</p>
+                <p className="break-all text-xs text-muted-foreground">{output.relative_path}</p>
+              </div>
+              <Checkbox
+                aria-label={`Select ${output.file_name}`}
+                checked={isBatchSelected}
+                onCheckedChange={() => onToggleOutputSelection(output.id)}
+              />
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <Badge variant="outline">{formatOutputFormat(output.format)}</Badge>
               <OutputAvailabilityBadge availability={output.availability} />
+              {isBatchSelected ? <Badge variant="secondary">Selected</Badge> : null}
             </div>
             {latestAction ? (
               <div className="space-y-2 rounded-lg border bg-muted/20 px-3 py-3">
@@ -620,24 +1048,81 @@ export function OutputsPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { notify } = useFeedback();
-  const [actionDialogOutput, setActionDialogOutput] = React.useState<OutputDetail | null>(null);
   const query = React.useMemo(() => buildOutputsQuery(searchParams), [searchParams]);
+  const presetValue = searchParams.get("preset")?.trim() ?? "";
+  const preset = React.useMemo(
+    () =>
+      OUTPUT_PRESET_OPTIONS.some((option) => option.value === presetValue)
+        ? (presetValue as OutputPreset)
+        : null,
+    [presetValue],
+  );
   const outputsResponse = useOutputs(query);
   const outputActionsResponse = useOutputActions();
   const selectedOutputId = searchParams.get("output")?.trim() ?? "";
+  const selectedOutputIds = React.useMemo(
+    () => parseOutputSelection(searchParams.get("selection")),
+    [searchParams],
+  );
+  const actionType = searchParams.get("action")?.trim() ?? "";
+  const actionPrefill = React.useMemo(() => parseActionPrefill(searchParams), [searchParams]);
   const selectedOutputResponse = useOutput(selectedOutputId);
   const assetsResponse = useAssets();
-  const outputs = React.useMemo(() => outputsResponse.data ?? [], [outputsResponse.data]);
+  const baseOutputs = React.useMemo(() => outputsResponse.data ?? [], [outputsResponse.data]);
   const outputActions = React.useMemo(
     () => outputActionsResponse.data ?? [],
     [outputActionsResponse.data],
+  );
+  const activeActionOutputIds = React.useMemo(
+    () =>
+      new Set(
+        outputActions
+          .filter((action) => isWorkflowActiveStatus(action.status))
+          .map((action) => action.output_id),
+      ),
+    [outputActions],
+  );
+  const outputs = React.useMemo(() => {
+    if (!preset) {
+      return baseOutputs;
+    }
+
+    if (preset === "ready_datasets") {
+      return baseOutputs.filter(
+        (output) =>
+          output.availability === "ready" &&
+          (output.format === "parquet" || output.format === "tfrecord"),
+      );
+    }
+
+    if (preset === "active_compute") {
+      return baseOutputs.filter((output) => activeActionOutputIds.has(output.id));
+    }
+
+    if (preset === "json_sidecars") {
+      return baseOutputs.filter((output) => output.format === "json");
+    }
+
+    return baseOutputs;
+  }, [activeActionOutputIds, baseOutputs, preset]);
+  const visibleOutputIds = React.useMemo(
+    () => new Set(outputs.map((output) => output.id)),
+    [outputs],
+  );
+  const selectedOutputIdsSet = React.useMemo(
+    () => new Set(selectedOutputIds),
+    [selectedOutputIds],
+  );
+  const selectedOutputs = React.useMemo(
+    () => outputs.filter((output) => selectedOutputIdsSet.has(output.id)),
+    [outputs, selectedOutputIdsSet],
   );
   const currentHref = React.useMemo(() => {
     const queryString = searchParams.toString();
     return queryString ? `${pathname}?${queryString}` : pathname;
   }, [pathname, searchParams]);
   const selectedOutput =
-    outputs.find((output) => output.id === selectedOutputId) ?? selectedOutputResponse.data ?? null;
+    baseOutputs.find((output) => output.id === selectedOutputId) ?? selectedOutputResponse.data ?? null;
   const latestActionsByOutput = React.useMemo(
     () => getLatestActionsByOutput(outputActions),
     [outputActions],
@@ -665,27 +1150,27 @@ export function OutputsPage() {
     [assetsResponse.data],
   );
   const activeActionCount = outputActions.filter((action) => isWorkflowActiveStatus(action.status)).length;
+  const actionDialogOutputs = React.useMemo(() => {
+    if (selectedOutputs.length > 0) {
+      return selectedOutputs;
+    }
+
+    return selectedOutput ? [selectedOutput] : [];
+  }, [selectedOutput, selectedOutputs]);
+  const isActionDialogOpen = actionType === "vlm_tagging" && actionDialogOutputs.length > 0;
+  const allVisibleSelected = outputs.length > 0 && selectedOutputs.length === outputs.length;
   const hasAppliedFilters = Boolean(
     query.asset_id ||
       query.availability ||
       query.conversion_id ||
       query.format ||
-      query.search,
+      query.search ||
+      preset ||
+      selectedOutputId ||
+      selectedOutputIds.length,
   );
 
-  React.useEffect(() => {
-    if (activeActionCount === 0) {
-      return;
-    }
-
-    const intervalId = window.setInterval(() => {
-      void outputActionsResponse.mutate();
-    }, 1000);
-
-    return () => window.clearInterval(intervalId);
-  }, [activeActionCount, outputActionsResponse]);
-
-  function updateFilters(updates: Record<string, string | null>) {
+  const updateFilters = React.useCallback((updates: Record<string, string | null>) => {
     const nextParams = new URLSearchParams(searchParams.toString());
 
     for (const [key, value] of Object.entries(updates)) {
@@ -704,7 +1189,87 @@ export function OutputsPage() {
     React.startTransition(() => {
       router.replace(nextHref, { scroll: false });
     });
-  }
+  }, [pathname, router, searchParams]);
+
+  const clearActionFlow = React.useCallback(() => {
+    updateFilters({
+      action: null,
+      overwrite: null,
+      prompt: null,
+      sample_cap: null,
+      target_field: null,
+    });
+  }, [updateFilters]);
+
+  const clearWorkspaceFilters = React.useCallback(() => {
+    updateFilters({
+      action: null,
+      asset_id: null,
+      availability: null,
+      conversion_id: null,
+      format: null,
+      output: null,
+      overwrite: null,
+      preset: null,
+      prompt: null,
+      sample_cap: null,
+      search: null,
+      selection: null,
+      target_field: null,
+    });
+  }, [updateFilters]);
+
+  React.useEffect(() => {
+    if (activeActionCount === 0) {
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      void outputActionsResponse.mutate();
+    }, 1000);
+
+    return () => window.clearInterval(intervalId);
+  }, [activeActionCount, outputActionsResponse]);
+
+  React.useEffect(() => {
+    if ((outputsResponse.isLoading && !outputsResponse.data) || selectedOutputIds.length === 0) {
+      return;
+    }
+
+    const trimmedSelection = selectedOutputIds.filter((outputId) => visibleOutputIds.has(outputId));
+
+    if (trimmedSelection.length !== selectedOutputIds.length) {
+      updateFilters({
+        selection: trimmedSelection.length > 0 ? trimmedSelection.join(",") : null,
+      });
+    }
+  }, [
+    outputsResponse.data,
+    outputsResponse.isLoading,
+    selectedOutputIds,
+    updateFilters,
+    visibleOutputIds,
+  ]);
+
+  React.useEffect(() => {
+    if (actionType !== "vlm_tagging") {
+      return;
+    }
+
+    if (outputsResponse.isLoading || selectedOutputResponse.isLoading) {
+      return;
+    }
+
+    if (actionDialogOutputs.length === 0) {
+      clearActionFlow();
+    }
+  }, [
+    actionDialogOutputs.length,
+    actionType,
+    clearActionFlow,
+    outputsResponse.isLoading,
+    selectedOutputResponse.isLoading,
+  ]);
 
   async function onCopyPath(output: OutputDetail) {
     try {
@@ -742,6 +1307,57 @@ export function OutputsPage() {
         tone: "error",
       });
     }
+  }
+
+  async function onCopyViewLink() {
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+      notify({
+        description: "Current filters, selection, and action state are now copied.",
+        title: "View link copied",
+        tone: "success",
+      });
+    } catch (error) {
+      notify({
+        description: getErrorMessage(error),
+        title: "Could not copy view link",
+        tone: "error",
+      });
+    }
+  }
+
+  function onToggleOutputSelection(outputId: string) {
+    const nextSelection = selectedOutputIdsSet.has(outputId)
+      ? selectedOutputIds.filter((currentId) => currentId !== outputId)
+      : [...selectedOutputIds, outputId];
+
+    updateFilters({
+      selection: nextSelection.length > 0 ? nextSelection.join(",") : null,
+    });
+  }
+
+  function onToggleAllVisible() {
+    updateFilters({
+      selection: allVisibleSelected ? null : outputs.map((output) => output.id).join(","),
+    });
+  }
+
+  function openVlmTagging(outputsToTag: OutputDetail[]) {
+    if (outputsToTag.length === 0) {
+      return;
+    }
+
+    const defaults = getDefaultOutputActionPrefill(outputsToTag);
+
+    updateFilters({
+      action: "vlm_tagging",
+      output: outputsToTag[0]?.id ?? null,
+      overwrite: defaults.overwrite ? "1" : null,
+      prompt: defaults.promptTemplate,
+      sample_cap: String(defaults.sampleCap),
+      selection: outputsToTag.length > 1 ? outputsToTag.map((output) => output.id).join(",") : null,
+      target_field: defaults.targetField,
+    });
   }
 
   if (outputsResponse.isLoading && !outputsResponse.data) {
@@ -782,16 +1398,22 @@ export function OutputsPage() {
               Browse the files produced by conversion runs without retracing the original job history.
             </p>
           </div>
-          <Button
-            disabled={outputsResponse.isLoading}
-            onClick={() => void outputsResponse.mutate()}
-            size="sm"
-            type="button"
-            variant="outline"
-          >
-            <RefreshCw className="size-4" />
-            Refresh
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={() => void onCopyViewLink()} size="sm" type="button" variant="outline">
+              <Copy className="size-4" />
+              Copy view link
+            </Button>
+            <Button
+              disabled={outputsResponse.isLoading}
+              onClick={() => void outputsResponse.mutate()}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              <RefreshCw className="size-4" />
+              Refresh
+            </Button>
+          </div>
         </div>
       </section>
 
@@ -806,18 +1428,9 @@ export function OutputsPage() {
               Keep the outputs workspace focused while preserving shareable URL state.
             </CardDescription>
           </div>
-          {hasAppliedFilters || selectedOutputId ? (
+          {hasAppliedFilters || actionType ? (
             <Button
-              onClick={() =>
-                updateFilters({
-                  asset_id: null,
-                  availability: null,
-                  conversion_id: null,
-                  format: null,
-                  output: null,
-                  search: null,
-                })
-              }
+              onClick={clearWorkspaceFilters}
               size="sm"
               type="button"
               variant="ghost"
@@ -834,7 +1447,9 @@ export function OutputsPage() {
               </label>
               <Input
                 id="outputs-search"
-                onChange={(event) => updateFilters({ search: event.target.value, output: null })}
+                onChange={(event) =>
+                  updateFilters({ output: null, search: event.target.value, selection: null })
+                }
                 placeholder="Search file name, path, job, or asset ID"
                 value={query.search ?? ""}
               />
@@ -845,7 +1460,13 @@ export function OutputsPage() {
               </label>
               <NativeSelect
                 id="outputs-format"
-                onChange={(event) => updateFilters({ format: event.target.value || null, output: null })}
+                onChange={(event) =>
+                  updateFilters({
+                    format: event.target.value || null,
+                    output: null,
+                    selection: null,
+                  })
+                }
                 value={query.format ?? ""}
               >
                 <option value="">All formats</option>
@@ -863,7 +1484,11 @@ export function OutputsPage() {
               <NativeSelect
                 id="outputs-availability"
                 onChange={(event) =>
-                  updateFilters({ availability: event.target.value || null, output: null })
+                  updateFilters({
+                    availability: event.target.value || null,
+                    output: null,
+                    selection: null,
+                  })
                 }
                 value={query.availability ?? ""}
               >
@@ -881,7 +1506,9 @@ export function OutputsPage() {
               </label>
               <Input
                 id="outputs-asset"
-                onChange={(event) => updateFilters({ asset_id: event.target.value, output: null })}
+                onChange={(event) =>
+                  updateFilters({ asset_id: event.target.value, output: null, selection: null })
+                }
                 placeholder="Filter to one asset"
                 value={query.asset_id ?? ""}
               />
@@ -892,11 +1519,56 @@ export function OutputsPage() {
               </label>
               <Input
                 id="outputs-conversion"
-                onChange={(event) => updateFilters({ conversion_id: event.target.value, output: null })}
+                onChange={(event) =>
+                  updateFilters({
+                    conversion_id: event.target.value,
+                    output: null,
+                    selection: null,
+                  })
+                }
                 placeholder="Filter to one conversion"
                 value={query.conversion_id ?? ""}
               />
             </div>
+          </div>
+
+          <div className="mt-5 space-y-2">
+            <p className="text-xs uppercase tracking-wide text-muted-foreground">Common slices</p>
+            <div className="flex flex-wrap gap-2">
+              {OUTPUT_PRESET_OPTIONS.map((option) => {
+                const isActive = preset === option.value;
+
+                return (
+                  <Button
+                    key={option.value}
+                    onClick={() =>
+                      updateFilters({
+                        output: null,
+                        preset: isActive ? null : option.value,
+                        selection: null,
+                      })
+                    }
+                    size="sm"
+                    type="button"
+                    variant={isActive ? "secondary" : "outline"}
+                  >
+                    {option.label}
+                  </Button>
+                );
+              })}
+            </div>
+            {preset ? (
+              <p className="text-xs text-muted-foreground">
+                {
+                  OUTPUT_PRESET_OPTIONS.find((option) => option.value === preset)?.description
+                }
+              </p>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                Presets are URL-backed, so you can share common output slices without rebuilding the filters each
+                time.
+              </p>
+            )}
           </div>
         </CardContent>
       </Card>
@@ -905,20 +1577,7 @@ export function OutputsPage() {
         <OutputsEmptyState
           action={
             hasAppliedFilters ? (
-              <Button
-                onClick={() =>
-                  updateFilters({
-                    asset_id: null,
-                    availability: null,
-                    conversion_id: null,
-                    format: null,
-                    output: null,
-                    search: null,
-                  })
-                }
-                type="button"
-                variant="outline"
-              >
+              <Button onClick={clearWorkspaceFilters} type="button" variant="outline">
                 Clear filters
               </Button>
             ) : undefined
@@ -940,18 +1599,48 @@ export function OutputsPage() {
                   Output catalog
                 </CardTitle>
                 <CardDescription>
-                  Select an output to inspect its source assets, path, and conversion settings.
+                  Select one output to inspect it closely, or select several to launch batch compute work.
                 </CardDescription>
               </CardHeader>
               <CardContent>
+                {selectedOutputs.length > 0 ? (
+                  <div className="mb-4 flex flex-col gap-3 rounded-xl border bg-muted/20 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="space-y-1">
+                      <p className="text-sm font-medium text-foreground">
+                        {formatCount(selectedOutputs.length, "selected output")}
+                      </p>
+                      <p className="text-sm text-muted-foreground">
+                        Multi-select state lives in the URL, so batch flows and filtered views are easy to share.
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Button onClick={() => openVlmTagging(selectedOutputs)} size="sm" type="button">
+                        <Sparkles className="size-3.5" />
+                        Batch VLM tagging
+                      </Button>
+                      <Button
+                        onClick={() => updateFilters({ selection: null })}
+                        size="sm"
+                        type="button"
+                        variant="outline"
+                      >
+                        Clear selection
+                      </Button>
+                    </div>
+                  </div>
+                ) : null}
                 <OutputsTable
+                  allVisibleSelected={allVisibleSelected}
                   assetsById={assetsById}
                   currentHref={currentHref}
                   latestActionsByOutput={latestActionsByOutput}
                   onCopyPath={onCopyPath}
-                  onRunVlmTagging={(output) => setActionDialogOutput(output)}
+                  onRunVlmTagging={(output) => openVlmTagging([output])}
                   onSelectOutput={(outputId) => updateFilters({ output: outputId })}
+                  onToggleAllVisible={onToggleAllVisible}
+                  onToggleOutputSelection={onToggleOutputSelection}
                   outputs={outputs}
+                  selectedOutputIds={selectedOutputIdsSet}
                   selectedOutputId={selectedOutputId}
                 />
                 <OutputsCards
@@ -959,9 +1648,11 @@ export function OutputsPage() {
                   currentHref={currentHref}
                   latestActionsByOutput={latestActionsByOutput}
                   onCopyPath={onCopyPath}
-                  onRunVlmTagging={(output) => setActionDialogOutput(output)}
+                  onRunVlmTagging={(output) => openVlmTagging([output])}
                   onSelectOutput={(outputId) => updateFilters({ output: outputId })}
+                  onToggleOutputSelection={onToggleOutputSelection}
                   outputs={outputs}
+                  selectedOutputIds={selectedOutputIdsSet}
                 />
               </CardContent>
             </Card>
@@ -973,7 +1664,7 @@ export function OutputsPage() {
             onClearSelection={() => updateFilters({ output: null })}
             onCopyPath={onCopyPath}
             onCopyResultJson={onCopyResultJson}
-            onRunVlmTagging={(output) => setActionDialogOutput(output)}
+            onRunVlmTagging={(output) => openVlmTagging([output])}
             output={selectedOutput}
             outputActions={selectedOutputActions}
             selectionMissing={Boolean(
@@ -987,18 +1678,21 @@ export function OutputsPage() {
       )}
 
       <OutputActionDialog
-        onCreated={(action) => {
-          if (selectedOutputId !== action.output_id) {
-            updateFilters({ output: action.output_id });
+        onCreated={(actions) => {
+          const firstAction = actions[0];
+
+          if (firstAction && selectedOutputId !== firstAction.output_id) {
+            updateFilters({ output: firstAction.output_id });
           }
         }}
         onOpenChange={(open) => {
           if (!open) {
-            setActionDialogOutput(null);
+            clearActionFlow();
           }
         }}
-        open={Boolean(actionDialogOutput)}
-        output={actionDialogOutput}
+        open={isActionDialogOpen}
+        outputs={actionDialogOutputs}
+        prefill={actionPrefill}
       />
     </div>
   );

@@ -5,6 +5,7 @@ import { LoaderCircle, Sparkles, TriangleAlert } from "lucide-react";
 
 import { useFeedback } from "@/components/feedback-provider";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -22,6 +23,13 @@ import { useCreateOutputAction } from "@/hooks/use-backend";
 import type { OutputActionDetail, OutputDetail } from "@/lib/api";
 import { getErrorMessage } from "@/lib/api";
 
+export interface OutputActionDialogPrefill {
+  overwrite?: boolean;
+  promptTemplate?: string;
+  sampleCap?: number | string;
+  targetField?: string;
+}
+
 interface VlmTaggingFormState {
   overwrite: boolean;
   promptTemplate: string;
@@ -29,17 +37,49 @@ interface VlmTaggingFormState {
   targetField: string;
 }
 
-function createDefaultFormState(output: OutputDetail | null): VlmTaggingFormState {
+const DEFAULT_PROMPT_TEMPLATE =
+  "Generate concise tags that describe the main scene content and notable entities.";
+
+function getDefaultTargetField(output: OutputDetail | null) {
+  if (!output) {
+    return "image";
+  }
+
+  if (output.format === "json") {
+    return "labels";
+  }
+
+  if (output.format === "tfrecord") {
+    return "image";
+  }
+
+  return "camera_front_image";
+}
+
+export function getDefaultOutputActionPrefill(
+  outputs: OutputDetail[],
+): Required<OutputActionDialogPrefill> {
+  const primaryOutput = outputs[0] ?? null;
+
   return {
     overwrite: false,
-    promptTemplate: "Generate concise tags that describe the main scene content and notable entities.",
-    sampleCap: "24",
-    targetField:
-      output?.format === "json"
-        ? "labels"
-        : output?.format === "tfrecord"
-          ? "image"
-          : "camera_front_image",
+    promptTemplate: DEFAULT_PROMPT_TEMPLATE,
+    sampleCap: 24,
+    targetField: getDefaultTargetField(primaryOutput),
+  };
+}
+
+function createDefaultFormState(
+  outputs: OutputDetail[],
+  prefill?: OutputActionDialogPrefill,
+): VlmTaggingFormState {
+  const defaults = getDefaultOutputActionPrefill(outputs);
+
+  return {
+    overwrite: prefill?.overwrite ?? defaults.overwrite,
+    promptTemplate: prefill?.promptTemplate?.trim() || defaults.promptTemplate,
+    sampleCap: String(prefill?.sampleCap ?? defaults.sampleCap),
+    targetField: prefill?.targetField?.trim() || defaults.targetField,
   };
 }
 
@@ -47,37 +87,44 @@ export function OutputActionDialog({
   onCreated,
   onOpenChange,
   open,
-  output,
+  outputs,
+  prefill,
 }: {
-  onCreated?: (action: OutputActionDetail) => void;
+  onCreated?: (actions: OutputActionDetail[]) => void;
   onOpenChange: (open: boolean) => void;
   open: boolean;
-  output: OutputDetail | null;
+  outputs: OutputDetail[];
+  prefill?: OutputActionDialogPrefill;
 }) {
   const { notify } = useFeedback();
   const { error, isCreating, reset, trigger } = useCreateOutputAction();
+  const outputIdsKey = React.useMemo(() => outputs.map((output) => output.id).join("|"), [outputs]);
   const [formState, setFormState] = React.useState<VlmTaggingFormState>(() =>
-    createDefaultFormState(output),
+    createDefaultFormState(outputs, prefill),
   );
 
   React.useEffect(() => {
     if (!open) {
-      setFormState(createDefaultFormState(output));
+      setFormState(createDefaultFormState(outputs, prefill));
       reset();
-    }
-  }, [open, output, reset]);
-
-  React.useEffect(() => {
-    if (!open || !output) {
       return;
     }
 
-    setFormState((currentState) => ({
-      ...currentState,
-      targetField: currentState.targetField.trim() ? currentState.targetField : createDefaultFormState(output).targetField,
-    }));
-  }, [open, output]);
+    setFormState(createDefaultFormState(outputs, prefill));
+  }, [
+    open,
+    outputIdsKey,
+    prefill?.overwrite,
+    prefill?.promptTemplate,
+    prefill?.sampleCap,
+    prefill?.targetField,
+    outputs,
+    prefill,
+    reset,
+  ]);
 
+  const outputCount = outputs.length;
+  const primaryOutput = outputs[0] ?? null;
   const normalizedTargetField = formState.targetField.trim();
   const normalizedPromptTemplate = formState.promptTemplate.trim();
   const sampleCapValue = Number(formState.sampleCap);
@@ -88,36 +135,47 @@ export function OutputActionDialog({
         ? "Sample cap must stay below 5000 for this first-pass flow."
         : null;
   const submitDisabled =
-    !output ||
+    outputCount === 0 ||
     isCreating ||
     !normalizedTargetField ||
     !normalizedPromptTemplate ||
     Boolean(sampleCapError);
+  const createLabel =
+    outputCount === 1 ? "Run VLM tagging" : `Queue ${outputCount} tagging actions`;
 
   async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (!output || submitDisabled) {
+    if (submitDisabled) {
       return;
     }
 
+    const createdActions: OutputActionDetail[] = [];
+
     try {
-      const createdAction = await trigger(output.id, {
-        action_type: "vlm_tagging",
-        config: {
-          overwrite: formState.overwrite,
-          prompt_template: normalizedPromptTemplate,
-          sample_cap: Math.floor(sampleCapValue),
-          target_field: normalizedTargetField,
-        },
-      });
+      for (const output of outputs) {
+        const createdAction = await trigger(output.id, {
+          action_type: "vlm_tagging",
+          config: {
+            overwrite: formState.overwrite,
+            prompt_template: normalizedPromptTemplate,
+            sample_cap: Math.floor(sampleCapValue),
+            target_field: normalizedTargetField,
+          },
+        });
+
+        createdActions.push(createdAction);
+      }
 
       notify({
-        description: `Queued VLM tagging for ${output.file_name}.`,
+        description:
+          outputCount === 1
+            ? `Queued VLM tagging for ${primaryOutput?.file_name ?? "the selected output"}.`
+            : `Queued VLM tagging for ${outputCount} selected outputs.`,
         title: "Output action created",
         tone: "success",
       });
-      onCreated?.(createdAction);
+      onCreated?.(createdActions);
       onOpenChange(false);
     } catch (submitError) {
       notify({
@@ -137,8 +195,9 @@ export function OutputActionDialog({
             Run VLM tagging
           </DialogTitle>
           <DialogDescription>
-            Create a durable output action for {output?.file_name ?? "the selected output"} and surface its progress in
-            the outputs workspace.
+            {outputCount === 1
+              ? `Create a durable output action for ${primaryOutput?.file_name ?? "the selected output"} and surface its progress in the outputs workspace.`
+              : `Create durable output actions for ${outputCount} selected outputs and monitor them together in the outputs workspace.`}
           </DialogDescription>
         </DialogHeader>
 
@@ -151,11 +210,32 @@ export function OutputActionDialog({
             </Alert>
           ) : null}
 
+          {outputCount > 1 ? (
+            <div className="space-y-3 rounded-lg border bg-muted/15 px-4 py-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant="outline">{outputCount} outputs selected</Badge>
+                <Badge variant="outline">{primaryOutput ? primaryOutput.format.toUpperCase() : "MIXED"}</Badge>
+              </div>
+              <div className="space-y-1 text-sm text-muted-foreground">
+                {outputs.slice(0, 3).map((output) => (
+                  <p className="break-all" key={output.id}>
+                    {output.file_name}
+                  </p>
+                ))}
+                {outputCount > 3 ? (
+                  <p>Plus {outputCount - 3} more outputs in this batch.</p>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
+
           <div className="space-y-2">
             <Label htmlFor="vlm-target-field">Target field</Label>
             <Input
               id="vlm-target-field"
-              onChange={(event) => setFormState((currentState) => ({ ...currentState, targetField: event.target.value }))}
+              onChange={(event) =>
+                setFormState((currentState) => ({ ...currentState, targetField: event.target.value }))
+              }
               placeholder="image"
               value={formState.targetField}
             />
@@ -178,7 +258,9 @@ export function OutputActionDialog({
             <Input
               id="vlm-sample-cap"
               min="1"
-              onChange={(event) => setFormState((currentState) => ({ ...currentState, sampleCap: event.target.value }))}
+              onChange={(event) =>
+                setFormState((currentState) => ({ ...currentState, sampleCap: event.target.value }))
+              }
               step="1"
               type="number"
               value={formState.sampleCap}
@@ -196,7 +278,9 @@ export function OutputActionDialog({
             <Switch
               checked={formState.overwrite}
               id="vlm-overwrite"
-              onCheckedChange={(checked) => setFormState((currentState) => ({ ...currentState, overwrite: checked }))}
+              onCheckedChange={(checked) =>
+                setFormState((currentState) => ({ ...currentState, overwrite: checked }))
+              }
             />
           </div>
 
@@ -206,7 +290,7 @@ export function OutputActionDialog({
             </Button>
             <Button disabled={submitDisabled} type="submit">
               {isCreating ? <LoaderCircle className="size-4 animate-spin" /> : <Sparkles className="size-4" />}
-              Run VLM tagging
+              {createLabel}
             </Button>
           </DialogFooter>
         </form>
