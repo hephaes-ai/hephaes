@@ -866,11 +866,13 @@ export function InventoryPage() {
         title,
         tone,
       });
-      notify({
-        description,
-        title,
-        tone,
-      });
+      if (tone !== "success") {
+        notify({
+          description,
+          title,
+          tone,
+        });
+      }
     } finally {
       setIsUploadingFiles(false);
       setUploadProgress(null);
