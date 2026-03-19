@@ -4,6 +4,7 @@ import { SWRConfig } from "swr";
 
 import { FeedbackProvider } from "@/components/feedback-provider";
 import { ThemeProvider } from "@/components/theme-provider";
+import { Toaster } from "@/components/ui/sonner";
 
 export function AppProviders({ children }: { children: React.ReactNode }) {
   return (
@@ -15,7 +16,10 @@ export function AppProviders({ children }: { children: React.ReactNode }) {
           shouldRetryOnError: false,
         }}
       >
-        <FeedbackProvider>{children}</FeedbackProvider>
+        <FeedbackProvider>
+          {children}
+          <Toaster position="bottom-right" />
+        </FeedbackProvider>
       </SWRConfig>
     </ThemeProvider>
   );
