@@ -2,7 +2,7 @@
 
 ## Goal
 
-Add a first-class backend surface for browsing conversion outputs and launching output-scoped compute actions, starting with VLM tagging.
+Add a first-class backend surface for browsing conversion outputs and launching output-scoped compute actions, starting with optional VLM tagging backed by an external compute provider such as `hephaes-ml`.
 
 This should make conversion artifacts discoverable outside of individual asset and job pages, while keeping the design compatible with the backend's current local-first, SQLite-plus-filesystem architecture.
 
@@ -15,6 +15,7 @@ Today the backend has enough state to show conversion results in a few narrow pl
 - there is no backend route for listing outputs across all conversions
 - there is no stable output ID that a frontend page can navigate to
 - there is no output-scoped compute action model yet
+- there is no capability model for optional or premium compute providers
 - there is no migration layer, so changes to existing constrained tables should be minimized early
 
 ## Recommended Design Principles
@@ -22,7 +23,10 @@ Today the backend has enough state to show conversion results in a few narrow pl
 - Treat conversion outputs as first-class artifacts, not as incidental strings on a conversion row.
 - Keep `conversions` as the parent workflow record for how an output was created.
 - Prefer additive tables over modifying existing constrained tables, because `create_all()` does not migrate existing SQLite schemas.
+- Let this backend own output discovery, validation, and durable action state even when action execution is delegated elsewhere.
 - Keep execution inline at first if needed, but persist durable action state so the API contract survives a future worker/queue migration.
+- Keep the base backend installable without premium compute packages; optional actions should degrade cleanly when no provider is configured.
+- Maintain one-way dependency flow: premium tooling such as `hephaes-ml` may depend on `hephaes`, but the core `hephaes` package and baseline backend should not depend on `hephaes-ml`.
 - Scope phase 1 to conversion outputs only, but use generic naming so replay artifacts or other derived datasets can fit later.
 
 ## Proposed Domain Model
@@ -78,6 +82,7 @@ Suggested fields:
 - `id`
 - `output_artifact_id`
 - `action_type`
+- `provider_key`
 - `status`
 - `config_json`
 - `result_json`
@@ -96,6 +101,27 @@ Recommended status vocabulary:
 - `failed`
 
 This intentionally mirrors the existing workflow language without forcing an early `jobs` table migration.
+
+### Optional compute provider boundary
+
+The backend should own the outputs catalog and action records, but not assume that every action implementation lives inside this repo.
+
+Recommended responsibility split:
+
+- this backend validates the target output, persists `output_actions`, tracks status, and stores result artifacts under backend-owned directories
+- an optional provider executes the actual compute for action types such as `vlm_tagging`
+- provider absence is a first-class state, not an installation error that breaks unrelated backend features
+
+Recommended phase-2 rule:
+
+- `vlm_tagging` should be modelled as an action type that requires a configured provider, not as a guaranteed built-in capability
+
+Recommended initial provider boundary:
+
+- a small runner interface inside the backend
+- an adapter that shells out to a configured `hephaes-ml` CLI or entrypoint in a separate environment
+
+This keeps the premium package separate, avoids a hard runtime import dependency inside the monorepo backend, and still lets the frontend talk to one stable backend API.
 
 ### Why not extend `jobs` first
 
@@ -128,6 +154,8 @@ Recommended ownership rules:
 ### New modules
 
 - `app/services/outputs.py`
+- `app/services/output_actions.py`
+- `app/services/output_action_providers.py`
 - `app/api/outputs.py`
 - `app/schemas/outputs.py`
 
@@ -161,6 +189,7 @@ Recommended response fields for list/detail:
 - created and updated timestamps
 - artifact metadata summary
 - latest action summary when present
+- available action types and availability reasons when useful
 - backend-generated `content_url`
 
 ### Compute action APIs
@@ -174,6 +203,7 @@ Recommended phase-2 routes:
 Recommended initial action payload shape:
 
 - `action_type`
+- optional `provider_key`
 - `config`
 
 For `vlm_tagging`, likely config fields are:
@@ -183,6 +213,12 @@ For `vlm_tagging`, likely config fields are:
 - max sample count
 - overwrite behavior
 - optional output format details
+
+Expected action-creation behavior:
+
+- reject unsupported action types for the given output format with a validation error
+- reject provider-backed action types when no matching provider is configured with a clear capability error
+- persist the chosen `provider_key` on the action row when execution starts
 
 ## Metadata Capture Strategy
 
@@ -241,6 +277,8 @@ Add API tests for:
 - lazy backfill of pre-existing conversions
 - action creation and status transitions
 - VLM tagging payload validation
+- provider-unavailable handling for optional premium actions
+- provider-runner success and failure mapping into durable action state
 
 ## Phased Approach
 
@@ -267,13 +305,15 @@ Backend work:
 
 - add `output_actions` table and schemas
 - implement action creation and detail routes
-- add inline execution path for `vlm_tagging`
+- add an output-action runner interface plus provider detection
+- add a local external-runner path for `vlm_tagging`
 - persist result artifacts under `data/outputs/actions/<action_id>/`
 - expose latest action summary on output detail and optionally on list rows
 
 Exit criteria:
 
 - a user can start a VLM-tagging run against a single output
+- the backend reports a clear unavailable state when no premium provider is configured
 - action status survives refreshes
 - results can be revisited later from the same output
 
