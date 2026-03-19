@@ -24,13 +24,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -45,8 +38,6 @@ import {
 import {
   useAssets,
   useCreateOutputAction,
-  useOutput,
-  useOutputActions,
   useOutputs,
 } from "@/hooks/use-backend";
 import type {
@@ -104,19 +95,23 @@ interface ActiveFilterChip {
   updates: Record<string, string | null>;
 }
 
-function buildAssetDetailHref(assetId: string, returnHref: string) {
+export function buildAssetDetailHref(assetId: string, returnHref: string) {
   return `/assets/${assetId}?from=${encodeURIComponent(returnHref)}`;
 }
 
-function buildJobDetailHref(jobId: string, returnHref: string) {
+export function buildJobDetailHref(jobId: string, returnHref: string) {
   return `/jobs/${jobId}?from=${encodeURIComponent(returnHref)}`;
+}
+
+export function buildOutputDetailHref(outputId: string, returnHref: string) {
+  return `/outputs/${outputId}?from=${encodeURIComponent(returnHref)}`;
 }
 
 function formatCount(count: number, noun: string) {
   return `${count} ${noun}${count === 1 ? "" : "s"}`;
 }
 
-function formatOutputRole(role: OutputRole) {
+export function formatOutputRole(role: OutputRole) {
   if (role === "dataset") {
     return "Dataset";
   }
@@ -227,7 +222,7 @@ function applyOutputPreset(outputs: OutputDetail[], preset: OutputPreset | null)
   return outputs;
 }
 
-function formatOutputActionSummary(action: OutputActionDetail) {
+export function formatOutputActionSummary(action: OutputActionDetail) {
   if (action.error_message) {
     return action.error_message;
   }
@@ -263,7 +258,7 @@ function formatOutputActionSummary(action: OutputActionDetail) {
   return action.status === "succeeded" ? "Completed." : "No summary available yet.";
 }
 
-function buildOutputPreview(output: OutputDetail) {
+export function buildOutputPreview(output: OutputDetail) {
   const manifest = getNestedRecord(output.metadata, "manifest");
   const dataset = getNestedRecord(manifest ?? undefined, "dataset");
   const temporal = getNestedRecord(manifest ?? undefined, "temporal");
@@ -366,7 +361,7 @@ function buildOutputPreview(output: OutputDetail) {
   };
 }
 
-function getCopyableReference(output: OutputDetail) {
+export function getCopyableReference(output: OutputDetail) {
   return output.file_path?.trim() || resolveBackendUrl(output.content_url);
 }
 
@@ -402,7 +397,7 @@ function OutputsEmptyState({
   );
 }
 
-function MetadataField({
+export function MetadataField({
   label,
   value,
 }: {
@@ -417,7 +412,7 @@ function MetadataField({
   );
 }
 
-function OutputAvailabilityBadge({ availability }: { availability: OutputAvailability }) {
+export function OutputAvailabilityBadge({ availability }: { availability: OutputAvailability }) {
   const className =
     availability === "ready"
       ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-900 dark:text-emerald-200"
@@ -432,11 +427,11 @@ function OutputAvailabilityBadge({ availability }: { availability: OutputAvailab
   );
 }
 
-function OutputRoleBadge({ role }: { role: OutputRole }) {
+export function OutputRoleBadge({ role }: { role: OutputRole }) {
   return <Badge variant="outline">{formatOutputRole(role)}</Badge>;
 }
 
-function OutputSourceLinks({
+export function OutputSourceLinks({
   assetIds,
   assetsById,
   compact = false,
@@ -477,7 +472,7 @@ function OutputSourceLinks({
   );
 }
 
-function OutputContentButton({
+export function OutputContentButton({
   output,
   size = "sm",
   variant = "outline",
@@ -509,7 +504,7 @@ function OutputContentButton({
   );
 }
 
-function OutputPreviewPanel({ output }: { output: OutputDetail }) {
+export function OutputPreviewPanel({ output }: { output: OutputDetail }) {
   const preview = buildOutputPreview(output);
 
   return (
@@ -540,7 +535,7 @@ function OutputPreviewPanel({ output }: { output: OutputDetail }) {
   );
 }
 
-function OutputDetailContent({
+export function OutputDetailContent({
   assetsById,
   currentHref,
   isRefreshing,
@@ -771,89 +766,6 @@ function OutputDetailContent({
         </CardContent>
       </Card>
     </div>
-  );
-}
-
-function OutputInspectorDialog({
-  assetsById,
-  currentHref,
-  isOpen,
-  isRefreshing,
-  onCopyReference,
-  onCopyResultJson,
-  onOpenChange,
-  onRefreshMetadata,
-  onShowVlmTaggingStub,
-  output,
-  outputActions,
-  outputActionsError,
-  selectionMissing,
-}: {
-  assetsById: Map<string, AssetSummary>;
-  currentHref: string;
-  isOpen: boolean;
-  isRefreshing: boolean;
-  onCopyReference: (output: OutputDetail) => Promise<void>;
-  onCopyResultJson: (action: OutputActionDetail) => Promise<void>;
-  onOpenChange: (nextOpen: boolean) => void;
-  onRefreshMetadata: (outputs: OutputDetail[]) => Promise<void>;
-  onShowVlmTaggingStub: (scopeLabel: string) => void;
-  output: OutputDetail | null;
-  outputActions: OutputActionDetail[];
-  outputActionsError: unknown;
-  selectionMissing: boolean;
-}) {
-  return (
-    <Dialog onOpenChange={onOpenChange} open={isOpen}>
-      <DialogContent className="w-[min(96vw,1120px)] max-h-[90vh] overflow-y-auto p-0 sm:p-0">
-        {selectionMissing ? (
-          <div className="space-y-4 p-5 sm:p-6">
-            <DialogHeader>
-              <DialogTitle>Selected output not found</DialogTitle>
-              <DialogDescription>
-                The output in the URL is not available anymore or no longer matches the current filters.
-              </DialogDescription>
-            </DialogHeader>
-            <div>
-              <Button onClick={() => onOpenChange(false)} type="button" variant="outline">
-                Clear selection
-              </Button>
-            </div>
-          </div>
-        ) : !output ? (
-          <div className="space-y-4 p-5 sm:p-6">
-            <DialogHeader>
-              <DialogTitle>Loading output</DialogTitle>
-              <DialogDescription>Fetching backend metadata, artifact details, and action history.</DialogDescription>
-            </DialogHeader>
-            <Skeleton className="h-40 rounded-xl" />
-            <Skeleton className="h-40 rounded-xl" />
-            <Skeleton className="h-64 rounded-xl" />
-          </div>
-        ) : (
-          <>
-            <DialogHeader className="sr-only">
-              <DialogTitle>{output.file_name}</DialogTitle>
-              <DialogDescription>{output.relative_path}</DialogDescription>
-            </DialogHeader>
-            <div className="p-5 sm:p-6">
-              <OutputDetailContent
-                assetsById={assetsById}
-                currentHref={currentHref}
-                isRefreshing={isRefreshing}
-                onCopyReference={onCopyReference}
-                onCopyResultJson={onCopyResultJson}
-                onRefreshMetadata={onRefreshMetadata}
-                onShowVlmTaggingStub={onShowVlmTaggingStub}
-                output={output}
-                outputActions={outputActions}
-                outputActionsError={outputActionsError}
-              />
-            </div>
-          </>
-        )}
-      </DialogContent>
-    </Dialog>
   );
 }
 
@@ -1116,8 +1028,6 @@ export function OutputsPage() {
   const [isFiltersOpen, setIsFiltersOpen] = React.useState(false);
 
   const outputsResponse = useOutputs(query);
-  const selectedOutputResponse = useOutput(selectedOutputId);
-  const selectedOutputActionsResponse = useOutputActions(selectedOutputId || null);
   const assetsResponse = useAssets();
 
   const baseOutputs = React.useMemo(() => outputsResponse.data ?? [], [outputsResponse.data]);
@@ -1132,12 +1042,6 @@ export function OutputsPage() {
   const selectedOutputs = React.useMemo(
     () => outputs.filter((output) => selectedOutputIdsSet.has(output.id)),
     [outputs, selectedOutputIdsSet],
-  );
-  const selectedOutput =
-    selectedOutputResponse.data ?? outputs.find((output) => output.id === selectedOutputId) ?? null;
-  const selectedOutputActions = React.useMemo(
-    () => selectedOutputActionsResponse.data ?? [],
-    [selectedOutputActionsResponse.data],
   );
   const currentHref = React.useMemo(() => {
     const queryString = searchParams.toString();
@@ -1154,9 +1058,6 @@ export function OutputsPage() {
   const activeActionCount = outputs.filter(
     (output) =>
       output.latest_action !== null && isWorkflowActiveStatus(output.latest_action.status),
-  ).length;
-  const activeSelectedActionCount = selectedOutputActions.filter((action) =>
-    isWorkflowActiveStatus(action.status),
   ).length;
   const allVisibleSelected = outputs.length > 0 && selectedOutputs.length === outputs.length;
   const activeFilterChips: ActiveFilterChip[] = [];
@@ -1218,13 +1119,6 @@ export function OutputsPage() {
   }
 
   const hasAppliedFilters = activeFilterChips.length > 0;
-  const selectionMissing = Boolean(
-    selectedOutputId &&
-      selectedOutputResponse.error &&
-      !selectedOutputResponse.isLoading,
-  );
-  const isInspectorOpen = Boolean(selectedOutputId);
-
   const updateFilters = React.useCallback(
     (updates: Record<string, string | null>) => {
       const nextParams = new URLSearchParams(searchParams.toString());
@@ -1293,83 +1187,16 @@ export function OutputsPage() {
   ]);
 
   React.useEffect(() => {
-    if (activeActionCount === 0 && activeSelectedActionCount === 0) {
+    if (activeActionCount === 0) {
       return;
     }
 
     const intervalId = window.setInterval(() => {
       void outputsResponse.mutate();
-      if (selectedOutputId) {
-        void selectedOutputResponse.mutate();
-        void selectedOutputActionsResponse.mutate();
-      }
     }, 1000);
 
     return () => window.clearInterval(intervalId);
-  }, [
-    activeActionCount,
-    activeSelectedActionCount,
-    outputsResponse,
-    selectedOutputActionsResponse,
-    selectedOutputId,
-    selectedOutputResponse,
-  ]);
-
-  async function onCopyReference(output: OutputDetail) {
-    try {
-      const reference = getCopyableReference(output);
-      await navigator.clipboard.writeText(reference);
-      notify({
-        description: reference,
-        title: "Output reference copied",
-        tone: "success",
-      });
-    } catch (error) {
-      notify({
-        description: getErrorMessage(error),
-        title: "Could not copy output reference",
-        tone: "error",
-      });
-    }
-  }
-
-  async function onCopyResultJson(action: OutputActionDetail) {
-    if (Object.keys(action.result).length === 0) {
-      return;
-    }
-
-    try {
-      await navigator.clipboard.writeText(JSON.stringify(action.result, null, 2));
-      notify({
-        description: action.id,
-        title: "Result JSON copied",
-        tone: "success",
-      });
-    } catch (error) {
-      notify({
-        description: getErrorMessage(error),
-        title: "Could not copy result JSON",
-        tone: "error",
-      });
-    }
-  }
-
-  async function onCopyViewLink() {
-    try {
-      await navigator.clipboard.writeText(window.location.href);
-      notify({
-        description: "Current filters and selection are now copied.",
-        title: "View link copied",
-        tone: "success",
-      });
-    } catch (error) {
-      notify({
-        description: getErrorMessage(error),
-        title: "Could not copy view link",
-        tone: "error",
-      });
-    }
-  }
+  }, [activeActionCount, outputsResponse]);
 
   function onSearchSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -1486,16 +1313,9 @@ export function OutputsPage() {
                 {formatCount(activeActionCount, "active action")}
               </span>
             </div>
-            <p className="max-w-3xl text-sm text-muted-foreground">
-              Browse backend output artifacts, inspect their metadata, and trigger output-scoped actions without
-              retracing the original job history.
-            </p>
+            <p className="max-w-3xl text-sm text-muted-foreground">Output artifacts and actions.</p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Button onClick={() => void onCopyViewLink()} size="sm" type="button" variant="outline">
-              <Copy className="size-4" />
-              Copy view link
-            </Button>
             <Button
               disabled={outputsResponse.isLoading}
               onClick={() => void outputsResponse.mutate()}
@@ -1518,9 +1338,6 @@ export function OutputsPage() {
                 <Database className="size-4" />
                 Output catalog
               </CardTitle>
-              <CardDescription>
-                Click an output to inspect it in a dialog, or select several to run backend batch work.
-              </CardDescription>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <Badge className="h-6" variant="secondary">
@@ -1813,7 +1630,7 @@ export function OutputsPage() {
                 currentHref={currentHref}
                 isRefreshing={isCreating}
                 onRefreshMetadata={onRefreshMetadata}
-                onSelectOutput={(outputId) => updateFilters({ output: outputId })}
+                onSelectOutput={(outputId) => router.push(buildOutputDetailHref(outputId, currentHref))}
                 onToggleAllVisible={onToggleAllVisible}
                 onToggleOutputSelection={onToggleOutputSelection}
                 outputs={outputs}
@@ -1825,7 +1642,7 @@ export function OutputsPage() {
                 currentHref={currentHref}
                 isRefreshing={isCreating}
                 onRefreshMetadata={onRefreshMetadata}
-                onSelectOutput={(outputId) => updateFilters({ output: outputId })}
+                onSelectOutput={(outputId) => router.push(buildOutputDetailHref(outputId, currentHref))}
                 onToggleOutputSelection={onToggleOutputSelection}
                 outputs={outputs}
                 selectedOutputIds={selectedOutputIdsSet}
@@ -1835,25 +1652,6 @@ export function OutputsPage() {
         </CardContent>
       </Card>
 
-      <OutputInspectorDialog
-        assetsById={assetsById}
-        currentHref={currentHref}
-        isOpen={isInspectorOpen}
-        isRefreshing={isCreating}
-        onCopyReference={onCopyReference}
-        onCopyResultJson={onCopyResultJson}
-        onOpenChange={(nextOpen) => {
-          if (!nextOpen && selectedOutputId) {
-            updateFilters({ output: null });
-          }
-        }}
-        onRefreshMetadata={onRefreshMetadata}
-        onShowVlmTaggingStub={onShowVlmTaggingStub}
-        output={selectedOutput}
-        outputActions={selectedOutputActions}
-        outputActionsError={selectedOutputActionsResponse.error}
-        selectionMissing={selectionMissing}
-      />
     </div>
   );
 }
