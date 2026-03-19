@@ -45,7 +45,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { useAssets, useBackendCache, useTags } from "@/hooks/use-backend";
+import { useAssets, useBackendCache, useOutputs, useTags } from "@/hooks/use-backend";
 import type {
   AssetListQuery,
   AssetRegistrationSkip,
@@ -65,6 +65,7 @@ import {
 } from "@/lib/api";
 import type { AssetSelectionScope } from "@/lib/future-workflows";
 import { formatDateTime, formatFileSize, getIndexActionLabel } from "@/lib/format";
+import { buildOutputsHref, countOutputsByAsset } from "@/lib/outputs";
 import { cn } from "@/lib/utils";
 import { buildReplayHref } from "@/lib/visualization";
 
@@ -367,6 +368,7 @@ function AssetsTable({
   onSelectAll,
   onSelectAsset,
   onSort,
+  outputCountsByAsset,
   pendingAssetIds,
   selectedAssetIds,
   sort,
@@ -377,6 +379,7 @@ function AssetsTable({
   onSelectAll: (checked: boolean | "indeterminate") => void;
   onSelectAsset: (assetId: string, checked: boolean | "indeterminate") => void;
   onSort: (column: SortColumn) => void;
+  outputCountsByAsset: Map<string, number>;
   pendingAssetIds: Set<string>;
   selectedAssetIds: Set<string>;
   sort: ReturnType<typeof parseSort>;
@@ -461,6 +464,7 @@ function AssetsTable({
             const isSelected = selectedAssetIds.has(asset.id);
             const isRunningAction = pendingAssetIds.has(asset.id);
             const effectiveStatus: IndexingStatus = isRunningAction ? "indexing" : asset.indexing_status;
+            const outputCount = outputCountsByAsset.get(asset.id) ?? 0;
 
             return (
               <TableRow
@@ -488,6 +492,13 @@ function AssetsTable({
                     {getAssetTags(asset).length > 0 ? (
                       <TagBadgeList className="pt-1" maxVisible={2} tags={getAssetTags(asset)} />
                     ) : null}
+                    {outputCount > 0 ? (
+                      <div className="pt-1">
+                        <Badge variant="outline">
+                          {outputCount} output{outputCount === 1 ? "" : "s"}
+                        </Badge>
+                      </div>
+                    ) : null}
                   </div>
                 </TableCell>
                 <TableCell className="uppercase text-muted-foreground">{asset.file_type}</TableCell>
@@ -499,6 +510,11 @@ function AssetsTable({
                 <TableCell>{formatDateTime(asset.last_indexed_time, "Not indexed yet")}</TableCell>
                 <TableCell className="text-right">
                   <div className="flex flex-wrap justify-end gap-2" data-stop-row-click="true">
+                    {outputCount > 0 ? (
+                      <Button asChild size="sm" type="button" variant="outline">
+                        <Link href={buildOutputsHref({ assetId: asset.id })}>Outputs</Link>
+                      </Button>
+                    ) : null}
                     {asset.indexing_status === "indexed" ? (
                       <Button asChild size="sm" type="button" variant="secondary">
                         <Link href={buildInventoryReplayHref(asset.id, inventoryHref)}>Replay</Link>
@@ -631,11 +647,16 @@ export function InventoryPage() {
 
   const assetsResponse = useAssets(serverQuery);
   const allAssetsResponse = useAssets(hasServerFilters ? undefined : null);
+  const outputsResponse = useOutputs();
   const tagsResponse = useTags();
 
   const assets = assetsResponse.data ?? [];
   const allAssets = hasServerFilters ? (allAssetsResponse.data ?? assets) : assets;
   const totalRegisteredCount = hasServerFilters ? allAssetsResponse.data?.length : assets.length;
+  const outputCountsByAsset = React.useMemo(
+    () => countOutputsByAsset(outputsResponse.data),
+    [outputsResponse.data],
+  );
   const availableTags = tagsResponse.data ?? [];
   const selectableFilterTags = availableTags.filter((tag) => {
     if (tag.asset_count > 0) {
@@ -1801,6 +1822,7 @@ export function InventoryPage() {
               onSelectAll={onSelectAll}
               onSelectAsset={onSelectAsset}
               onSort={onSort}
+              outputCountsByAsset={outputCountsByAsset}
               pendingAssetIds={pendingAssetIds}
               selectedAssetIds={selectedAssetIds}
               sort={sort}

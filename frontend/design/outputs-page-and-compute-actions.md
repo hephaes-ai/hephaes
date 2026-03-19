@@ -159,6 +159,7 @@ The outputs page should not replace the current entry points, but it should beco
 
 Recommended links:
 
+- inventory: lightweight output visibility such as `output_count`, latest-output badge, and `View outputs`
 - conversion dialog: `View outputs`
 - job detail: jump to `/outputs?conversion_id=...`
 - asset detail: jump to `/outputs?asset_id=...`
@@ -255,3 +256,44 @@ Exit criteria:
 - outputs page supports both discovery and deeper inspection
 - users can operate on multiple outputs without repetitive single-item flows
 - the route structure still feels consistent with the rest of the app
+
+## Implementation Tasks
+
+### Phase 1 Task List
+
+- Add output API contracts to `frontend/lib/api.ts`, including output list/detail types and query serialization.
+- Add SWR hooks and cache helpers in `frontend/hooks/use-backend.ts` for outputs list and output detail.
+- Add a new route entrypoint at `frontend/app/outputs/page.tsx` with a matching route component fallback pattern.
+- Build a new `OutputsPage` route component that owns URL-backed filters, loading states, empty states, and refresh behavior.
+- Add an `Outputs` nav tab in `frontend/components/app-shell.tsx`.
+- Implement the outputs results surface with a desktop table and a mobile-friendly stacked layout.
+- Implement a selected-output detail panel driven by URL state such as `output=<id>`.
+- Add row actions for opening the artifact, copying the path, and navigating back to source assets or jobs.
+- Add lightweight inventory integration so asset rows can surface output presence without turning inventory into an output table.
+- Add follow-up links from asset detail, job detail, and the conversion dialog into `/outputs`.
+- Add loading, error, and empty-state copy consistent with the rest of the app.
+
+### Phase 2 Task List
+
+- Extend `frontend/lib/api.ts` with output-action request and response types.
+- Extend `frontend/hooks/use-backend.ts` and `useBackendCache()` with output-action hooks and revalidation helpers.
+- Build a `Run VLM tagging` dialog or action sheet from the output detail surface.
+- Show latest action summary directly in the outputs list so active work is visible without opening detail.
+- Add action history and result summary to the output detail panel.
+- Add polling that activates only while output actions are `queued` or `running`.
+- Revalidate related outputs data after action creation so status changes feel immediate.
+
+### Phase 3 Task List
+
+- Add format-aware preview components for the most common output types.
+- Add multi-select state and batch actions to the outputs page if batch compute becomes a product priority.
+- Add richer URL state for common output slices such as saved filters or prefilled action flows.
+- Reassess whether the detail panel should become a dedicated `/outputs/[outputId]` route.
+
+### Suggested Build Order
+
+- Start with API types and hooks so the page can be built against a stable frontend contract.
+- Add the `/outputs` route and shell navigation next, even if the first pass uses mocked or incomplete UI states.
+- Build the list and detail experience before inventory integration so the dedicated surface is clearly defined first.
+- Add lightweight inventory and detail-page links after the outputs route feels stable.
+- Leave VLM-tagging UI until the outputs list and detail model are working cleanly end to end.

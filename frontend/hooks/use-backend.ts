@@ -4,6 +4,7 @@ import * as React from "react";
 import useSWR, { useSWRConfig } from "swr";
 
 import {
+  createOutputAction,
   getConversion,
   getAssetEpisode,
   getAssetDetail,
@@ -12,17 +13,26 @@ import {
   getEpisodeViewerSource,
   getHealth,
   getJob,
+  getOutputAction,
+  getOutput,
   listAssetEpisodes,
   listConversions,
   listAssets,
   listJobs,
+  listOutputActions,
+  listOutputs,
   listTags,
   prepareEpisodeVisualization,
   serializeAssetListQuery,
+  type CreateOutputActionRequest,
+  type OutputActionDetail,
+  type OutputDetail,
+  type OutputsQuery,
   type EpisodeSamplesQuery,
   type PrepareVisualizationResponse,
   type AssetListQuery,
 } from "@/lib/api";
+import { filterOutputs } from "@/lib/outputs";
 
 function serializeEpisodeSamplesQuery(query: EpisodeSamplesQuery) {
   const streamIds = (query.stream_ids ?? []).map((value) => value.trim()).filter(Boolean).sort().join(",");
@@ -45,6 +55,10 @@ export const backendKeys = {
   health: ["health"] as const,
   job: (jobId: string) => ["job", jobId] as const,
   jobs: ["jobs"] as const,
+  outputAction: (actionId: string) => ["output-action", actionId] as const,
+  outputActions: (outputId?: string | null) => ["output-actions", outputId ?? "all"] as const,
+  output: (outputId: string) => ["output", outputId] as const,
+  outputs: ["outputs"] as const,
   samples: (assetId: string, episodeId: string, query: EpisodeSamplesQuery) =>
     ["samples", assetId, episodeId, serializeEpisodeSamplesQuery(query)] as const,
   tags: ["tags"] as const,
@@ -74,6 +88,98 @@ export function useConversions() {
 
 export function useConversion(conversionId: string) {
   return useSWR(conversionId ? backendKeys.conversion(conversionId) : null, () => getConversion(conversionId));
+}
+
+export function useOutputs(query?: OutputsQuery | null) {
+  const response = useSWR(backendKeys.outputs, () => listOutputs());
+  const data = React.useMemo(
+    () => filterOutputs(response.data, query),
+    [query, response.data],
+  );
+
+  return {
+    ...response,
+    data,
+  } as typeof response & {
+    data: OutputDetail[] | undefined;
+  };
+}
+
+export function useOutput(outputId: string) {
+  const outputsResponse = useOutputs();
+  const data = React.useMemo(
+    () => outputsResponse.data?.find((output) => output.id === outputId),
+    [outputId, outputsResponse.data],
+  );
+
+  return {
+    ...outputsResponse,
+    data: outputId ? data : undefined,
+  } as typeof outputsResponse & {
+    data: OutputDetail | undefined;
+  };
+}
+
+export function useOutputActions(outputId?: string | null) {
+  return useSWR(outputId === null ? null : backendKeys.outputActions(outputId), () =>
+    listOutputActions(outputId || undefined),
+  );
+}
+
+export function useOutputAction(actionId: string) {
+  return useSWR(actionId ? backendKeys.outputAction(actionId) : null, () => getOutputAction(actionId));
+}
+
+export function useCreateOutputAction() {
+  const { mutate } = useSWRConfig();
+  const [isCreating, setIsCreating] = React.useState(false);
+  const [error, setError] = React.useState<unknown>(null);
+
+  const trigger = React.useCallback(
+    async (outputId: string, payload: CreateOutputActionRequest) => {
+      if (!outputId) {
+        throw new Error("outputId is required");
+      }
+
+      setIsCreating(true);
+      setError(null);
+
+      try {
+        const response = await createOutputAction(outputId, payload);
+
+        await Promise.all([
+          mutate(backendKeys.outputActions(outputId), undefined, { revalidate: true }),
+          mutate(backendKeys.outputActions(), undefined, { revalidate: true }),
+          mutate(backendKeys.outputs, undefined, { revalidate: true }),
+        ]);
+        await mutate(backendKeys.outputAction(response.id), response, { revalidate: false });
+
+        return response;
+      } catch (nextError) {
+        setError(nextError);
+        throw nextError;
+      } finally {
+        setIsCreating(false);
+      }
+    },
+    [mutate],
+  );
+
+  const reset = React.useCallback(() => {
+    setError(null);
+  }, []);
+
+  return {
+    error,
+    isCreating,
+    reset,
+    trigger,
+  } as {
+    error: unknown;
+    isCreating: boolean;
+    reset: () => void;
+    trigger: (outputId: string, payload: CreateOutputActionRequest) => Promise<OutputActionDetail>;
+  };
 }
 
 export function useJobs() {
@@ -212,6 +318,26 @@ export function useBackendCache() {
     await mutate(backendKeys.conversions);
   }, [mutate]);
 
+  const revalidateOutputs = React.useCallback(async () => {
+    await mutate(backendKeys.outputs);
+  }, [mutate]);
+
+  const revalidateOutputActions = React.useCallback(
+    async (outputId?: string) => {
+      await mutate(
+        (key) =>
+          Array.isArray(key) &&
+          key[0] === "output-actions" &&
+          (outputId ? key[1] === outputId || key[1] === "all" : true),
+        undefined,
+        {
+          revalidate: true,
+        },
+      );
+    },
+    [mutate],
+  );
+
   const revalidateJobs = React.useCallback(async () => {
     await mutate(backendKeys.jobs);
   }, [mutate]);
@@ -234,6 +360,43 @@ export function useBackendCache() {
       }
 
       await mutate(backendKeys.conversion(conversionId));
+    },
+    [mutate],
+  );
+
+  const revalidateOutputDetail = React.useCallback(
+    async (outputId: string) => {
+      if (!outputId) {
+        return;
+      }
+
+      try {
+        const nextOutput = await getOutput(outputId);
+        await mutate(backendKeys.outputs, (currentOutputs?: OutputDetail[]) => {
+          if (!currentOutputs) {
+            return [nextOutput];
+          }
+
+          const nextOutputs = currentOutputs.filter((output) => output.id !== outputId);
+          nextOutputs.push(nextOutput);
+          return nextOutputs;
+        }, {
+          revalidate: false,
+        });
+      } catch {
+        await mutate(backendKeys.outputs);
+      }
+    },
+    [mutate],
+  );
+
+  const revalidateOutputActionDetail = React.useCallback(
+    async (actionId: string) => {
+      if (!actionId) {
+        return;
+      }
+
+      await mutate(backendKeys.outputAction(actionId));
     },
     [mutate],
   );
@@ -316,6 +479,10 @@ export function useBackendCache() {
     revalidateEpisodeViewerSource,
     revalidateJobDetail,
     revalidateJobs,
+    revalidateOutputDetail,
+    revalidateOutputActionDetail,
+    revalidateOutputActions,
+    revalidateOutputs,
     revalidateTags,
   };
 }

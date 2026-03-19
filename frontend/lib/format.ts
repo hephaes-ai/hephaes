@@ -1,4 +1,13 @@
-import type { ConversionStatus, IndexingStatus, JobStatus, JobType } from "@/lib/api";
+import type {
+  ConversionStatus,
+  IndexingStatus,
+  JobStatus,
+  JobType,
+  OutputActionType,
+  OutputActionStatus,
+  OutputAvailability,
+  OutputFormat,
+} from "@/lib/api";
 
 export function formatFileSize(bytes: number) {
   if (bytes < 1024) {
@@ -82,10 +91,42 @@ export function formatJobType(jobType: JobType) {
   return formatSentenceCase(jobType);
 }
 
-export function formatWorkflowStatus(status: JobStatus | ConversionStatus) {
+export function formatOutputFormat(format: OutputFormat) {
+  if (format === "tfrecord") {
+    return "TFRecord";
+  }
+
+  if (format === "json") {
+    return "JSON";
+  }
+
+  if (format === "parquet") {
+    return "Parquet";
+  }
+
+  return "Unknown";
+}
+
+export function formatOutputAvailability(availability: OutputAvailability) {
+  if (availability === "ready") {
+    return "Ready";
+  }
+
+  return formatSentenceCase(availability);
+}
+
+export function formatOutputActionType(actionType: OutputActionType) {
+  if (actionType === "vlm_tagging") {
+    return "VLM tagging";
+  }
+
+  return formatSentenceCase(actionType);
+}
+
+export function formatWorkflowStatus(status: JobStatus | ConversionStatus | OutputActionStatus) {
   return formatSentenceCase(status);
 }
 
-export function isWorkflowActiveStatus(status: JobStatus | ConversionStatus) {
+export function isWorkflowActiveStatus(status: JobStatus | ConversionStatus | OutputActionStatus) {
   return status === "queued" || status === "running";
 }
