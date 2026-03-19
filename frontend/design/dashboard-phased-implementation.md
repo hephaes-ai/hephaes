@@ -51,11 +51,31 @@ That means phase 1 can be a new route plus aggregation logic, not a frontend arc
 
 ## Recommended Phases
 
+### Cross-Package Dependency Order
+
+The intended dashboard rollout across packages is:
+
+1. `hephaes` phase 1
+2. `frontend` phase 1 and `backend` phase 1
+3. `backend` phase 2
+4. `frontend` phase 2
+5. `hephaes` phase 2
+6. `hephaes` phase 3
+7. `backend` phase 3
+8. `frontend` phase 3
+9. `hephaes` phase 4
+10. `backend` phase 4 only if live aggregation proves too slow
+
 ### Phase 1: Client-Aggregated Operations Dashboard
 
 Goal:
 
 - ship a useful dashboard without waiting on new backend endpoints
+
+Dependencies:
+
+- this phase depends only on the existing backend read APIs plus the small stability/testing work described in backend phase 1
+- this phase does not require backend phase 2 or any new `hephaes` work beyond the current baseline
 
 Recommended route and files:
 
@@ -102,6 +122,11 @@ Goal:
 
 - move heavy aggregation out of the browser and make the dashboard scale with larger inventories
 
+Dependencies:
+
+- this phase depends directly on backend phase 2 landing `GET /dashboard/summary` and `GET /dashboard/trends`
+- this phase can preserve the phase-1 visual layout because the dependency change is in the data contract, not the page structure
+
 Frontend work:
 
 - add `getDashboardSummary()` and `getDashboardTrends()` to `lib/api.ts`
@@ -128,6 +153,11 @@ Exit criteria:
 Goal:
 
 - graduate from an operations dashboard into a true robotics data-readiness dashboard
+
+Dependencies:
+
+- this phase depends on backend phase 3 quality and readiness rollups, which themselves depend on `hephaes` phase 2 and phase 3
+- this phase should start only after the backend-owned contracts and drill-down targets are stable enough to support deeper readiness UX
 
 Frontend additions once backend and `hephaes` expose richer fields:
 

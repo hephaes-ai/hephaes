@@ -51,11 +51,31 @@ Metrics that need richer extraction upstream in `hephaes`:
 
 ## Recommended Phases
 
+### Cross-Package Dependency Order
+
+The intended dashboard rollout across packages is:
+
+1. `hephaes` phase 1
+2. `frontend` phase 1 and `backend` phase 1
+3. `backend` phase 2
+4. `frontend` phase 2
+5. `hephaes` phase 2
+6. `hephaes` phase 3
+7. `backend` phase 3
+8. `frontend` phase 3
+9. `hephaes` phase 4
+10. `backend` phase 4 only if live aggregation proves too slow
+
 ### Phase 1: Support Frontend Aggregation Without New Schema Work
 
 Goal:
 
 - let the frontend ship a dashboard using existing list routes
+
+Dependencies:
+
+- this phase can start immediately from the current API surface and does not require new `hephaes` work
+- this phase is meant to run alongside frontend phase 1 so the first dashboard can ship against existing routes
 
 Backend work in this phase should stay minimal:
 
@@ -80,6 +100,11 @@ Exit criteria:
 Goal:
 
 - make dashboard reads fast and stable for larger inventories
+
+Dependencies:
+
+- this phase depends on `hephaes` phase 1 so backend summary routes can reuse stable metric-derivation helpers instead of re-encoding heuristics ad hoc
+- this phase unblocks frontend phase 2, which should switch from client aggregation to these backend-owned rollups
 
 Recommended new routes:
 
@@ -141,6 +166,11 @@ Goal:
 
 - support robotics-specific trust and readiness metrics, not just operational counts
 
+Dependencies:
+
+- this phase depends on `hephaes` phase 2 for opt-in bag-quality signals and `hephaes` phase 3 for manifest-level readiness signals
+- this phase unblocks frontend phase 3 and should not begin until backend phase 2 contracts have settled
+
 Recommended backend additions:
 
 - derive dashboard-friendly quality summaries from `asset_metadata`
@@ -173,6 +203,11 @@ Exit criteria:
 Goal:
 
 - keep dashboard loads responsive if catalogs grow beyond comfortable live aggregation
+
+Dependencies:
+
+- keep this phase optional until backend phase 2 and phase 3 have real usage data showing live aggregation is no longer fast enough
+- this phase should follow proven scale pressure, not precede it
 
 Recommended approach:
 

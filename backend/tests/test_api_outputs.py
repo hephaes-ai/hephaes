@@ -123,6 +123,41 @@ def test_list_outputs_returns_empty_list_initially(client: TestClient):
     assert response.json() == []
 
 
+def test_list_outputs_orders_newest_conversion_first(
+    client: TestClient,
+    monkeypatch,
+    tmp_path: Path,
+):
+    first_asset = tmp_path / "first.mcap"
+    second_asset = tmp_path / "second.mcap"
+    first_asset.write_bytes(b"first")
+    second_asset.write_bytes(b"second")
+
+    first_asset_id = index_registered_asset(client, monkeypatch, first_asset)
+    second_asset_id = index_registered_asset(client, monkeypatch, second_asset)
+    install_fake_converter(monkeypatch)
+
+    first_conversion = client.post(
+        "/conversions",
+        json={"asset_ids": [first_asset_id], "output": {"format": "parquet"}},
+    )
+    second_conversion = client.post(
+        "/conversions",
+        json={"asset_ids": [second_asset_id], "output": {"format": "parquet"}},
+    )
+
+    assert first_conversion.status_code == 201
+    assert second_conversion.status_code == 201
+
+    response = client.get("/outputs")
+    assert response.status_code == 200
+
+    outputs = response.json()
+    assert len(outputs) == 4
+    assert [item["conversion_id"] for item in outputs[:2]] == [second_conversion.json()["id"]] * 2
+    assert [item["conversion_id"] for item in outputs[2:]] == [first_conversion.json()["id"]] * 2
+
+
 def test_outputs_are_registered_and_filterable_after_conversion(
     client: TestClient,
     monkeypatch,
