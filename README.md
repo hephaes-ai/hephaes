@@ -1,3 +1,5 @@
+![Inventory](assets/inventory-031826.png)
+
 # Hephaes Monorepo
 
 This repository is split into three top-level projects:

@@ -1,4 +1,4 @@
-import type { OutputDetail, OutputFormat, OutputsQuery } from "@/lib/api";
+import type { OutputDetail } from "@/lib/api";
 
 export function buildOutputsHref({
   assetId,
@@ -6,6 +6,7 @@ export function buildOutputsHref({
   conversionId,
   format,
   outputId,
+  role,
   search,
 }: {
   assetId?: string | null;
@@ -13,6 +14,7 @@ export function buildOutputsHref({
   conversionId?: string | null;
   format?: string | null;
   outputId?: string | null;
+  role?: string | null;
   search?: string | null;
 } = {}) {
   const params = new URLSearchParams();
@@ -37,59 +39,16 @@ export function buildOutputsHref({
     params.set("output", outputId.trim());
   }
 
+  if (role?.trim()) {
+    params.set("role", role.trim());
+  }
+
   if (search?.trim()) {
     params.set("search", search.trim());
   }
 
   const query = params.toString();
   return query ? `/outputs?${query}` : "/outputs";
-}
-
-function matchesSearch(output: OutputDetail, normalizedSearch: string) {
-  return [
-    output.file_name,
-    output.output_file,
-    output.relative_path,
-    output.conversion_id,
-    output.job_id,
-    ...output.asset_ids,
-  ].some((value) => value.toLowerCase().includes(normalizedSearch));
-}
-
-export function filterOutputs(outputs: OutputDetail[] | undefined, query?: OutputsQuery | null) {
-  if (!outputs) {
-    return undefined;
-  }
-
-  const normalizedSearch = query?.search?.trim().toLowerCase() ?? "";
-  const normalizedFormat = query?.format?.trim() as OutputFormat | undefined;
-  const normalizedAssetId = query?.asset_id?.trim();
-  const normalizedAvailability = query?.availability?.trim();
-  const normalizedConversionId = query?.conversion_id?.trim();
-
-  return outputs.filter((output) => {
-    if (normalizedSearch && !matchesSearch(output, normalizedSearch)) {
-      return false;
-    }
-
-    if (normalizedFormat && output.format !== normalizedFormat) {
-      return false;
-    }
-
-    if (normalizedAssetId && !output.asset_ids.includes(normalizedAssetId)) {
-      return false;
-    }
-
-    if (normalizedAvailability && output.availability !== normalizedAvailability) {
-      return false;
-    }
-
-    if (normalizedConversionId && output.conversion_id !== normalizedConversionId) {
-      return false;
-    }
-
-    return true;
-  });
 }
 
 export function countOutputsByAsset(outputs: OutputDetail[] | undefined) {

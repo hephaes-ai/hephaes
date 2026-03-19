@@ -96,6 +96,10 @@ export function formatOutputFormat(format: OutputFormat) {
     return "TFRecord";
   }
 
+  if (format === "jsonl") {
+    return "JSONL";
+  }
+
   if (format === "json") {
     return "JSON";
   }
@@ -112,10 +116,22 @@ export function formatOutputAvailability(availability: OutputAvailability) {
     return "Ready";
   }
 
+  if (availability === "missing") {
+    return "Missing";
+  }
+
+  if (availability === "invalid") {
+    return "Invalid";
+  }
+
   return formatSentenceCase(availability);
 }
 
 export function formatOutputActionType(actionType: OutputActionType) {
+  if (actionType === "refresh_metadata") {
+    return "Refresh metadata";
+  }
+
   if (actionType === "vlm_tagging") {
     return "VLM tagging";
   }
