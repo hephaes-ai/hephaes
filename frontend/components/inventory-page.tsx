@@ -37,6 +37,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { toast } from "@/components/ui/sonner";
 import {
   Table,
   TableBody,
@@ -860,6 +861,13 @@ export function InventoryPage() {
             : unexpectedErrors.length > 0 && skipped.length === 0
               ? "Uploads failed"
               : "No uploaded files were added";
+
+      if (tone === "success") {
+        toast.success(registeredAssets.length === 1 ? "Upload completed" : "Uploads completed", {
+          description,
+        });
+        return;
+      }
 
       setFormMessage({
         description,

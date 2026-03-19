@@ -5,13 +5,16 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowRight,
+  ChevronDown,
   Copy,
   Database,
   ExternalLink,
   ListFilter,
   RefreshCw,
+  Search,
   Sparkles,
   Wrench,
+  X,
 } from "lucide-react";
 
 import { useFeedback } from "@/components/feedback-provider";
@@ -21,6 +24,13 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -58,6 +68,7 @@ import {
   formatSentenceCase,
   isWorkflowActiveStatus,
 } from "@/lib/format";
+import { cn } from "@/lib/utils";
 
 const OUTPUT_FORMAT_OPTIONS: OutputFormat[] = ["parquet", "tfrecord", "json", "jsonl", "unknown"];
 const OUTPUT_ROLE_OPTIONS: OutputRole[] = ["dataset", "manifest", "sidecar"];
@@ -85,6 +96,12 @@ type OutputPreset = (typeof OUTPUT_PRESET_OPTIONS)[number]["value"];
 interface OutputPreviewFact {
   label: string;
   value: string;
+}
+
+interface ActiveFilterChip {
+  key: string;
+  label: string;
+  updates: Record<string, string | null>;
 }
 
 function buildAssetDetailHref(assetId: string, returnHref: string) {
@@ -358,10 +375,7 @@ function OutputsPageSkeleton() {
     <div className="space-y-6">
       <Skeleton className="h-9 w-44" />
       <Skeleton className="h-28 rounded-xl" />
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.95fr)]">
-        <Skeleton className="h-[560px] rounded-xl" />
-        <Skeleton className="h-[560px] rounded-xl" />
-      </div>
+      <Skeleton className="h-[640px] rounded-xl" />
     </div>
   );
 }
@@ -425,18 +439,33 @@ function OutputRoleBadge({ role }: { role: OutputRole }) {
 function OutputSourceLinks({
   assetIds,
   assetsById,
+  compact = false,
   currentHref,
 }: {
   assetIds: string[];
   assetsById: Map<string, AssetSummary>;
+  compact?: boolean;
   currentHref: string;
 }) {
   if (assetIds.length === 0) {
     return <span className="text-sm text-muted-foreground">No assets</span>;
   }
 
+  if (compact && assetIds.length > 1) {
+    return (
+      <Badge
+        className="font-mono text-xs"
+        onClick={(event) => event.stopPropagation()}
+        title={`${assetIds.length} source assets`}
+        variant="outline"
+      >
+        +{assetIds.length}
+      </Badge>
+    );
+  }
+
   return (
-    <div className="flex flex-wrap items-center gap-1.5">
+    <div className="flex flex-wrap items-center gap-1.5" onClick={(event) => event.stopPropagation()}>
       {assetIds.map((assetId) => (
         <Button asChild key={assetId} size="xs" variant="outline">
           <Link href={buildAssetDetailHref(assetId, currentHref)}>
@@ -467,7 +496,12 @@ function OutputContentButton({
 
   return (
     <Button asChild size={size} variant={variant}>
-      <a href={resolveBackendUrl(output.content_url)} rel="noreferrer" target="_blank">
+      <a
+        href={resolveBackendUrl(output.content_url)}
+        onClick={(event) => event.stopPropagation()}
+        rel="noreferrer"
+        target="_blank"
+      >
         Open content
         <ExternalLink className="size-3.5" />
       </a>
@@ -506,11 +540,10 @@ function OutputPreviewPanel({ output }: { output: OutputDetail }) {
   );
 }
 
-function OutputDetailPanel({
+function OutputDetailContent({
   assetsById,
   currentHref,
   isRefreshing,
-  onClearSelection,
   onCopyReference,
   onCopyResultJson,
   onRefreshMetadata,
@@ -518,52 +551,18 @@ function OutputDetailPanel({
   output,
   outputActions,
   outputActionsError,
-  selectionMissing,
 }: {
   assetsById: Map<string, AssetSummary>;
   currentHref: string;
   isRefreshing: boolean;
-  onClearSelection: () => void;
   onCopyReference: (output: OutputDetail) => Promise<void>;
   onCopyResultJson: (action: OutputActionDetail) => Promise<void>;
   onRefreshMetadata: (outputs: OutputDetail[]) => Promise<void>;
   onShowVlmTaggingStub: (scopeLabel: string) => void;
-  output: OutputDetail | null;
+  output: OutputDetail;
   outputActions: OutputActionDetail[];
   outputActionsError: unknown;
-  selectionMissing: boolean;
 }) {
-  if (selectionMissing) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle>Selected output not found</CardTitle>
-          <CardDescription>
-            The output in the URL is not available anymore or no longer matches the current filters.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Button onClick={onClearSelection} type="button" variant="outline">
-            Clear selection
-          </Button>
-        </CardContent>
-      </Card>
-    );
-  }
-
-  if (!output) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle>Output detail</CardTitle>
-          <CardDescription>
-            Select an output to inspect backend metadata, open the artifact, and run output-scoped actions.
-          </CardDescription>
-        </CardHeader>
-      </Card>
-    );
-  }
-
   const latestAction = output.latest_action;
 
   return (
@@ -775,6 +774,89 @@ function OutputDetailPanel({
   );
 }
 
+function OutputInspectorDialog({
+  assetsById,
+  currentHref,
+  isOpen,
+  isRefreshing,
+  onCopyReference,
+  onCopyResultJson,
+  onOpenChange,
+  onRefreshMetadata,
+  onShowVlmTaggingStub,
+  output,
+  outputActions,
+  outputActionsError,
+  selectionMissing,
+}: {
+  assetsById: Map<string, AssetSummary>;
+  currentHref: string;
+  isOpen: boolean;
+  isRefreshing: boolean;
+  onCopyReference: (output: OutputDetail) => Promise<void>;
+  onCopyResultJson: (action: OutputActionDetail) => Promise<void>;
+  onOpenChange: (nextOpen: boolean) => void;
+  onRefreshMetadata: (outputs: OutputDetail[]) => Promise<void>;
+  onShowVlmTaggingStub: (scopeLabel: string) => void;
+  output: OutputDetail | null;
+  outputActions: OutputActionDetail[];
+  outputActionsError: unknown;
+  selectionMissing: boolean;
+}) {
+  return (
+    <Dialog onOpenChange={onOpenChange} open={isOpen}>
+      <DialogContent className="w-[min(96vw,1120px)] max-h-[90vh] overflow-y-auto p-0 sm:p-0">
+        {selectionMissing ? (
+          <div className="space-y-4 p-5 sm:p-6">
+            <DialogHeader>
+              <DialogTitle>Selected output not found</DialogTitle>
+              <DialogDescription>
+                The output in the URL is not available anymore or no longer matches the current filters.
+              </DialogDescription>
+            </DialogHeader>
+            <div>
+              <Button onClick={() => onOpenChange(false)} type="button" variant="outline">
+                Clear selection
+              </Button>
+            </div>
+          </div>
+        ) : !output ? (
+          <div className="space-y-4 p-5 sm:p-6">
+            <DialogHeader>
+              <DialogTitle>Loading output</DialogTitle>
+              <DialogDescription>Fetching backend metadata, artifact details, and action history.</DialogDescription>
+            </DialogHeader>
+            <Skeleton className="h-40 rounded-xl" />
+            <Skeleton className="h-40 rounded-xl" />
+            <Skeleton className="h-64 rounded-xl" />
+          </div>
+        ) : (
+          <>
+            <DialogHeader className="sr-only">
+              <DialogTitle>{output.file_name}</DialogTitle>
+              <DialogDescription>{output.relative_path}</DialogDescription>
+            </DialogHeader>
+            <div className="p-5 sm:p-6">
+              <OutputDetailContent
+                assetsById={assetsById}
+                currentHref={currentHref}
+                isRefreshing={isRefreshing}
+                onCopyReference={onCopyReference}
+                onCopyResultJson={onCopyResultJson}
+                onRefreshMetadata={onRefreshMetadata}
+                onShowVlmTaggingStub={onShowVlmTaggingStub}
+                output={output}
+                outputActions={outputActions}
+                outputActionsError={outputActionsError}
+              />
+            </div>
+          </>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function OutputsTable({
   allVisibleSelected,
   assetsById,
@@ -805,7 +887,7 @@ function OutputsTable({
 
   return (
     <div className="hidden overflow-x-auto md:block">
-      <Table className="min-w-[1100px]">
+      <Table className="min-w-[980px]">
         <TableHeader>
           <TableRow>
             <TableHead className="w-12">
@@ -816,8 +898,6 @@ function OutputsTable({
               />
             </TableHead>
             <TableHead>Output file</TableHead>
-            <TableHead>Format</TableHead>
-            <TableHead>Role</TableHead>
             <TableHead>Source assets</TableHead>
             <TableHead>Size</TableHead>
             <TableHead>Availability</TableHead>
@@ -846,17 +926,22 @@ function OutputsTable({
                   />
                 </TableCell>
                 <TableCell className="max-w-0">
-                  <div className="space-y-1">
+                  <div className="space-y-2">
                     <p className="font-medium text-foreground">{output.file_name}</p>
                     <p className="truncate text-xs text-muted-foreground">{output.relative_path}</p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge variant="outline">{formatOutputFormat(output.format)}</Badge>
+                      <OutputRoleBadge role={output.role} />
+                    </div>
                   </div>
                 </TableCell>
-                <TableCell>{formatOutputFormat(output.format)}</TableCell>
                 <TableCell>
-                  <OutputRoleBadge role={output.role} />
-                </TableCell>
-                <TableCell>
-                  <OutputSourceLinks assetIds={output.asset_ids} assetsById={assetsById} currentHref={currentHref} />
+                  <OutputSourceLinks
+                    assetIds={output.asset_ids}
+                    assetsById={assetsById}
+                    compact
+                    currentHref={currentHref}
+                  />
                 </TableCell>
                 <TableCell>{formatFileSize(output.size_bytes)}</TableCell>
                 <TableCell>
@@ -941,9 +1026,13 @@ function OutputsCards({
         return (
           <div className="space-y-3 rounded-xl border bg-muted/15 px-4 py-4" key={output.id}>
             <div className="flex items-start justify-between gap-3">
-              <div className="space-y-1">
+              <div className="space-y-2">
                 <p className="font-medium text-foreground">{output.file_name}</p>
                 <p className="break-all text-xs text-muted-foreground">{output.relative_path}</p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge variant="outline">{formatOutputFormat(output.format)}</Badge>
+                  <OutputRoleBadge role={output.role} />
+                </div>
               </div>
               <Checkbox
                 aria-label={`Select ${output.file_name}`}
@@ -953,8 +1042,6 @@ function OutputsCards({
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              <Badge variant="outline">{formatOutputFormat(output.format)}</Badge>
-              <OutputRoleBadge role={output.role} />
               <OutputAvailabilityBadge availability={output.availability_status} />
               {isBatchSelected ? <Badge variant="secondary">Selected</Badge> : null}
             </div>
@@ -971,7 +1058,12 @@ function OutputsCards({
 
             <div className="space-y-2">
               <p className="text-xs uppercase tracking-wide text-muted-foreground">Source assets</p>
-              <OutputSourceLinks assetIds={output.asset_ids} assetsById={assetsById} currentHref={currentHref} />
+              <OutputSourceLinks
+                assetIds={output.asset_ids}
+                assetsById={assetsById}
+                compact
+                currentHref={currentHref}
+              />
             </div>
 
             <p className="text-sm text-muted-foreground">
@@ -1020,6 +1112,8 @@ export function OutputsPage() {
     () => parseOutputSelection(searchParams.get("selection")),
     [searchParams],
   );
+  const [searchInput, setSearchInput] = React.useState(query.search ?? "");
+  const [isFiltersOpen, setIsFiltersOpen] = React.useState(false);
 
   const outputsResponse = useOutputs(query);
   const selectedOutputResponse = useOutput(selectedOutputId);
@@ -1065,17 +1159,71 @@ export function OutputsPage() {
     isWorkflowActiveStatus(action.status),
   ).length;
   const allVisibleSelected = outputs.length > 0 && selectedOutputs.length === outputs.length;
-  const hasAppliedFilters = Boolean(
-    query.asset_id ||
-      query.availability ||
-      query.conversion_id ||
-      query.format ||
-      query.role ||
-      query.search ||
-      preset ||
-      selectedOutputId ||
-      selectedOutputIds.length,
+  const activeFilterChips: ActiveFilterChip[] = [];
+
+  if (query.search) {
+    activeFilterChips.push({
+      key: "search",
+      label: `Search: ${query.search}`,
+      updates: { output: null, search: null, selection: null },
+    });
+  }
+
+  if (query.format) {
+    activeFilterChips.push({
+      key: "format",
+      label: `Format: ${formatOutputFormat(query.format as OutputFormat)}`,
+      updates: { format: null, output: null, selection: null },
+    });
+  }
+
+  if (query.role) {
+    activeFilterChips.push({
+      key: "role",
+      label: `Role: ${formatOutputRole(query.role as OutputRole)}`,
+      updates: { output: null, role: null, selection: null },
+    });
+  }
+
+  if (query.availability) {
+    activeFilterChips.push({
+      key: "availability",
+      label: `Availability: ${formatOutputAvailability(query.availability as OutputAvailability)}`,
+      updates: { availability: null, output: null, selection: null },
+    });
+  }
+
+  if (query.asset_id) {
+    activeFilterChips.push({
+      key: "asset_id",
+      label: `Asset: ${query.asset_id}`,
+      updates: { asset_id: null, output: null, selection: null },
+    });
+  }
+
+  if (query.conversion_id) {
+    activeFilterChips.push({
+      key: "conversion_id",
+      label: `Conversion: ${query.conversion_id}`,
+      updates: { conversion_id: null, output: null, selection: null },
+    });
+  }
+
+  if (preset) {
+    activeFilterChips.push({
+      key: "preset",
+      label: `Preset: ${OUTPUT_PRESET_OPTIONS.find((option) => option.value === preset)?.label ?? preset}`,
+      updates: { output: null, preset: null, selection: null },
+    });
+  }
+
+  const hasAppliedFilters = activeFilterChips.length > 0;
+  const selectionMissing = Boolean(
+    selectedOutputId &&
+      selectedOutputResponse.error &&
+      !selectedOutputResponse.isLoading,
   );
+  const isInspectorOpen = Boolean(selectedOutputId);
 
   const updateFilters = React.useCallback(
     (updates: Record<string, string | null>) => {
@@ -1100,6 +1248,16 @@ export function OutputsPage() {
     },
     [pathname, router, searchParams],
   );
+
+  React.useEffect(() => {
+    setSearchInput(query.search ?? "");
+  }, [query.search]);
+
+  React.useEffect(() => {
+    if (hasAppliedFilters) {
+      setIsFiltersOpen(true);
+    }
+  }, [hasAppliedFilters]);
 
   const clearWorkspaceFilters = React.useCallback(() => {
     updateFilters({
@@ -1213,6 +1371,24 @@ export function OutputsPage() {
     }
   }
 
+  function onSearchSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    updateFilters({
+      output: null,
+      search: searchInput,
+      selection: null,
+    });
+  }
+
+  function onClearSearch() {
+    setSearchInput("");
+    updateFilters({
+      output: null,
+      search: null,
+      selection: null,
+    });
+  }
+
   function onToggleOutputSelection(outputId: string) {
     const nextSelection = selectedOutputIdsSet.has(outputId)
       ? selectedOutputIds.filter((currentId) => currentId !== outputId)
@@ -1259,10 +1435,6 @@ export function OutputsPage() {
       }
 
       const firstOutput = outputsToRefresh[0];
-      if (firstOutput && selectedOutputId !== firstOutput.id) {
-        updateFilters({ output: firstOutput.id });
-      }
-
       notify({
         description:
           outputsToRefresh.length === 1
@@ -1338,291 +1510,350 @@ export function OutputsPage() {
         </div>
       </section>
 
-      <Card>
-        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <CardTitle className="flex items-center gap-2">
-              <ListFilter className="size-4" />
-              Filters
-            </CardTitle>
-            <CardDescription>
-              Keep the outputs workspace focused while preserving shareable URL state.
-            </CardDescription>
+      <Card className="flex-1">
+        <CardHeader className="space-y-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <Database className="size-4" />
+                Output catalog
+              </CardTitle>
+              <CardDescription>
+                Click an output to inspect it in a dialog, or select several to run backend batch work.
+              </CardDescription>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge className="h-6" variant="secondary">
+                {formatCount(outputs.length, "result")}
+              </Badge>
+              {selectedOutputs.length > 0 ? (
+                <Badge className="h-6" variant="outline">
+                  {formatCount(selectedOutputs.length, "selected output")}
+                </Badge>
+              ) : null}
+              <Button
+                aria-expanded={isFiltersOpen}
+                onClick={() => setIsFiltersOpen((current) => !current)}
+                size="sm"
+                type="button"
+                variant="outline"
+              >
+                <ListFilter className="size-4" />
+                Search & filters{hasAppliedFilters ? ` (${activeFilterChips.length})` : ""}
+                <ChevronDown className={cn("size-4 transition-transform", isFiltersOpen && "rotate-180")} />
+              </Button>
+            </div>
           </div>
-          {hasAppliedFilters ? (
-            <Button onClick={clearWorkspaceFilters} size="sm" type="button" variant="ghost">
-              Clear filters
-            </Button>
-          ) : null}
+
+          <div
+            className={cn(
+              "grid transition-all duration-200 ease-out",
+              isFiltersOpen ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0",
+            )}
+          >
+            <div className="overflow-hidden">
+              <div className="space-y-4 rounded-xl border bg-muted/20 p-4">
+                <form className="flex flex-col gap-3 lg:flex-row" onSubmit={onSearchSubmit}>
+                  <div className="flex-1">
+                    <label className="mb-2 block text-xs uppercase tracking-wide text-muted-foreground" htmlFor="outputs-search">
+                      Search
+                    </label>
+                    <div className="flex gap-2">
+                      <Input
+                        id="outputs-search"
+                        onChange={(event) => setSearchInput(event.target.value)}
+                        placeholder="Search file name, path, format, or conversion ID"
+                        value={searchInput}
+                      />
+                      <Button size="sm" type="submit" variant="outline">
+                        <Search className="size-4" />
+                        Search
+                      </Button>
+                      {(searchInput.length > 0 || (query.search ?? "").length > 0) && (
+                        <Button onClick={onClearSearch} size="sm" type="button" variant="ghost">
+                          <X className="size-4" />
+                          Clear
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                </form>
+
+                <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)]">
+                  <div className="space-y-2">
+                    <label className="text-xs uppercase tracking-wide text-muted-foreground" htmlFor="outputs-format">
+                      Format
+                    </label>
+                    <NativeSelect
+                      id="outputs-format"
+                      onChange={(event) =>
+                        updateFilters({
+                          format: event.target.value || null,
+                          output: null,
+                          selection: null,
+                        })
+                      }
+                      value={query.format ?? ""}
+                    >
+                      <option value="">All formats</option>
+                      {OUTPUT_FORMAT_OPTIONS.map((format) => (
+                        <option key={format} value={format}>
+                          {formatOutputFormat(format)}
+                        </option>
+                      ))}
+                    </NativeSelect>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs uppercase tracking-wide text-muted-foreground" htmlFor="outputs-role">
+                      Role
+                    </label>
+                    <NativeSelect
+                      id="outputs-role"
+                      onChange={(event) =>
+                        updateFilters({
+                          output: null,
+                          role: event.target.value || null,
+                          selection: null,
+                        })
+                      }
+                      value={query.role ?? ""}
+                    >
+                      <option value="">All roles</option>
+                      {OUTPUT_ROLE_OPTIONS.map((role) => (
+                        <option key={role} value={role}>
+                          {formatOutputRole(role)}
+                        </option>
+                      ))}
+                    </NativeSelect>
+                  </div>
+                  <div className="space-y-2">
+                    <label
+                      className="text-xs uppercase tracking-wide text-muted-foreground"
+                      htmlFor="outputs-availability"
+                    >
+                      Availability
+                    </label>
+                    <NativeSelect
+                      id="outputs-availability"
+                      onChange={(event) =>
+                        updateFilters({
+                          availability: event.target.value || null,
+                          output: null,
+                          selection: null,
+                        })
+                      }
+                      value={query.availability ?? ""}
+                    >
+                      <option value="">All</option>
+                      {OUTPUT_AVAILABILITY_OPTIONS.map((availability) => (
+                        <option key={availability} value={availability}>
+                          {formatOutputAvailability(availability)}
+                        </option>
+                      ))}
+                    </NativeSelect>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs uppercase tracking-wide text-muted-foreground" htmlFor="outputs-asset">
+                      Asset ID
+                    </label>
+                    <Input
+                      id="outputs-asset"
+                      onChange={(event) =>
+                        updateFilters({ asset_id: event.target.value, output: null, selection: null })
+                      }
+                      placeholder="Filter to one asset"
+                      value={query.asset_id ?? ""}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label
+                      className="text-xs uppercase tracking-wide text-muted-foreground"
+                      htmlFor="outputs-conversion"
+                    >
+                      Conversion ID
+                    </label>
+                    <Input
+                      id="outputs-conversion"
+                      onChange={(event) =>
+                        updateFilters({
+                          conversion_id: event.target.value,
+                          output: null,
+                          selection: null,
+                        })
+                      }
+                      placeholder="Filter to one conversion"
+                      value={query.conversion_id ?? ""}
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">Common slices</p>
+                  <div className="flex flex-wrap gap-2">
+                    {OUTPUT_PRESET_OPTIONS.map((option) => {
+                      const isActive = preset === option.value;
+
+                      return (
+                        <Button
+                          key={option.value}
+                          onClick={() =>
+                            updateFilters({
+                              output: null,
+                              preset: isActive ? null : option.value,
+                              selection: null,
+                            })
+                          }
+                          size="sm"
+                          type="button"
+                          variant={isActive ? "secondary" : "outline"}
+                        >
+                          {option.label}
+                        </Button>
+                      );
+                    })}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {preset
+                      ? OUTPUT_PRESET_OPTIONS.find((option) => option.value === preset)?.description
+                      : "Presets are URL-backed, so you can share common output slices without rebuilding the filters each time."}
+                  </p>
+                </div>
+
+                {hasAppliedFilters ? (
+                  <div className="flex flex-wrap items-center gap-2">
+                    {activeFilterChips.map((filter) => (
+                      <Button
+                        key={filter.key}
+                        onClick={() => {
+                          if (filter.key === "search") {
+                            setSearchInput("");
+                          }
+                          updateFilters(filter.updates);
+                        }}
+                        size="xs"
+                        type="button"
+                        variant="outline"
+                      >
+                        {filter.label}
+                        <X className="size-3" />
+                      </Button>
+                    ))}
+                    <Button onClick={clearWorkspaceFilters} size="xs" type="button" variant="ghost">
+                      Clear filters
+                    </Button>
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
-          <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)]">
-            <div className="space-y-2">
-              <label className="text-xs uppercase tracking-wide text-muted-foreground" htmlFor="outputs-search">
-                Search
-              </label>
-              <Input
-                id="outputs-search"
-                onChange={(event) =>
-                  updateFilters({ output: null, search: event.target.value, selection: null })
-                }
-                placeholder="Search file name, path, format, or conversion ID"
-                value={query.search ?? ""}
-              />
+          {selectedOutputs.length > 0 ? (
+            <div className="mb-4 flex flex-col gap-3 rounded-xl border bg-muted/20 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="space-y-1">
+                <p className="text-sm font-medium text-foreground">
+                  {formatCount(selectedOutputs.length, "selected output")}
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  Multi-select state lives in the URL, so batch workflows and filtered views stay shareable.
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  disabled={isCreating}
+                  onClick={() => void onRefreshMetadata(selectedOutputs)}
+                  size="sm"
+                  type="button"
+                >
+                  <Wrench className="size-3.5" />
+                  Batch refresh metadata
+                </Button>
+                <Button
+                  onClick={() => onShowVlmTaggingStub(`${selectedOutputs.length} selected outputs`)}
+                  size="sm"
+                  type="button"
+                  variant="outline"
+                >
+                  <Sparkles className="size-3.5" />
+                  Batch VLM tagging soon
+                </Button>
+                <Button
+                  onClick={() => updateFilters({ selection: null })}
+                  size="sm"
+                  type="button"
+                  variant="outline"
+                >
+                  Clear selection
+                </Button>
+              </div>
             </div>
-            <div className="space-y-2">
-              <label className="text-xs uppercase tracking-wide text-muted-foreground" htmlFor="outputs-format">
-                Format
-              </label>
-              <NativeSelect
-                id="outputs-format"
-                onChange={(event) =>
-                  updateFilters({
-                    format: event.target.value || null,
-                    output: null,
-                    selection: null,
-                  })
-                }
-                value={query.format ?? ""}
-              >
-                <option value="">All formats</option>
-                {OUTPUT_FORMAT_OPTIONS.map((format) => (
-                  <option key={format} value={format}>
-                    {formatOutputFormat(format)}
-                  </option>
-                ))}
-              </NativeSelect>
-            </div>
-            <div className="space-y-2">
-              <label className="text-xs uppercase tracking-wide text-muted-foreground" htmlFor="outputs-role">
-                Role
-              </label>
-              <NativeSelect
-                id="outputs-role"
-                onChange={(event) =>
-                  updateFilters({
-                    output: null,
-                    role: event.target.value || null,
-                    selection: null,
-                  })
-                }
-                value={query.role ?? ""}
-              >
-                <option value="">All roles</option>
-                {OUTPUT_ROLE_OPTIONS.map((role) => (
-                  <option key={role} value={role}>
-                    {formatOutputRole(role)}
-                  </option>
-                ))}
-              </NativeSelect>
-            </div>
-            <div className="space-y-2">
-              <label className="text-xs uppercase tracking-wide text-muted-foreground" htmlFor="outputs-availability">
-                Availability
-              </label>
-              <NativeSelect
-                id="outputs-availability"
-                onChange={(event) =>
-                  updateFilters({
-                    availability: event.target.value || null,
-                    output: null,
-                    selection: null,
-                  })
-                }
-                value={query.availability ?? ""}
-              >
-                <option value="">All</option>
-                {OUTPUT_AVAILABILITY_OPTIONS.map((availability) => (
-                  <option key={availability} value={availability}>
-                    {formatOutputAvailability(availability)}
-                  </option>
-                ))}
-              </NativeSelect>
-            </div>
-            <div className="space-y-2">
-              <label className="text-xs uppercase tracking-wide text-muted-foreground" htmlFor="outputs-asset">
-                Asset ID
-              </label>
-              <Input
-                id="outputs-asset"
-                onChange={(event) =>
-                  updateFilters({ asset_id: event.target.value, output: null, selection: null })
-                }
-                placeholder="Filter to one asset"
-                value={query.asset_id ?? ""}
-              />
-            </div>
-            <div className="space-y-2">
-              <label className="text-xs uppercase tracking-wide text-muted-foreground" htmlFor="outputs-conversion">
-                Conversion ID
-              </label>
-              <Input
-                id="outputs-conversion"
-                onChange={(event) =>
-                  updateFilters({
-                    conversion_id: event.target.value,
-                    output: null,
-                    selection: null,
-                  })
-                }
-                placeholder="Filter to one conversion"
-                value={query.conversion_id ?? ""}
-              />
-            </div>
-          </div>
+          ) : null}
 
-          <div className="mt-5 space-y-2">
-            <p className="text-xs uppercase tracking-wide text-muted-foreground">Common slices</p>
-            <div className="flex flex-wrap gap-2">
-              {OUTPUT_PRESET_OPTIONS.map((option) => {
-                const isActive = preset === option.value;
-
-                return (
-                  <Button
-                    key={option.value}
-                    onClick={() =>
-                      updateFilters({
-                        output: null,
-                        preset: isActive ? null : option.value,
-                        selection: null,
-                      })
-                    }
-                    size="sm"
-                    type="button"
-                    variant={isActive ? "secondary" : "outline"}
-                  >
-                    {option.label}
+          {outputs.length === 0 ? (
+            <OutputsEmptyState
+              action={
+                hasAppliedFilters ? (
+                  <Button onClick={clearWorkspaceFilters} type="button" variant="outline">
+                    Clear filters
                   </Button>
-                );
-              })}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              {preset
-                ? OUTPUT_PRESET_OPTIONS.find((option) => option.value === preset)?.description
-                : "Presets are URL-backed, so you can share common output slices without rebuilding the filters each time."}
-            </p>
-          </div>
+                ) : undefined
+              }
+              description={
+                hasAppliedFilters
+                  ? "Try clearing one or more filters to see outputs from other conversion runs."
+                  : "Run a conversion and its registered output artifacts will appear here for inspection."
+              }
+              title={hasAppliedFilters ? "No outputs match these filters" : "No outputs yet"}
+            />
+          ) : (
+            <>
+              <OutputsTable
+                allVisibleSelected={allVisibleSelected}
+                assetsById={assetsById}
+                currentHref={currentHref}
+                isRefreshing={isCreating}
+                onRefreshMetadata={onRefreshMetadata}
+                onSelectOutput={(outputId) => updateFilters({ output: outputId })}
+                onToggleAllVisible={onToggleAllVisible}
+                onToggleOutputSelection={onToggleOutputSelection}
+                outputs={outputs}
+                selectedOutputId={selectedOutputId}
+                selectedOutputIds={selectedOutputIdsSet}
+              />
+              <OutputsCards
+                assetsById={assetsById}
+                currentHref={currentHref}
+                isRefreshing={isCreating}
+                onRefreshMetadata={onRefreshMetadata}
+                onSelectOutput={(outputId) => updateFilters({ output: outputId })}
+                onToggleOutputSelection={onToggleOutputSelection}
+                outputs={outputs}
+                selectedOutputIds={selectedOutputIdsSet}
+              />
+            </>
+          )}
         </CardContent>
       </Card>
 
-      {outputs.length === 0 ? (
-        <OutputsEmptyState
-          action={
-            hasAppliedFilters ? (
-              <Button onClick={clearWorkspaceFilters} type="button" variant="outline">
-                Clear filters
-              </Button>
-            ) : undefined
+      <OutputInspectorDialog
+        assetsById={assetsById}
+        currentHref={currentHref}
+        isOpen={isInspectorOpen}
+        isRefreshing={isCreating}
+        onCopyReference={onCopyReference}
+        onCopyResultJson={onCopyResultJson}
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen && selectedOutputId) {
+            updateFilters({ output: null });
           }
-          description={
-            hasAppliedFilters
-              ? "Try clearing one or more filters to see outputs from other conversion runs."
-              : "Run a conversion and its registered output artifacts will appear here for inspection."
-          }
-          title={hasAppliedFilters ? "No outputs match these filters" : "No outputs yet"}
-        />
-      ) : (
-        <div className="grid gap-6 xl:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.95fr)]">
-          <div className="space-y-4">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Database className="size-4" />
-                  Output catalog
-                </CardTitle>
-                <CardDescription>
-                  Select one output to inspect it closely, or select several to run backend batch work.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                {selectedOutputs.length > 0 ? (
-                  <div className="mb-4 flex flex-col gap-3 rounded-xl border bg-muted/20 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="space-y-1">
-                      <p className="text-sm font-medium text-foreground">
-                        {formatCount(selectedOutputs.length, "selected output")}
-                      </p>
-                      <p className="text-sm text-muted-foreground">
-                        Multi-select state lives in the URL, so batch workflows and filtered views stay shareable.
-                      </p>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      <Button
-                        disabled={isCreating}
-                        onClick={() => void onRefreshMetadata(selectedOutputs)}
-                        size="sm"
-                        type="button"
-                      >
-                        <Wrench className="size-3.5" />
-                        Batch refresh metadata
-                      </Button>
-                      <Button
-                        onClick={() => onShowVlmTaggingStub(`${selectedOutputs.length} selected outputs`)}
-                        size="sm"
-                        type="button"
-                        variant="outline"
-                      >
-                        <Sparkles className="size-3.5" />
-                        Batch VLM tagging soon
-                      </Button>
-                      <Button
-                        onClick={() => updateFilters({ selection: null })}
-                        size="sm"
-                        type="button"
-                        variant="outline"
-                      >
-                        Clear selection
-                      </Button>
-                    </div>
-                  </div>
-                ) : null}
-
-                <OutputsTable
-                  allVisibleSelected={allVisibleSelected}
-                  assetsById={assetsById}
-                  currentHref={currentHref}
-                  isRefreshing={isCreating}
-                  onRefreshMetadata={onRefreshMetadata}
-                  onSelectOutput={(outputId) => updateFilters({ output: outputId })}
-                  onToggleAllVisible={onToggleAllVisible}
-                  onToggleOutputSelection={onToggleOutputSelection}
-                  outputs={outputs}
-                  selectedOutputId={selectedOutputId}
-                  selectedOutputIds={selectedOutputIdsSet}
-                />
-                <OutputsCards
-                  assetsById={assetsById}
-                  currentHref={currentHref}
-                  isRefreshing={isCreating}
-                  onRefreshMetadata={onRefreshMetadata}
-                  onSelectOutput={(outputId) => updateFilters({ output: outputId })}
-                  onToggleOutputSelection={onToggleOutputSelection}
-                  outputs={outputs}
-                  selectedOutputIds={selectedOutputIdsSet}
-                />
-              </CardContent>
-            </Card>
-          </div>
-
-          <OutputDetailPanel
-            assetsById={assetsById}
-            currentHref={currentHref}
-            isRefreshing={isCreating}
-            onClearSelection={() => updateFilters({ output: null })}
-            onCopyReference={onCopyReference}
-            onCopyResultJson={onCopyResultJson}
-            onRefreshMetadata={onRefreshMetadata}
-            onShowVlmTaggingStub={onShowVlmTaggingStub}
-            output={selectedOutput}
-            outputActions={selectedOutputActions}
-            outputActionsError={selectedOutputActionsResponse.error}
-            selectionMissing={Boolean(
-              selectedOutputId &&
-                selectedOutputResponse.error &&
-                !selectedOutputResponse.isLoading,
-            )}
-          />
-        </div>
-      )}
+        }}
+        onRefreshMetadata={onRefreshMetadata}
+        onShowVlmTaggingStub={onShowVlmTaggingStub}
+        output={selectedOutput}
+        outputActions={selectedOutputActions}
+        outputActionsError={selectedOutputActionsResponse.error}
+        selectionMissing={selectionMissing}
+      />
     </div>
   );
 }
