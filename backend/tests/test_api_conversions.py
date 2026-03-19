@@ -66,6 +66,13 @@ def index_registered_asset(client: TestClient, monkeypatch, asset_path: Path) ->
     return asset_id
 
 
+def test_list_conversions_returns_empty_list_initially(client: TestClient):
+    response = client.get("/conversions")
+
+    assert response.status_code == 200
+    assert response.json() == []
+
+
 def test_create_conversion_success(
     client: TestClient,
     monkeypatch,
