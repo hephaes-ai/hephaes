@@ -134,52 +134,89 @@ class RosReader(ABC):
         value = self._safe_reader_int("message_count", default=0)
         return value if value is not None else 0
 
+    def _resolve_connections(self, topics: list[str] | None = None) -> list[Any]:
+        reader = self._require_reader()
+        if topics:
+            target_topics = set(topics)
+            return [conn for conn in reader.connections if conn.topic in target_topics]
+        return list(reader.connections)
+
     def iter_message_headers(
-        self, topics: list[str] | None = None
+        self,
+        topics: list[str] | None = None,
+        *,
+        start_ns: int | None = None,
+        stop_ns: int | None = None,
     ) -> Generator[tuple[str, int], None, None]:
         """Yield (topic, timestamp) for each message without deserializing the payload.
 
         Significantly faster than read_messages() when the message body is not needed.
+        Time bounds use half-open semantics: `start_ns <= timestamp < stop_ns`.
         """
         reader = self._require_reader()
+        if (
+            start_ns is not None
+            and stop_ns is not None
+            and start_ns >= stop_ns
+        ):
+            return
         try:
-            if topics:
-                target_topics = set(topics)
-                connections = [conn for conn in reader.connections if conn.topic in target_topics]
-            else:
-                connections = reader.connections
-
-            for connection, timestamp, _rawdata in reader.messages(connections=connections):
+            connections = self._resolve_connections(topics)
+            for connection, timestamp, _rawdata in reader.messages(
+                connections=connections,
+                start=start_ns,
+                stop=stop_ns,
+            ):
                 yield connection.topic, timestamp
         except Exception as exc:
             raise RuntimeError(f"Failed to read message headers from bag: {exc}") from exc
 
     def iter_raw_messages(
-        self, topics: list[str] | None = None
+        self,
+        topics: list[str] | None = None,
+        *,
+        start_ns: int | None = None,
+        stop_ns: int | None = None,
     ) -> Generator[tuple[str, int, str, bytes], None, None]:
         reader = self._require_reader()
+        if (
+            start_ns is not None
+            and stop_ns is not None
+            and start_ns >= stop_ns
+        ):
+            return
         try:
-            if topics:
-                target_topics = set(topics)
-                connections = [conn for conn in reader.connections if conn.topic in target_topics]
-            else:
-                connections = reader.connections
-
-            for connection, timestamp, rawdata in reader.messages(connections=connections):
+            connections = self._resolve_connections(topics)
+            for connection, timestamp, rawdata in reader.messages(
+                connections=connections,
+                start=start_ns,
+                stop=stop_ns,
+            ):
                 yield connection.topic, timestamp, connection.msgtype, rawdata
         except Exception as exc:
             raise RuntimeError(f"Failed to read raw messages from bag: {exc}") from exc
 
-    def read_messages(self, topics: list[str] | None = None) -> Generator[Message, None, None]:
+    def read_messages(
+        self,
+        topics: list[str] | None = None,
+        *,
+        start_ns: int | None = None,
+        stop_ns: int | None = None,
+    ) -> Generator[Message, None, None]:
         reader = self._require_reader()
+        if (
+            start_ns is not None
+            and stop_ns is not None
+            and start_ns >= stop_ns
+        ):
+            return
         try:
-            if topics:
-                target_topics = set(topics)
-                connections = [conn for conn in reader.connections if conn.topic in target_topics]
-            else:
-                connections = reader.connections
-
-            for connection, timestamp, rawdata in reader.messages(connections=connections):
+            connections = self._resolve_connections(topics)
+            for connection, timestamp, rawdata in reader.messages(
+                connections=connections,
+                start=start_ns,
+                stop=stop_ns,
+            ):
                 try:
                     msg_data = reader.deserialize(rawdata, connection.msgtype)
                     yield Message(

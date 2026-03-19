@@ -150,6 +150,8 @@ The page always keeps the user connected to the linked durable job through a dir
 - `NEXT_PUBLIC_RERUN_VIEWER_HOST`, or
 - `https://app.rerun.io` by default
 
+For synchronized replay work, a version-pinned viewer host or embedded viewer package should be preferred over the floating default host so the frontend stays compatible with the backend's reported `viewer_version`.
+
 It supports both:
 
 - RRD recording sources

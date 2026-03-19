@@ -183,6 +183,14 @@ with RosReader.open("data/run_001.bag") as reader:
     for message in reader.read_messages(topics=["/cmd_vel"]):
         print(message.timestamp, message.topic, message.data)
         break
+
+    for topic, timestamp in reader.iter_message_headers(
+        topics=["/camera/front/image_raw"],
+        start_ns=1_700_000_000_000_000_000,
+        stop_ns=1_700_000_000_500_000_000,
+    ):
+        print(topic, timestamp)
+        break
 ```
 
 ## Development
@@ -200,7 +208,3 @@ Build a wheel locally with:
 cd hephaes
 python -m build
 ```
-
-## License
-
-MIT. See [LICENSE](LICENSE).

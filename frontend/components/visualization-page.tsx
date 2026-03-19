@@ -1,9 +1,9 @@
-"use client";
+"use client"
 
-import * as React from "react";
-import Link from "next/link";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { ArrowLeft, Pause, Play, SkipBack, SkipForward } from "lucide-react";
+import * as React from "react"
+import Link from "next/link"
+import { usePathname, useRouter, useSearchParams } from "next/navigation"
+import { ArrowLeft, Pause, Play, SkipBack, SkipForward } from "lucide-react"
 
 import {
   useAsset,
@@ -14,20 +14,28 @@ import {
   useEpisodeViewerSource,
   useJob,
   usePrepareVisualization,
-} from "@/hooks/use-backend";
-import { BackendApiError, getErrorMessage, resolveBackendUrl } from "@/lib/api";
-import { formatDateTime, formatDuration } from "@/lib/format";
-import { resolveReturnHref } from "@/lib/navigation";
-import { buildReplayHref } from "@/lib/visualization";
+} from "@/hooks/use-backend"
+import { useEpisodeReplay } from "@/hooks/use-episode-replay"
+import { BackendApiError, getErrorMessage } from "@/lib/api"
+import { formatDateTime, formatDuration } from "@/lib/format"
+import { resolveReturnHref } from "@/lib/navigation"
+import { buildReplayHref } from "@/lib/visualization"
 
-import { VisualizationScrubber } from "@/components/visualization-scrubber";
-import { WorkflowStatusBadge } from "@/components/workflow-status-badge";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { NativeSelect } from "@/components/ui/native-select";
-import { Skeleton } from "@/components/ui/skeleton";
+import { RerunViewer } from "@/components/rerun-viewer"
+import { VisualizationScrubber } from "@/components/visualization-scrubber"
+import { WorkflowStatusBadge } from "@/components/workflow-status-badge"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
+import { NativeSelect } from "@/components/ui/native-select"
+import { Skeleton } from "@/components/ui/skeleton"
 
 function VisualizationShellSkeleton() {
   return (
@@ -41,141 +49,195 @@ function VisualizationShellSkeleton() {
         <Skeleton className="h-[360px] rounded-xl" />
       </div>
     </div>
-  );
+  )
 }
 
 export function VisualizationPageFallback() {
-  return <VisualizationShellSkeleton />;
+  return <VisualizationShellSkeleton />
 }
 
 function clamp(value: number, min: number, max: number) {
-  return Math.min(max, Math.max(min, value));
+  return Math.min(max, Math.max(min, value))
 }
 
 function parsePositiveNumber(value: string | null, fallback: number) {
   if (!value) {
-    return fallback;
+    return fallback
   }
 
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+  const parsed = Number(value)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
 }
 
 function parseTimestampNs(value: string | null) {
   if (!value) {
-    return null;
+    return null
   }
 
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : null;
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : null
 }
 
 function parseLaneIds(value: string | null) {
   if (!value) {
-    return [];
+    return []
   }
 
   return value
     .split(",")
     .map((lane) => lane.trim())
-    .filter(Boolean);
+    .filter(Boolean)
 }
 
 function formatDurationNs(durationNs: number) {
-  const normalizedDurationNs = Math.max(0, durationNs);
-  const seconds = normalizedDurationNs / 1_000_000_000;
+  const normalizedDurationNs = Math.max(0, durationNs)
+  const seconds = normalizedDurationNs / 1_000_000_000
   if (seconds < 60) {
-    return `${seconds.toFixed(2)} s`;
+    return `${seconds.toFixed(2)} s`
   }
 
-  const totalSeconds = Math.floor(seconds);
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor(totalSeconds / 60);
-  const remainingMinutes = minutes % 60;
-  const remainingSeconds = totalSeconds % 60;
+  const totalSeconds = Math.floor(seconds)
+  const hours = Math.floor(totalSeconds / 3600)
+  const minutes = Math.floor(totalSeconds / 60)
+  const remainingMinutes = minutes % 60
+  const remainingSeconds = totalSeconds % 60
 
   if (hours > 0) {
-    return `${hours}h ${remainingMinutes}m ${remainingSeconds}s`;
+    return `${hours}h ${remainingMinutes}m ${remainingSeconds}s`
   }
 
-  return `${minutes}m ${remainingSeconds}s`;
+  return `${minutes}m ${remainingSeconds}s`
 }
 
 export function VisualizationPage() {
-  const pathname = usePathname();
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  const searchParamsString = searchParams.toString();
+  const pathname = usePathname()
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const searchParamsString = searchParams.toString()
 
-  const assetId = searchParams.get("asset_id")?.trim() ?? "";
-  const selectedEpisodeId = searchParams.get("episode_id")?.trim() ?? "";
-  const selectedLanesParam = searchParams.get("lanes");
-  const selectedLanesFromUrl = React.useMemo(() => parseLaneIds(selectedLanesParam), [selectedLanesParam]);
-  const speedFromUrl = parsePositiveNumber(searchParams.get("speed"), 1);
-  const timestampFromUrl = parseTimestampNs(searchParams.get("timestamp_ns"));
-  const returnHref = resolveReturnHref(searchParams.get("from"), "/");
+  const assetId = searchParams.get("asset_id")?.trim() ?? ""
+  const selectedEpisodeId = searchParams.get("episode_id")?.trim() ?? ""
+  const selectedLanesParam = searchParams.get("lanes")
+  const selectedLanesFromUrl = React.useMemo(
+    () => parseLaneIds(selectedLanesParam),
+    [selectedLanesParam]
+  )
+  const speedFromUrl = parsePositiveNumber(searchParams.get("speed"), 1)
+  const timestampFromUrl = parseTimestampNs(searchParams.get("timestamp_ns"))
+  const returnHref = resolveReturnHref(searchParams.get("from"), "/")
 
-  const [isPlaying, setIsPlaying] = React.useState(false);
-  const [speed, setSpeed] = React.useState(speedFromUrl);
-  const [currentTimestampNs, setCurrentTimestampNs] = React.useState<number | null>(timestampFromUrl);
-  const [selectedLaneIds, setSelectedLaneIds] = React.useState<string[]>(selectedLanesFromUrl);
-  const [isScrubberDragging, setIsScrubberDragging] = React.useState(false);
-  const stepSizeNs = 100_000_000;
+  const [isPlaying, setIsPlaying] = React.useState(false)
+  const [speed, setSpeed] = React.useState(speedFromUrl)
+  const [currentTimestampNs, setCurrentTimestampNs] = React.useState<
+    number | null
+  >(timestampFromUrl)
+  const [selectedLaneIds, setSelectedLaneIds] =
+    React.useState<string[]>(selectedLanesFromUrl)
+  const [isScrubberDragging, setIsScrubberDragging] = React.useState(false)
+  const stepSizeNs = 100_000_000
 
-  const assetResponse = useAsset(assetId);
-  const episodesResponse = useAssetEpisodes(assetId);
+  const assetResponse = useAsset(assetId)
+  const episodesResponse = useAssetEpisodes(assetId)
 
-  const episodes = episodesResponse.data ?? [];
-  const resolvedEpisodeId = selectedEpisodeId || (episodes.length === 1 ? episodes[0].episode_id : "");
+  const episodes = episodesResponse.data ?? []
+  const resolvedEpisodeId =
+    selectedEpisodeId || (episodes.length === 1 ? episodes[0].episode_id : "")
 
-  const episodeResponse = useAssetEpisode(assetId, resolvedEpisodeId);
-  const timelineResponse = useEpisodeTimeline(assetId, resolvedEpisodeId);
-  const viewerSourceResponse = useEpisodeViewerSource(assetId, resolvedEpisodeId);
-  const prepareVisualization = usePrepareVisualization();
-  const [preparationJobId, setPreparationJobId] = React.useState<string | null>(null);
+  const episodeResponse = useAssetEpisode(assetId, resolvedEpisodeId)
+  const selectedEpisode =
+    episodes.find((episode) => episode.episode_id === resolvedEpisodeId) ?? null
+  const hasVisualizableData =
+    (episodeResponse.data?.has_visualizable_streams ??
+      selectedEpisode?.has_visualizable_streams) !== false
+  const timelineResponse = useEpisodeTimeline(assetId, resolvedEpisodeId)
+  const viewerSourceResponse = useEpisodeViewerSource(
+    assetId,
+    resolvedEpisodeId
+  )
+  const prepareVisualization = usePrepareVisualization()
+  const [preparationJobId, setPreparationJobId] = React.useState<string | null>(
+    null
+  )
+  const autoPreparationAttemptKeyRef = React.useRef<string | null>(null)
 
   const effectiveViewerSourceJobId =
-    viewerSourceResponse.data?.job_id ?? viewerSourceResponse.data?.preparation_job_id ?? preparationJobId;
-  const preparationJobResponse = useJob(effectiveViewerSourceJobId ?? "");
+    viewerSourceResponse.data?.job_id ??
+    viewerSourceResponse.data?.preparation_job_id ??
+    preparationJobId
+  const preparationJobResponse = useJob(effectiveViewerSourceJobId ?? "")
 
-  const timeline = timelineResponse.data;
-  const timelineStartNs = timeline?.start_timestamp_ns ?? timeline?.start_time_ns ?? 0;
+  const timeline = timelineResponse.data
+  const timelineStartNs =
+    timeline?.start_timestamp_ns ?? timeline?.start_time_ns ?? 0
   const timelineEndNs =
     timeline?.end_timestamp_ns ??
     timeline?.end_time_ns ??
-    (timeline?.duration_ns ? timelineStartNs + timeline.duration_ns : timelineStartNs + 1_000_000_000);
-  const timelineLanes = React.useMemo(() => timeline?.lanes ?? [], [timeline?.lanes]);
-  const availableLaneIds = React.useMemo(() => new Set(timelineLanes.map((lane) => lane.stream_id)), [timelineLanes]);
+    (timeline?.duration_ns
+      ? timelineStartNs + timeline.duration_ns
+      : timelineStartNs + 1_000_000_000)
+  const timelineLanes = React.useMemo(
+    () => timeline?.lanes ?? [],
+    [timeline?.lanes]
+  )
+  const availableLaneIds = React.useMemo(
+    () => new Set(timelineLanes.map((lane) => lane.stream_id)),
+    [timelineLanes]
+  )
   const normalizedSelectedLaneIds = React.useMemo(() => {
-    const filtered = selectedLaneIds.filter((laneId) => availableLaneIds.has(laneId));
-    return filtered.length > 0 ? filtered : timelineLanes.map((lane) => lane.stream_id);
-  }, [availableLaneIds, selectedLaneIds, timelineLanes]);
-  const selectedLaneIdSet = React.useMemo(() => new Set(normalizedSelectedLaneIds), [normalizedSelectedLaneIds]);
+    const filtered = selectedLaneIds.filter((laneId) =>
+      availableLaneIds.has(laneId)
+    )
+    return filtered.length > 0
+      ? filtered
+      : timelineLanes.map((lane) => lane.stream_id)
+  }, [availableLaneIds, selectedLaneIds, timelineLanes])
+  const selectedLaneIdSet = React.useMemo(
+    () => new Set(normalizedSelectedLaneIds),
+    [normalizedSelectedLaneIds]
+  )
   const selectedLaneTopicSet = React.useMemo(
     () =>
       new Set(
         timelineLanes
           .filter((lane) => selectedLaneIdSet.has(lane.stream_id))
           .map((lane) => lane.source_topic)
-          .filter((topic): topic is string => Boolean(topic)),
+          .filter((topic): topic is string => Boolean(topic))
       ),
-    [selectedLaneIdSet, timelineLanes],
-  );
+    [selectedLaneIdSet, timelineLanes]
+  )
   const selectedLaneKeySet = React.useMemo(
     () =>
       new Set(
         timelineLanes
           .filter((lane) => selectedLaneIdSet.has(lane.stream_id))
           .map((lane) => lane.stream_key)
-          .filter((streamKey): streamKey is string => Boolean(streamKey)),
+          .filter((streamKey): streamKey is string => Boolean(streamKey))
       ),
-    [selectedLaneIdSet, timelineLanes],
-  );
-  const samplesWindowNs = Math.max(stepSizeNs * 10, 1_000_000_000);
+    [selectedLaneIdSet, timelineLanes]
+  )
+  const samplesWindowNs = Math.max(stepSizeNs * 10, 1_000_000_000)
+  const replay = useEpisodeReplay({
+    assetId,
+    cursorNs: currentTimestampNs,
+    enabled: Boolean(
+      assetId && resolvedEpisodeId && currentTimestampNs !== null
+    ),
+    episodeId: resolvedEpisodeId,
+    interactionMode: isScrubberDragging
+      ? "dragging"
+      : isPlaying
+        ? "playing"
+        : "idle",
+    isPlaying,
+    speed,
+    streamIds: normalizedSelectedLaneIds,
+    windowAfterNs: samplesWindowNs,
+    windowBeforeNs: samplesWindowNs,
+  })
 
   const samplesQuery = React.useMemo(() => {
     if (!assetId || !resolvedEpisodeId || currentTimestampNs === null) {
-      return null;
+      return null
     }
 
     return {
@@ -183,228 +245,305 @@ export function VisualizationPage() {
       timestamp_ns: currentTimestampNs,
       window_after_ns: samplesWindowNs,
       window_before_ns: samplesWindowNs,
-    };
-  }, [assetId, currentTimestampNs, normalizedSelectedLaneIds, resolvedEpisodeId, samplesWindowNs]);
+    }
+  }, [
+    assetId,
+    currentTimestampNs,
+    normalizedSelectedLaneIds,
+    resolvedEpisodeId,
+    samplesWindowNs,
+  ])
 
-  const samplesResponse = useEpisodeSamples(assetId, resolvedEpisodeId, samplesQuery);
+  const shouldUseRestSamples =
+    samplesQuery !== null &&
+    (replay.connectionStatus !== "connected" || replay.samples === null)
+  const fallbackSamplesResponse = useEpisodeSamples(
+    assetId,
+    resolvedEpisodeId,
+    shouldUseRestSamples ? samplesQuery : null
+  )
 
-  const viewerSourceStatus = viewerSourceResponse.data?.status ?? "none";
-  const viewerSourceErrorMessage = viewerSourceResponse.data?.error_message ?? null;
-  const isPreparingViewerSource = viewerSourceStatus === "preparing" || prepareVisualization.isPreparing;
-  const isViewerSourceReady = viewerSourceStatus === "ready" && Boolean(viewerSourceResponse.data?.source_url);
+  const viewerSourceStatus = viewerSourceResponse.data?.status ?? "none"
+  const viewerSourceErrorMessage =
+    viewerSourceResponse.data?.error_message ?? null
+  const isPreparingViewerSource =
+    viewerSourceStatus === "preparing" || prepareVisualization.isPreparing
+  const isViewerSourceReady =
+    viewerSourceStatus === "ready" &&
+    Boolean(viewerSourceResponse.data?.source_url)
   const hasViewerVersionMismatch =
     viewerSourceStatus === "none" &&
     Boolean(viewerSourceErrorMessage) &&
-    /incompatible|version/i.test(viewerSourceErrorMessage ?? "");
+    /incompatible|version/i.test(viewerSourceErrorMessage ?? "")
+  const autoPrepareViewerSourceKey =
+    assetId &&
+    resolvedEpisodeId &&
+    hasVisualizableData &&
+    viewerSourceStatus === "none"
+      ? `${assetId}:${resolvedEpisodeId}:${hasViewerVersionMismatch ? "viewer-version-mismatch" : "missing-viewer-source"}`
+      : null
 
   const updateVisualizeState = React.useCallback(
     (updates: Record<string, string | null>) => {
-      const nextParams = new URLSearchParams(searchParamsString);
+      const nextParams = new URLSearchParams(searchParamsString)
 
       for (const [key, value] of Object.entries(updates)) {
-        const normalized = value?.trim() ?? "";
+        const normalized = value?.trim() ?? ""
         if (!normalized) {
-          nextParams.delete(key);
+          nextParams.delete(key)
         } else {
-          nextParams.set(key, normalized);
+          nextParams.set(key, normalized)
         }
       }
 
-      const nextQuery = nextParams.toString();
+      const nextQuery = nextParams.toString()
       if (nextQuery === searchParamsString) {
-        return;
+        return
       }
 
-      const nextHref = nextQuery ? `${pathname}?${nextQuery}` : pathname;
+      const nextHref = nextQuery ? `${pathname}?${nextQuery}` : pathname
 
       React.startTransition(() => {
-        router.replace(nextHref, { scroll: false });
-      });
+        router.replace(nextHref, { scroll: false })
+      })
     },
-    [pathname, router, searchParamsString],
-  );
+    [pathname, router, searchParamsString]
+  )
 
   const seekTo = React.useCallback(
     (timestampNs: number, options?: { updateUrl?: boolean }) => {
-      const clampedTimestamp = clamp(Math.round(timestampNs), timelineStartNs, timelineEndNs);
-      setCurrentTimestampNs(clampedTimestamp);
+      const clampedTimestamp = clamp(
+        Math.round(timestampNs),
+        timelineStartNs,
+        timelineEndNs
+      )
+      setCurrentTimestampNs(clampedTimestamp)
 
       if (options?.updateUrl !== false) {
-        updateVisualizeState({ timestamp_ns: String(clampedTimestamp) });
+        updateVisualizeState({ timestamp_ns: String(clampedTimestamp) })
       }
     },
-    [timelineEndNs, timelineStartNs, updateVisualizeState],
-  );
+    [timelineEndNs, timelineStartNs, updateVisualizeState]
+  )
 
   function onSelectEpisode(nextEpisodeId: string) {
     if (!assetId || !nextEpisodeId) {
-      return;
+      return
     }
 
     const nextHref = buildReplayHref({
       assetId,
       episodeId: nextEpisodeId,
       from: returnHref,
-    });
+    })
 
     React.startTransition(() => {
-      router.replace(nextHref, { scroll: false });
-    });
+      router.replace(nextHref, { scroll: false })
+    })
 
-    setIsPlaying(false);
-    setCurrentTimestampNs(null);
+    setIsPlaying(false)
+    setCurrentTimestampNs(null)
   }
 
   function onToggleLane(streamId: string) {
     setSelectedLaneIds((current) => {
-      const next = new Set(current);
+      const next = new Set(current)
       if (next.has(streamId)) {
-        next.delete(streamId);
+        next.delete(streamId)
       } else {
-        next.add(streamId);
+        next.add(streamId)
       }
 
-      const normalized = Array.from(next).filter((laneId) => availableLaneIds.has(laneId));
-      updateVisualizeState({ lanes: normalized.length > 0 ? normalized.join(",") : null });
-      setIsPlaying(false);
-      return normalized;
-    });
+      const normalized = Array.from(next).filter((laneId) =>
+        availableLaneIds.has(laneId)
+      )
+      updateVisualizeState({
+        lanes: normalized.length > 0 ? normalized.join(",") : null,
+      })
+      setIsPlaying(false)
+      return normalized
+    })
   }
 
   function setPlaybackSpeed(nextSpeed: number) {
-    setSpeed(nextSpeed);
-    updateVisualizeState({ speed: String(nextSpeed) });
+    setSpeed(nextSpeed)
+    updateVisualizeState({ speed: String(nextSpeed) })
   }
 
   React.useEffect(() => {
     setSelectedLaneIds((current) => {
-      if (current.length === selectedLanesFromUrl.length && current.every((value, index) => value === selectedLanesFromUrl[index])) {
-        return current;
+      if (
+        current.length === selectedLanesFromUrl.length &&
+        current.every((value, index) => value === selectedLanesFromUrl[index])
+      ) {
+        return current
       }
 
-      return selectedLanesFromUrl;
-    });
-  }, [selectedLanesFromUrl]);
+      return selectedLanesFromUrl
+    })
+  }, [selectedLanesFromUrl])
 
   React.useEffect(() => {
-    setSpeed(speedFromUrl);
-  }, [speedFromUrl]);
+    setSpeed(speedFromUrl)
+  }, [speedFromUrl])
 
   React.useEffect(() => {
     if (timelineStartNs >= timelineEndNs) {
-      return;
+      return
     }
 
     if (currentTimestampNs === null) {
-      const initialTimestamp = timestampFromUrl ?? timelineStartNs;
-      seekTo(initialTimestamp, { updateUrl: timestampFromUrl === null });
-      return;
+      const initialTimestamp = timestampFromUrl ?? timelineStartNs
+      seekTo(initialTimestamp, { updateUrl: timestampFromUrl === null })
+      return
     }
 
-    if (currentTimestampNs < timelineStartNs || currentTimestampNs > timelineEndNs) {
-      seekTo(currentTimestampNs, { updateUrl: true });
+    if (
+      currentTimestampNs < timelineStartNs ||
+      currentTimestampNs > timelineEndNs
+    ) {
+      seekTo(currentTimestampNs, { updateUrl: true })
     }
-  }, [currentTimestampNs, seekTo, timelineEndNs, timelineStartNs, timestampFromUrl]);
+  }, [
+    currentTimestampNs,
+    seekTo,
+    timelineEndNs,
+    timelineStartNs,
+    timestampFromUrl,
+  ])
 
   React.useEffect(() => {
     if (!isPlaying || currentTimestampNs === null) {
-      return;
+      return
     }
 
-    let lastTick = performance.now();
+    let lastTick = performance.now()
     const intervalId = window.setInterval(() => {
-      const now = performance.now();
-      const deltaMs = now - lastTick;
-      lastTick = now;
+      const now = performance.now()
+      const deltaMs = now - lastTick
+      lastTick = now
 
       setCurrentTimestampNs((current) => {
         if (current === null) {
-          return current;
+          return current
         }
 
-        const next = clamp(Math.round(current + deltaMs * 1_000_000 * speed), timelineStartNs, timelineEndNs);
+        const next = clamp(
+          Math.round(current + deltaMs * 1_000_000 * speed),
+          timelineStartNs,
+          timelineEndNs
+        )
         if (next >= timelineEndNs) {
-          setIsPlaying(false);
+          setIsPlaying(false)
         }
 
-        return next;
-      });
-    }, 100);
+        return next
+      })
+    }, 100)
 
-    return () => window.clearInterval(intervalId);
-  }, [currentTimestampNs, isPlaying, speed, timelineEndNs, timelineStartNs]);
-
-  React.useEffect(() => {
-    if (!isPlaying && !isScrubberDragging) {
-      return;
-    }
-
-    const intervalId = window.setInterval(() => {
-      void samplesResponse.mutate();
-    }, 900);
-
-    return () => window.clearInterval(intervalId);
-  }, [isPlaying, isScrubberDragging, samplesResponse]);
+    return () => window.clearInterval(intervalId)
+  }, [currentTimestampNs, isPlaying, speed, timelineEndNs, timelineStartNs])
 
   React.useEffect(() => {
     if (isScrubberDragging || currentTimestampNs === null) {
-      return;
+      return
     }
 
     if (searchParams.get("timestamp_ns") === String(currentTimestampNs)) {
-      return;
+      return
     }
 
-    updateVisualizeState({ timestamp_ns: String(currentTimestampNs) });
-  }, [currentTimestampNs, isScrubberDragging, searchParams, updateVisualizeState]);
+    updateVisualizeState({ timestamp_ns: String(currentTimestampNs) })
+  }, [
+    currentTimestampNs,
+    isScrubberDragging,
+    searchParams,
+    updateVisualizeState,
+  ])
 
   React.useEffect(() => {
     if (!resolvedEpisodeId) {
-      return;
+      return
     }
 
     if (!isPreparingViewerSource) {
-      return;
+      return
     }
 
     const intervalId = window.setInterval(() => {
-      void viewerSourceResponse.mutate();
+      void viewerSourceResponse.mutate()
       if (effectiveViewerSourceJobId) {
-        void preparationJobResponse.mutate();
+        void preparationJobResponse.mutate()
       }
-    }, 1500);
+    }, 1500)
 
-    return () => window.clearInterval(intervalId);
+    return () => window.clearInterval(intervalId)
   }, [
     effectiveViewerSourceJobId,
     isPreparingViewerSource,
     preparationJobResponse,
     resolvedEpisodeId,
     viewerSourceResponse,
-  ]);
+  ])
 
   React.useEffect(() => {
     if (viewerSourceResponse.data?.job_id) {
-      setPreparationJobId(viewerSourceResponse.data.job_id);
+      setPreparationJobId(viewerSourceResponse.data.job_id)
     }
-  }, [viewerSourceResponse.data?.job_id]);
+  }, [viewerSourceResponse.data?.job_id])
 
-  async function onPrepareVisualization() {
+  const onPrepareVisualization = React.useCallback(async () => {
     if (!assetId || !resolvedEpisodeId) {
-      return;
+      return
     }
 
-    prepareVisualization.reset();
+    prepareVisualization.reset()
 
     try {
-      const response = await prepareVisualization.trigger(assetId, resolvedEpisodeId);
-      setPreparationJobId(response.job.id);
-      await viewerSourceResponse.mutate();
-      await preparationJobResponse.mutate();
+      const response = await prepareVisualization.trigger(
+        assetId,
+        resolvedEpisodeId
+      )
+      setPreparationJobId(response.job.id)
+      await viewerSourceResponse.mutate()
+      await preparationJobResponse.mutate()
     } catch {
       // Error rendering is handled through prepareVisualization.error and existing alerts.
     }
-  }
+  }, [
+    assetId,
+    preparationJobResponse,
+    prepareVisualization,
+    resolvedEpisodeId,
+    viewerSourceResponse,
+  ])
+
+  React.useEffect(() => {
+    if (!autoPrepareViewerSourceKey) {
+      return
+    }
+
+    if (
+      viewerSourceResponse.isLoading ||
+      viewerSourceResponse.error ||
+      prepareVisualization.isPreparing
+    ) {
+      return
+    }
+
+    if (autoPreparationAttemptKeyRef.current === autoPrepareViewerSourceKey) {
+      return
+    }
+
+    autoPreparationAttemptKeyRef.current = autoPrepareViewerSourceKey
+    void onPrepareVisualization()
+  }, [
+    autoPrepareViewerSourceKey,
+    onPrepareVisualization,
+    prepareVisualization.isPreparing,
+    viewerSourceResponse.error,
+    viewerSourceResponse.isLoading,
+  ])
 
   if (!assetId) {
     return (
@@ -417,19 +556,22 @@ export function VisualizationPage() {
         </Button>
         <Alert variant="destructive">
           <AlertTitle>Missing asset</AlertTitle>
-          <AlertDescription>Open replay from inventory or asset detail so an asset ID is provided.</AlertDescription>
+          <AlertDescription>
+            Open replay from inventory or asset detail so an asset ID is
+            provided.
+          </AlertDescription>
         </Alert>
       </div>
-    );
+    )
   }
 
   if (assetResponse.isLoading || episodesResponse.isLoading) {
-    return <VisualizationShellSkeleton />;
+    return <VisualizationShellSkeleton />
   }
 
   if (assetResponse.error || episodesResponse.error) {
-    const error = assetResponse.error ?? episodesResponse.error;
-    const isNotFound = error instanceof BackendApiError && error.status === 404;
+    const error = assetResponse.error ?? episodesResponse.error
+    const isNotFound = error instanceof BackendApiError && error.status === 404
 
     return (
       <div className="space-y-4">
@@ -440,16 +582,18 @@ export function VisualizationPage() {
           </Link>
         </Button>
         <Alert variant="destructive">
-          <AlertTitle>{isNotFound ? "Replay data not found" : "Could not load replay"}</AlertTitle>
+          <AlertTitle>
+            {isNotFound ? "Replay data not found" : "Could not load replay"}
+          </AlertTitle>
           <AlertDescription>{getErrorMessage(error)}</AlertDescription>
         </Alert>
       </div>
-    );
+    )
   }
 
-  const assetDetail = assetResponse.data;
+  const assetDetail = assetResponse.data
   if (!assetDetail) {
-    return null;
+    return null
   }
 
   if (episodes.length === 0) {
@@ -464,34 +608,49 @@ export function VisualizationPage() {
         <Alert>
           <AlertTitle>No episodes available</AlertTitle>
           <AlertDescription>
-            This asset does not expose replay episode data yet. Run indexing or replay-preparation jobs and try again.
+            This asset does not expose replay episode data yet. Run indexing or
+            replay-preparation jobs and try again.
           </AlertDescription>
         </Alert>
       </div>
-    );
+    )
   }
 
-  const selectedEpisode = episodes.find((episode) => episode.episode_id === resolvedEpisodeId) ?? null;
-  const hasVisualizableData =
-    (episodeResponse.data?.has_visualizable_streams ?? selectedEpisode?.has_visualizable_streams) !== false;
-  const effectiveTimestampNs = currentTimestampNs ?? timelineStartNs;
-  const cursorOffsetNs = Math.max(0, effectiveTimestampNs - timelineStartNs);
-  const stepBackwardDisabled = effectiveTimestampNs <= timelineStartNs;
-  const stepForwardDisabled = effectiveTimestampNs >= timelineEndNs;
-  const responseTimestampNs = samplesResponse.data?.requested_timestamp_ns ?? null;
-  const hasSamplesForActiveCursor = responseTimestampNs === effectiveTimestampNs;
+  const effectiveTimestampNs = currentTimestampNs ?? timelineStartNs
+  const cursorOffsetNs = Math.max(0, effectiveTimestampNs - timelineStartNs)
+  const stepBackwardDisabled = effectiveTimestampNs <= timelineStartNs
+  const stepForwardDisabled = effectiveTimestampNs >= timelineEndNs
+  const confirmedSamplesResponse =
+    replay.samples ?? fallbackSamplesResponse.data ?? null
+  const confirmedResponseTimestampNs =
+    confirmedSamplesResponse?.requested_timestamp_ns ?? null
+  const isRealtimePayloadPending =
+    replay.connectionStatus === "connected" &&
+    replay.lastRequestedRevision > replay.lastPayloadRevision
+  const isPayloadLoading =
+    Boolean(resolvedEpisodeId) &&
+    (replay.connectionStatus === "connecting" ||
+      isRealtimePayloadPending ||
+      (shouldUseRestSamples && fallbackSamplesResponse.isLoading) ||
+      confirmedResponseTimestampNs !== effectiveTimestampNs)
+  const replayTransportLabel =
+    replay.connectionStatus === "connected"
+      ? "Realtime replay"
+      : replay.connectionStatus === "connecting"
+        ? "Realtime connecting"
+        : "REST fallback"
   const selectedSamples = (() => {
-    const data = hasSamplesForActiveCursor ? samplesResponse.data : null;
+    const data = confirmedSamplesResponse
     if (!data) {
       return [] as Array<{
-        message_type: string;
-        modality: string;
-        payload: unknown;
-        selection_strategy?: "nearest" | "window";
-        stream_id: string;
-        timestamp_ns: number;
-        topic_name: string;
-      }>;
+        message_type: string
+        modality: string
+        payload: unknown
+        selection_strategy?: "latest_at_or_before" | "window"
+        stream_id: string
+        timestamp_ns: number
+        topic_name: string
+      }>
     }
 
     if (Array.isArray(data.streams) && data.streams.length > 0) {
@@ -499,8 +658,12 @@ export function VisualizationPage() {
         .filter(
           (stream) =>
             selectedLaneIdSet.has(stream.stream_id) ||
-            (stream.source_topic ? selectedLaneTopicSet.has(stream.source_topic) : false) ||
-            (stream.stream_key ? selectedLaneKeySet.has(stream.stream_key) : false),
+            (stream.source_topic
+              ? selectedLaneTopicSet.has(stream.source_topic)
+              : false) ||
+            (stream.stream_key
+              ? selectedLaneKeySet.has(stream.stream_key)
+              : false)
         )
         .flatMap((stream) =>
           (stream.samples ?? []).map((sample) => ({
@@ -511,16 +674,20 @@ export function VisualizationPage() {
             stream_id: stream.stream_id,
             timestamp_ns: sample.timestamp_ns,
             topic_name: stream.source_topic,
-          })),
-        );
+          }))
+        )
     }
 
     return (data.samples ?? [])
       .filter(
         (sample) =>
           selectedLaneIdSet.has(sample.stream_id) ||
-          (sample.topic_name ? selectedLaneTopicSet.has(sample.topic_name) : false) ||
-          (sample.message_type ? selectedLaneKeySet.has(sample.message_type) : false),
+          (sample.topic_name
+            ? selectedLaneTopicSet.has(sample.topic_name)
+            : false) ||
+          (sample.message_type
+            ? selectedLaneKeySet.has(sample.message_type)
+            : false)
       )
       .map((sample) => ({
         message_type: sample.message_type ?? "Unknown",
@@ -530,17 +697,19 @@ export function VisualizationPage() {
         stream_id: sample.stream_id,
         timestamp_ns: sample.timestamp_ns,
         topic_name: sample.topic_name ?? sample.stream_id,
-      }));
-  })();
-  const payloadsByStreamId = selectedSamples.reduce<Record<string, Array<{ payload: unknown; timestamp_ns: number }>>>(
-    (accumulator, sample) => {
-      const existingSamples = accumulator[sample.stream_id] ?? [];
-      existingSamples.push({ payload: sample.payload, timestamp_ns: sample.timestamp_ns });
-      accumulator[sample.stream_id] = existingSamples;
-      return accumulator;
-    },
-    {},
-  );
+      }))
+  })()
+  const payloadsByStreamId = selectedSamples.reduce<
+    Record<string, Array<{ payload: unknown; timestamp_ns: number }>>
+  >((accumulator, sample) => {
+    const existingSamples = accumulator[sample.stream_id] ?? []
+    existingSamples.push({
+      payload: sample.payload,
+      timestamp_ns: sample.timestamp_ns,
+    })
+    accumulator[sample.stream_id] = existingSamples
+    return accumulator
+  }, {})
 
   return (
     <div className="space-y-6">
@@ -559,26 +728,44 @@ export function VisualizationPage() {
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant="outline">Asset {assetId}</Badge>
-            {selectedEpisode ? <Badge variant="secondary">Episode {selectedEpisode.label}</Badge> : null}
+            {selectedEpisode ? (
+              <Badge variant="secondary">Episode {selectedEpisode.label}</Badge>
+            ) : null}
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
           <dl className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <div>
-              <dt className="text-xs uppercase tracking-wide text-muted-foreground">Duration</dt>
-              <dd className="text-sm font-medium">{formatDuration(selectedEpisode?.duration)}</dd>
+              <dt className="text-xs tracking-wide text-muted-foreground uppercase">
+                Duration
+              </dt>
+              <dd className="text-sm font-medium">
+                {formatDuration(selectedEpisode?.duration)}
+              </dd>
             </div>
             <div>
-              <dt className="text-xs uppercase tracking-wide text-muted-foreground">Start</dt>
-              <dd className="text-sm font-medium">{formatDateTime(selectedEpisode?.start_time)}</dd>
+              <dt className="text-xs tracking-wide text-muted-foreground uppercase">
+                Start
+              </dt>
+              <dd className="text-sm font-medium">
+                {formatDateTime(selectedEpisode?.start_time)}
+              </dd>
             </div>
             <div>
-              <dt className="text-xs uppercase tracking-wide text-muted-foreground">End</dt>
-              <dd className="text-sm font-medium">{formatDateTime(selectedEpisode?.end_time)}</dd>
+              <dt className="text-xs tracking-wide text-muted-foreground uppercase">
+                End
+              </dt>
+              <dd className="text-sm font-medium">
+                {formatDateTime(selectedEpisode?.end_time)}
+              </dd>
             </div>
             <div>
-              <dt className="text-xs uppercase tracking-wide text-muted-foreground">Lane count</dt>
-              <dd className="text-sm font-medium">{selectedEpisode?.default_lane_count ?? "Not available"}</dd>
+              <dt className="text-xs tracking-wide text-muted-foreground uppercase">
+                Lane count
+              </dt>
+              <dd className="text-sm font-medium">
+                {selectedEpisode?.default_lane_count ?? "Not available"}
+              </dd>
             </div>
           </dl>
 
@@ -586,14 +773,18 @@ export function VisualizationPage() {
             <Alert>
               <AlertTitle>Select an episode</AlertTitle>
               <AlertDescription>
-                This asset has multiple episodes. Choose one to load replay playback data.
+                This asset has multiple episodes. Choose one to load replay
+                playback data.
               </AlertDescription>
             </Alert>
           ) : null}
 
           {episodes.length > 1 ? (
             <div className="max-w-sm space-y-2">
-              <label className="text-xs uppercase tracking-wide text-muted-foreground" htmlFor="episode-picker">
+              <label
+                className="text-xs tracking-wide text-muted-foreground uppercase"
+                htmlFor="episode-picker"
+              >
                 Episode
               </label>
               <NativeSelect
@@ -615,7 +806,8 @@ export function VisualizationPage() {
             <Alert>
               <AlertTitle>Episode has no supported replay data</AlertTitle>
               <AlertDescription>
-                This episode is available but does not currently expose streams supported by the replay workflow.
+                This episode is available but does not currently expose streams
+                supported by the replay workflow.
               </AlertDescription>
             </Alert>
           ) : null}
@@ -623,15 +815,13 @@ export function VisualizationPage() {
       </Card>
 
       <Card>
-        <CardHeader>
-          <CardTitle>Replay source</CardTitle>
-          <CardDescription>Source preparation status for the replay workflow and scrubber-backed inspection.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
+        <CardContent className="space-y-3 pt-6">
           {!resolvedEpisodeId ? (
             <Alert>
               <AlertTitle>Replay source is waiting for an episode</AlertTitle>
-              <AlertDescription>Select an episode to load replay-source status.</AlertDescription>
+              <AlertDescription>
+                Select an episode to load replay-source status.
+              </AlertDescription>
             </Alert>
           ) : viewerSourceResponse.isLoading && !viewerSourceResponse.data ? (
             <Skeleton className="h-24 rounded-lg" />
@@ -639,9 +829,16 @@ export function VisualizationPage() {
             <div className="space-y-3">
               <Alert variant="destructive">
                 <AlertTitle>Could not load replay source</AlertTitle>
-                <AlertDescription>{getErrorMessage(viewerSourceResponse.error)}</AlertDescription>
+                <AlertDescription>
+                  {getErrorMessage(viewerSourceResponse.error)}
+                </AlertDescription>
               </Alert>
-              <Button onClick={() => void viewerSourceResponse.mutate()} size="sm" type="button" variant="outline">
+              <Button
+                onClick={() => void viewerSourceResponse.mutate()}
+                size="sm"
+                type="button"
+                variant="outline"
+              >
                 Retry loading source
               </Button>
             </div>
@@ -649,7 +846,9 @@ export function VisualizationPage() {
             <div className="space-y-3">
               <Alert variant="destructive">
                 <AlertTitle>Could not prepare replay source</AlertTitle>
-                <AlertDescription>{getErrorMessage(prepareVisualization.error)}</AlertDescription>
+                <AlertDescription>
+                  {getErrorMessage(prepareVisualization.error)}
+                </AlertDescription>
               </Alert>
               <Button
                 disabled={prepareVisualization.isPreparing}
@@ -657,7 +856,9 @@ export function VisualizationPage() {
                 size="sm"
                 type="button"
               >
-                {prepareVisualization.isPreparing ? "Preparing..." : "Retry prepare replay"}
+                {prepareVisualization.isPreparing
+                  ? "Preparing..."
+                  : "Retry prepare replay"}
               </Button>
             </div>
           ) : isViewerSourceReady ? (
@@ -665,41 +866,36 @@ export function VisualizationPage() {
               <div className="flex flex-wrap items-center gap-2">
                 <WorkflowStatusBadge status="succeeded" />
                 {viewerSourceResponse.data?.viewer_version ? (
-                  <Badge variant="outline">Viewer v{viewerSourceResponse.data.viewer_version}</Badge>
+                  <Badge variant="outline">
+                    Viewer v{viewerSourceResponse.data.viewer_version}
+                  </Badge>
                 ) : null}
                 {viewerSourceResponse.data?.recording_version ? (
-                  <Badge variant="outline">Recording v{viewerSourceResponse.data.recording_version}</Badge>
+                  <Badge variant="outline">
+                    Recording v{viewerSourceResponse.data.recording_version}
+                  </Badge>
                 ) : null}
                 {viewerSourceResponse.data?.source_kind ? (
                   <Badge variant="outline">
-                    {viewerSourceResponse.data.source_kind === "grpc_url" ? "gRPC stream" : "RRD recording"}
+                    {viewerSourceResponse.data.source_kind === "grpc_url"
+                      ? "gRPC stream"
+                      : "RRD recording"}
                   </Badge>
                 ) : null}
               </div>
 
-              <Alert>
-                <AlertTitle>Replay source ready</AlertTitle>
-                <AlertDescription>
-                  The embedded Rerun viewer is temporarily disabled. Replay timeline controls and lane payload
-                  inspection below remain available.
-                </AlertDescription>
-              </Alert>
-
-              {viewerSourceResponse.data?.artifact_path ? (
-                <div className="rounded-lg border bg-muted/20 px-3 py-3">
-                  <p className="text-xs uppercase tracking-wide text-muted-foreground">Artifact path</p>
-                  <p className="mt-1 break-all text-sm text-foreground">{viewerSourceResponse.data.artifact_path}</p>
-                </div>
+              {viewerSourceResponse.data?.source_url ? (
+                <RerunViewer
+                  currentTimestampNs={effectiveTimestampNs}
+                  isPlaying={isPlaying}
+                  sourceKind={viewerSourceResponse.data.source_kind}
+                  sourceUrl={viewerSourceResponse.data.source_url}
+                  updatedAt={viewerSourceResponse.data.updated_at}
+                  viewerVersion={viewerSourceResponse.data.viewer_version}
+                />
               ) : null}
 
               <div className="flex flex-wrap gap-2">
-                {viewerSourceResponse.data?.source_url ? (
-                  <Button asChild size="sm" type="button" variant="outline">
-                    <a href={resolveBackendUrl(viewerSourceResponse.data.source_url)} rel="noreferrer" target="_blank">
-                      Open source URL
-                    </a>
-                  </Button>
-                ) : null}
                 <Button
                   disabled={prepareVisualization.isPreparing}
                   onClick={() => void onPrepareVisualization()}
@@ -707,7 +903,9 @@ export function VisualizationPage() {
                   type="button"
                   variant="outline"
                 >
-                  {prepareVisualization.isPreparing ? "Preparing..." : "Regenerate replay source"}
+                  {prepareVisualization.isPreparing
+                    ? "Preparing..."
+                    : "Regenerate replay source"}
                 </Button>
               </div>
             </div>
@@ -716,23 +914,27 @@ export function VisualizationPage() {
               <Alert>
                 <AlertTitle>Preparing replay source</AlertTitle>
                 <AlertDescription>
-                  Replay source generation is in progress. Timeline controls and lane payloads remain available while
-                  preparation runs.
+                  Replay source generation is in progress. Timeline controls and
+                  lane payloads remain available while preparation runs.
                 </AlertDescription>
               </Alert>
 
               <div className="flex flex-wrap items-center gap-2">
                 <WorkflowStatusBadge
-                  status={preparationJobResponse.data?.status ?? (prepareVisualization.isPreparing ? "running" : "queued")}
+                  status={
+                    preparationJobResponse.data?.status ??
+                    (prepareVisualization.isPreparing ? "running" : "queued")
+                  }
                 />
-                {effectiveViewerSourceJobId ? <Badge variant="outline">Job {effectiveViewerSourceJobId}</Badge> : null}
-                <Button
-                  asChild
-                  size="sm"
-                  type="button"
-                  variant="outline"
-                >
-                  <Link href={`/jobs/${effectiveViewerSourceJobId}?from=${encodeURIComponent(pathname + (searchParamsString ? `?${searchParamsString}` : ""))}`}>
+                {effectiveViewerSourceJobId ? (
+                  <Badge variant="outline">
+                    Job {effectiveViewerSourceJobId}
+                  </Badge>
+                ) : null}
+                <Button asChild size="sm" type="button" variant="outline">
+                  <Link
+                    href={`/jobs/${effectiveViewerSourceJobId}?from=${encodeURIComponent(pathname + (searchParamsString ? `?${searchParamsString}` : ""))}`}
+                  >
                     Open job
                   </Link>
                 </Button>
@@ -743,7 +945,8 @@ export function VisualizationPage() {
               <Alert variant="destructive">
                 <AlertTitle>Replay source preparation failed</AlertTitle>
                 <AlertDescription>
-                  {viewerSourceResponse.data?.error_message ?? "Preparation job failed before a usable source was produced."}
+                  {viewerSourceResponse.data?.error_message ??
+                    "Preparation job failed before a usable source was produced."}
                 </AlertDescription>
               </Alert>
               <div className="flex flex-wrap gap-2">
@@ -753,11 +956,15 @@ export function VisualizationPage() {
                   size="sm"
                   type="button"
                 >
-                  {prepareVisualization.isPreparing ? "Preparing..." : "Retry prepare replay"}
+                  {prepareVisualization.isPreparing
+                    ? "Preparing..."
+                    : "Retry prepare replay"}
                 </Button>
                 {effectiveViewerSourceJobId ? (
                   <Button asChild size="sm" type="button" variant="outline">
-                    <Link href={`/jobs/${effectiveViewerSourceJobId}?from=${encodeURIComponent(pathname + (searchParamsString ? `?${searchParamsString}` : ""))}`}>
+                    <Link
+                      href={`/jobs/${effectiveViewerSourceJobId}?from=${encodeURIComponent(pathname + (searchParamsString ? `?${searchParamsString}` : ""))}`}
+                    >
                       Open job
                     </Link>
                   </Button>
@@ -768,23 +975,8 @@ export function VisualizationPage() {
             <div className="space-y-3">
               <Alert variant="destructive">
                 <AlertTitle>Replay source version mismatch</AlertTitle>
-                <AlertDescription>{viewerSourceResponse.data?.error_message}</AlertDescription>
-              </Alert>
-              <Button
-                disabled={prepareVisualization.isPreparing}
-                onClick={() => void onPrepareVisualization()}
-                size="sm"
-                type="button"
-              >
-                {prepareVisualization.isPreparing ? "Preparing..." : "Regenerate replay source"}
-              </Button>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              <Alert>
-                <AlertTitle>Replay source unavailable</AlertTitle>
                 <AlertDescription>
-                  Prepare replay to generate a backend-managed source for this episode.
+                  {viewerSourceResponse.data?.error_message}
                 </AlertDescription>
               </Alert>
               <Button
@@ -793,8 +985,20 @@ export function VisualizationPage() {
                 size="sm"
                 type="button"
               >
-                {prepareVisualization.isPreparing ? "Preparing..." : "Prepare replay"}
+                {prepareVisualization.isPreparing
+                  ? "Preparing..."
+                  : "Regenerate replay source"}
               </Button>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <Alert>
+                <AlertTitle>Replay source unavailable</AlertTitle>
+                <AlertDescription>
+                  Replay preparation starts automatically for this episode when
+                  you open the page.
+                </AlertDescription>
+              </Alert>
             </div>
           )}
         </CardContent>
@@ -806,8 +1010,8 @@ export function VisualizationPage() {
             <div className="flex flex-wrap items-center gap-2">
               <Button
                 onClick={() => {
-                  setIsPlaying(false);
-                  seekTo(timelineStartNs);
+                  setIsPlaying(false)
+                  seekTo(timelineStartNs)
                 }}
                 size="sm"
                 type="button"
@@ -817,7 +1021,12 @@ export function VisualizationPage() {
                 Start
               </Button>
               {isPlaying ? (
-                <Button onClick={() => setIsPlaying(false)} size="sm" type="button" variant="secondary">
+                <Button
+                  onClick={() => setIsPlaying(false)}
+                  size="sm"
+                  type="button"
+                  variant="secondary"
+                >
                   <Pause className="size-3.5" />
                   Pause
                 </Button>
@@ -825,10 +1034,10 @@ export function VisualizationPage() {
                 <Button
                   onClick={() => {
                     if (effectiveTimestampNs >= timelineEndNs) {
-                      seekTo(timelineStartNs);
+                      seekTo(timelineStartNs)
                     }
 
-                    setIsPlaying(true);
+                    setIsPlaying(true)
                   }}
                   size="sm"
                   type="button"
@@ -841,8 +1050,8 @@ export function VisualizationPage() {
               <Button
                 disabled={stepBackwardDisabled}
                 onClick={() => {
-                  setIsPlaying(false);
-                  seekTo(effectiveTimestampNs - stepSizeNs);
+                  setIsPlaying(false)
+                  seekTo(effectiveTimestampNs - stepSizeNs)
                 }}
                 size="sm"
                 type="button"
@@ -853,8 +1062,8 @@ export function VisualizationPage() {
               <Button
                 disabled={stepForwardDisabled}
                 onClick={() => {
-                  setIsPlaying(false);
-                  seekTo(effectiveTimestampNs + stepSizeNs);
+                  setIsPlaying(false)
+                  seekTo(effectiveTimestampNs + stepSizeNs)
                 }}
                 size="sm"
                 type="button"
@@ -864,8 +1073,8 @@ export function VisualizationPage() {
               </Button>
               <Button
                 onClick={() => {
-                  setIsPlaying(false);
-                  seekTo(timelineEndNs);
+                  setIsPlaying(false)
+                  seekTo(timelineEndNs)
                 }}
                 size="sm"
                 type="button"
@@ -876,19 +1085,37 @@ export function VisualizationPage() {
               </Button>
             </div>
 
-              <div className="flex flex-wrap items-end gap-3 lg:justify-end">
-                <div className="flex flex-wrap items-center gap-2 lg:justify-end">
-                <Badge variant="outline">Cursor +{formatDurationNs(cursorOffsetNs)}</Badge>
-                <Badge variant="outline">Window ±{formatDurationNs(samplesWindowNs)}</Badge>
-                </div>
+            <div className="flex flex-wrap items-end gap-3 lg:justify-end">
+              <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+                <Badge variant="outline">
+                  Cursor +{formatDurationNs(cursorOffsetNs)}
+                </Badge>
+                <Badge variant="outline">
+                  Window ±{formatDurationNs(samplesWindowNs)}
+                </Badge>
+                <Badge
+                  variant={
+                    replay.connectionStatus === "connected"
+                      ? "secondary"
+                      : "outline"
+                  }
+                >
+                  {replayTransportLabel}
+                </Badge>
+              </div>
 
               <div className="max-w-[140px] space-y-1">
-                <label className="text-xs uppercase tracking-wide text-muted-foreground" htmlFor="playback-speed">
+                <label
+                  className="text-xs tracking-wide text-muted-foreground uppercase"
+                  htmlFor="playback-speed"
+                >
                   Speed
                 </label>
                 <NativeSelect
                   id="playback-speed"
-                  onChange={(event) => setPlaybackSpeed(Number(event.target.value))}
+                  onChange={(event) =>
+                    setPlaybackSpeed(Number(event.target.value))
+                  }
                   value={String(speed)}
                 >
                   <option value="0.5">0.5x</option>
@@ -900,12 +1127,23 @@ export function VisualizationPage() {
             </div>
           </div>
 
+          {replay.error ? (
+            <Alert>
+              <AlertTitle>Realtime replay unavailable</AlertTitle>
+              <AlertDescription>
+                {getErrorMessage(replay.error)}
+              </AlertDescription>
+            </Alert>
+          ) : null}
+
           {resolvedEpisodeId && timelineResponse.isLoading ? (
             <Skeleton className="h-56 rounded-xl" />
           ) : timelineResponse.error ? (
             <Alert variant="destructive">
               <AlertTitle>Could not load timeline</AlertTitle>
-              <AlertDescription>{getErrorMessage(timelineResponse.error)}</AlertDescription>
+              <AlertDescription>
+                {getErrorMessage(timelineResponse.error)}
+              </AlertDescription>
             </Alert>
           ) : timelineLanes.length > 0 ? (
             <VisualizationScrubber
@@ -913,15 +1151,19 @@ export function VisualizationPage() {
               endNs={timelineEndNs}
               lanes={timelineLanes.map((lane) => ({
                 ...lane,
-                label: lane.label || lane.source_topic || lane.stream_key || lane.stream_id,
+                label:
+                  lane.label ||
+                  lane.source_topic ||
+                  lane.stream_key ||
+                  lane.stream_id,
               }))}
               onDragStateChange={setIsScrubberDragging}
               onSeek={(timestampNs) => {
-                setIsPlaying(false);
-                seekTo(timestampNs, { updateUrl: !isScrubberDragging });
+                setIsPlaying(false)
+                seekTo(timestampNs, { updateUrl: !isScrubberDragging })
               }}
               onToggleLane={onToggleLane}
-              isPayloadLoading={Boolean(resolvedEpisodeId) && (samplesResponse.isLoading || !hasSamplesForActiveCursor)}
+              isPayloadLoading={isPayloadLoading}
               payloadByStreamId={payloadsByStreamId}
               selectedLaneIds={normalizedSelectedLaneIds}
               startNs={timelineStartNs}
@@ -930,12 +1172,13 @@ export function VisualizationPage() {
             <Alert>
               <AlertTitle>No timeline lanes available</AlertTitle>
               <AlertDescription>
-                This episode has not returned scrubber lane metadata yet. Check backend timeline payloads and try again.
+                This episode has not returned scrubber lane metadata yet. Check
+                backend timeline payloads and try again.
               </AlertDescription>
             </Alert>
           )}
         </CardContent>
       </Card>
     </div>
-  );
+  )
 }

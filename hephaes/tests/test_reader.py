@@ -155,6 +155,114 @@ class TestROS1Reader:
             assert all(m.topic == "/cmd_vel" for m in result)
             reader.close()
 
+    def test_iter_message_headers_honors_time_bounds(self, tmp_bag_file):
+        msgs = [
+            ("/cmd_vel", 1_000_000_000, {}),
+            ("/cmd_vel", 1_500_000_000, {}),
+            ("/cmd_vel", 2_000_000_000, {}),
+        ]
+        mock_reader = make_mock_any_reader(
+            topics={"/cmd_vel": "geometry_msgs/Twist"},
+            messages=msgs,
+        )
+        with _patch_any_reader(mock_reader):
+            from hephaes.reader import ROS1Reader
+
+            reader = ROS1Reader(str(tmp_bag_file))
+            result = list(
+                reader.iter_message_headers(
+                    topics=["/cmd_vel"],
+                    start_ns=1_500_000_000,
+                    stop_ns=2_000_000_000,
+                )
+            )
+
+            assert result == [("/cmd_vel", 1_500_000_000)]
+            assert mock_reader.messages.call_args.kwargs["start"] == 1_500_000_000
+            assert mock_reader.messages.call_args.kwargs["stop"] == 2_000_000_000
+            reader.close()
+
+    def test_iter_raw_messages_honors_time_bounds_and_topic_filter(self, tmp_bag_file):
+        msgs = [
+            ("/cmd_vel", 1_000_000_000, {}),
+            ("/odom", 1_500_000_000, {}),
+            ("/cmd_vel", 2_000_000_000, {}),
+        ]
+        mock_reader = make_mock_any_reader(
+            topics={"/cmd_vel": "geometry_msgs/Twist", "/odom": "nav_msgs/Odometry"},
+            messages=msgs,
+        )
+        with _patch_any_reader(mock_reader):
+            from hephaes.reader import ROS1Reader
+
+            reader = ROS1Reader(str(tmp_bag_file))
+            result = list(
+                reader.iter_raw_messages(
+                    topics=["/cmd_vel"],
+                    start_ns=1_500_000_000,
+                )
+            )
+
+            assert result == [("/cmd_vel", 2_000_000_000, "geometry_msgs/Twist", b"rawdata")]
+            reader.close()
+
+    def test_read_messages_honors_time_bounds(self, tmp_bag_file):
+        msgs = [
+            ("/cmd_vel", 1_000_000_000, {}),
+            ("/cmd_vel", 1_500_000_000, {}),
+            ("/cmd_vel", 2_000_000_000, {}),
+        ]
+        mock_reader = make_mock_any_reader(
+            topics={"/cmd_vel": "geometry_msgs/Twist"},
+            messages=msgs,
+        )
+        with _patch_any_reader(mock_reader):
+            from hephaes.reader import ROS1Reader
+
+            reader = ROS1Reader(str(tmp_bag_file))
+            result = list(reader.read_messages(start_ns=1_500_000_000, stop_ns=2_000_000_000))
+
+            assert [message.timestamp for message in result] == [1_500_000_000]
+            reader.close()
+
+    def test_read_messages_returns_empty_without_calling_reader_for_empty_range(self, tmp_bag_file):
+        msgs = [
+            ("/cmd_vel", 1_000_000_000, {}),
+            ("/cmd_vel", 2_000_000_000, {}),
+        ]
+        mock_reader = make_mock_any_reader(
+            topics={"/cmd_vel": "geometry_msgs/Twist"},
+            messages=msgs,
+        )
+        with _patch_any_reader(mock_reader):
+            from hephaes.reader import ROS1Reader
+
+            reader = ROS1Reader(str(tmp_bag_file))
+            result = list(reader.read_messages(start_ns=2_000_000_000, stop_ns=2_000_000_000))
+
+            assert result == []
+            mock_reader.messages.assert_not_called()
+            reader.close()
+
+    def test_iter_message_headers_returns_empty_for_start_greater_than_stop(self, tmp_bag_file):
+        msgs = [
+            ("/cmd_vel", 1_000_000_000, {}),
+            ("/cmd_vel", 2_000_000_000, {}),
+        ]
+        mock_reader = make_mock_any_reader(
+            topics={"/cmd_vel": "geometry_msgs/Twist"},
+            messages=msgs,
+        )
+        with _patch_any_reader(mock_reader):
+            from hephaes.reader import ROS1Reader
+
+            reader = ROS1Reader(str(tmp_bag_file))
+            result = list(reader.iter_message_headers(start_ns=2_000_000_000, stop_ns=1_000_000_000))
+
+            assert result == []
+            mock_reader.messages.assert_not_called()
+            reader.close()
+
     def test_read_messages_prints_skip_statement_on_deserialize_failure(self, tmp_bag_file, capsys):
         msgs = [
             ("/cmd_vel", 1_000_000_000, {}),

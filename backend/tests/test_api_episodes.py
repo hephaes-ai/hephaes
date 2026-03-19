@@ -110,8 +110,9 @@ def build_fake_messages() -> list[Message]:
 
 
 class FakeReader:
-    def __init__(self, messages: list[Message]) -> None:
+    def __init__(self, messages: list[Message], call_log: dict[str, list[dict[str, object]]] | None = None) -> None:
         self._messages = messages
+        self._call_log = call_log
 
     def __enter__(self) -> "FakeReader":
         return self
@@ -119,17 +120,55 @@ class FakeReader:
     def __exit__(self, exc_type, exc, exc_tb) -> bool:
         return False
 
-    def iter_message_headers(self, topics: list[str] | None = None):
+    def iter_message_headers(
+        self,
+        topics: list[str] | None = None,
+        *,
+        start_ns: int | None = None,
+        stop_ns: int | None = None,
+    ):
+        if self._call_log is not None:
+            self._call_log.setdefault("iter_message_headers", []).append(
+                {
+                    "topics": list(topics) if topics else None,
+                    "start_ns": start_ns,
+                    "stop_ns": stop_ns,
+                }
+            )
         selected_topics = set(topics) if topics else None
         for message in self._messages:
-            if selected_topics is None or message.topic in selected_topics:
-                yield message.topic, message.timestamp
+            if selected_topics is not None and message.topic not in selected_topics:
+                continue
+            if start_ns is not None and message.timestamp < start_ns:
+                continue
+            if stop_ns is not None and message.timestamp >= stop_ns:
+                continue
+            yield message.topic, message.timestamp
 
-    def read_messages(self, topics: list[str] | None = None):
+    def read_messages(
+        self,
+        topics: list[str] | None = None,
+        *,
+        start_ns: int | None = None,
+        stop_ns: int | None = None,
+    ):
+        if self._call_log is not None:
+            self._call_log.setdefault("read_messages", []).append(
+                {
+                    "topics": list(topics) if topics else None,
+                    "start_ns": start_ns,
+                    "stop_ns": stop_ns,
+                }
+            )
         selected_topics = set(topics) if topics else None
         for message in self._messages:
-            if selected_topics is None or message.topic in selected_topics:
-                yield message
+            if selected_topics is not None and message.topic not in selected_topics:
+                continue
+            if start_ns is not None and message.timestamp < start_ns:
+                continue
+            if stop_ns is not None and message.timestamp >= stop_ns:
+                continue
+            yield message
 
 
 def index_phase8_asset(
@@ -217,7 +256,7 @@ def test_get_episode_timeline_returns_bucketed_lane_data(
     assert [bucket["event_count"] for bucket in body["lanes"][2]["buckets"]] == [0, 1, 0, 1, 0]
 
 
-def test_get_episode_samples_returns_windowed_scalar_and_nearest_visual_samples(
+def test_get_episode_samples_returns_windowed_scalar_and_latest_visual_samples(
     client: TestClient,
     monkeypatch,
     sample_asset_file: Path,
@@ -242,7 +281,7 @@ def test_get_episode_samples_returns_windowed_scalar_and_nearest_visual_samples(
 
     image_stream, imu_stream, lidar_stream = body["streams"]
 
-    assert image_stream["selection_strategy"] == "nearest"
+    assert image_stream["selection_strategy"] == "latest_at_or_before"
     assert image_stream["sample_count"] == 1
     assert image_stream["samples"][0]["timestamp_ns"] == BASE_TIMESTAMP_NS + 2_000_000_000
     assert image_stream["samples"][0]["metadata_json"]["width"] == 640
@@ -254,8 +293,59 @@ def test_get_episode_samples_returns_windowed_scalar_and_nearest_visual_samples(
         BASE_TIMESTAMP_NS + 2_500_000_000,
     ]
 
-    assert lidar_stream["selection_strategy"] == "nearest"
+    assert lidar_stream["selection_strategy"] == "latest_at_or_before"
     assert lidar_stream["sample_count"] == 0
+
+
+def test_get_episode_samples_uses_bounded_read_window_and_caches_stream_bounds(
+    client: TestClient,
+    monkeypatch,
+    sample_asset_file: Path,
+):
+    asset_id = register_asset(client, sample_asset_file).json()["id"]
+    episode_id = f"{asset_id}:default"
+    call_log: dict[str, list[dict[str, object]]] = {}
+
+    monkeypatch.setattr(
+        indexing_service,
+        "profile_asset_file",
+        lambda _file_path: build_phase8_profile(sample_asset_file),
+    )
+    monkeypatch.setattr(
+        episode_service,
+        "open_asset_reader",
+        lambda _file_path: FakeReader(build_fake_messages(), call_log=call_log),
+    )
+
+    index_response = client.post(f"/assets/{asset_id}/index")
+    assert index_response.status_code == 200
+
+    params = {
+        "timestamp_ns": BASE_TIMESTAMP_NS + 2_200_000_000,
+        "window_before_ns": 800_000_000,
+        "window_after_ns": 400_000_000,
+    }
+
+    first_response = client.get(f"/assets/{asset_id}/episodes/{episode_id}/samples", params=params)
+    second_response = client.get(f"/assets/{asset_id}/episodes/{episode_id}/samples", params=params)
+
+    assert first_response.status_code == 200
+    assert second_response.status_code == 200
+
+    header_calls = call_log["iter_message_headers"]
+    assert len(header_calls) == 1
+    assert header_calls[0]["start_ns"] is None
+    assert header_calls[0]["stop_ns"] is None
+
+    read_calls = call_log["read_messages"]
+    assert len(read_calls) == 4
+    scalar_calls = read_calls[0::2]
+    visual_calls = read_calls[1::2]
+
+    assert all(call["start_ns"] == BASE_TIMESTAMP_NS + 1_400_000_000 for call in scalar_calls)
+    assert all(call["stop_ns"] == BASE_TIMESTAMP_NS + 2_600_000_001 for call in scalar_calls)
+    assert all(call["start_ns"] == BASE_TIMESTAMP_NS + 1_400_000_000 for call in visual_calls)
+    assert all(call["stop_ns"] == BASE_TIMESTAMP_NS + 2_200_000_001 for call in visual_calls)
 
 
 def test_get_episode_samples_rejects_unknown_stream_id(
@@ -298,3 +388,185 @@ def test_episode_playback_routes_require_indexed_asset(client: TestClient, sampl
     assert timeline_response.json() == expected_detail
     assert samples_response.status_code == 422
     assert samples_response.json() == expected_detail
+
+
+def test_episode_replay_websocket_supports_hello_seek_and_playback_controls(
+    client: TestClient,
+    monkeypatch,
+    sample_asset_file: Path,
+):
+    asset_id = index_phase8_asset(client, monkeypatch, sample_asset_file)
+    episode_id = f"{asset_id}:default"
+    stream_id = f"{episode_id}:stream:1"
+
+    with client.websocket_connect(f"/assets/{asset_id}/episodes/{episode_id}/replay") as websocket:
+        ready = websocket.receive_json()
+        assert ready["type"] == "ready"
+        assert ready["episode_id"] == episode_id
+        assert stream_id in ready["stream_ids"]
+
+        websocket.send_json(
+            {
+                "type": "hello",
+                "revision": 1,
+                "cursor_ns": BASE_TIMESTAMP_NS + 2_200_000_000,
+                "stream_ids": [stream_id],
+                "window_before_ns": 800_000_000,
+                "window_after_ns": 400_000_000,
+                "speed": 1.5,
+                "is_playing": False,
+            }
+        )
+
+        playback_state = websocket.receive_json()
+        assert playback_state == {
+            "type": "playback_state",
+            "revision": 1,
+            "is_playing": False,
+            "speed": 1.5,
+        }
+
+        cursor_ack = websocket.receive_json()
+        assert cursor_ack == {
+            "type": "cursor_ack",
+            "revision": 1,
+            "cursor_ns": BASE_TIMESTAMP_NS + 2_200_000_000,
+        }
+
+        samples_message = websocket.receive_json()
+        assert samples_message["type"] == "samples"
+        assert samples_message["revision"] == 1
+        assert samples_message["cursor_ns"] == BASE_TIMESTAMP_NS + 2_200_000_000
+        assert samples_message["data"]["streams"][0]["stream_id"] == stream_id
+
+        websocket.send_json({"type": "play", "revision": 2, "speed": 2.0})
+        play_state = websocket.receive_json()
+        assert play_state == {
+            "type": "playback_state",
+            "revision": 2,
+            "is_playing": True,
+            "speed": 2.0,
+        }
+
+        websocket.send_json({"type": "pause", "revision": 3})
+        pause_state = websocket.receive_json()
+        assert pause_state == {
+            "type": "playback_state",
+            "revision": 3,
+            "is_playing": False,
+            "speed": 2.0,
+        }
+
+        websocket.send_json({"type": "set_speed", "revision": 4, "speed": 0.5})
+        speed_state = websocket.receive_json()
+        assert speed_state == {
+            "type": "playback_state",
+            "revision": 4,
+            "is_playing": False,
+            "speed": 0.5,
+        }
+
+
+def test_episode_replay_websocket_recomputes_samples_on_window_changes(
+    client: TestClient,
+    monkeypatch,
+    sample_asset_file: Path,
+):
+    asset_id = index_phase8_asset(client, monkeypatch, sample_asset_file)
+    episode_id = f"{asset_id}:default"
+
+    with client.websocket_connect(f"/assets/{asset_id}/episodes/{episode_id}/replay") as websocket:
+        websocket.receive_json()
+
+        websocket.send_json(
+            {
+                "type": "seek",
+                "revision": 1,
+                "cursor_ns": BASE_TIMESTAMP_NS + 2_200_000_000,
+            }
+        )
+        websocket.receive_json()
+        initial_samples = websocket.receive_json()
+        assert initial_samples["data"]["streams"][0]["selection_strategy"] == "latest_at_or_before"
+        assert initial_samples["data"]["streams"][1]["selection_strategy"] == "window"
+        assert initial_samples["data"]["streams"][1]["sample_count"] == 0
+
+        websocket.send_json(
+            {
+                "type": "set_scalar_window",
+                "revision": 2,
+                "window_before_ns": 800_000_000,
+                "window_after_ns": 400_000_000,
+            }
+        )
+        websocket.receive_json()
+        windowed_samples = websocket.receive_json()
+        assert windowed_samples["type"] == "samples"
+        assert windowed_samples["revision"] == 2
+        assert windowed_samples["data"]["streams"][1]["selection_strategy"] == "window"
+        assert windowed_samples["data"]["streams"][1]["sample_count"] == 2
+
+
+def test_episode_replay_websocket_returns_error_for_unknown_stream_id(
+    client: TestClient,
+    monkeypatch,
+    sample_asset_file: Path,
+):
+    asset_id = index_phase8_asset(client, monkeypatch, sample_asset_file)
+    episode_id = f"{asset_id}:default"
+
+    with client.websocket_connect(f"/assets/{asset_id}/episodes/{episode_id}/replay") as websocket:
+        websocket.receive_json()
+        websocket.send_json(
+            {
+                "type": "set_streams",
+                "revision": 1,
+                "stream_ids": ["missing-stream"],
+            }
+        )
+
+        error = websocket.receive_json()
+        assert error["type"] == "error"
+        assert error["revision"] == 1
+        assert error["detail"] == "episode stream not found: missing-stream"
+
+
+def test_episode_replay_websocket_ignores_stale_revisions(
+    client: TestClient,
+    monkeypatch,
+    sample_asset_file: Path,
+):
+    asset_id = index_phase8_asset(client, monkeypatch, sample_asset_file)
+    episode_id = f"{asset_id}:default"
+
+    with client.websocket_connect(f"/assets/{asset_id}/episodes/{episode_id}/replay") as websocket:
+        websocket.receive_json()
+
+        websocket.send_json(
+            {
+                "type": "seek",
+                "revision": 2,
+                "cursor_ns": BASE_TIMESTAMP_NS + 2_200_000_000,
+            }
+        )
+        cursor_ack = websocket.receive_json()
+        samples = websocket.receive_json()
+        assert cursor_ack["revision"] == 2
+        assert samples["revision"] == 2
+
+        websocket.send_json(
+            {
+                "type": "seek",
+                "revision": 1,
+                "cursor_ns": BASE_TIMESTAMP_NS + 2_500_000_000,
+            }
+        )
+        websocket.send_json({"type": "play", "revision": 3, "speed": 1.25})
+
+        playback_state = websocket.receive_json()
+        assert playback_state == {
+            "type": "playback_state",
+            "revision": 3,
+            "is_playing": True,
+            "speed": 1.25,
+        }

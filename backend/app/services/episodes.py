@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
+from functools import lru_cache
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -183,6 +185,40 @@ def _stream_seed_from_topic(
     )
 
 
+def _file_mtime_ns(file_path: str) -> int:
+    try:
+        return Path(file_path).stat().st_mtime_ns
+    except OSError:
+        return -1
+
+
+@lru_cache(maxsize=128)
+def _resolve_stream_bounds_for_topics(
+    file_path: str,
+    target_topics: tuple[str, ...],
+    *,
+    file_mtime_ns: int,
+) -> tuple[tuple[int | None, int | None], ...]:
+    del file_mtime_ns  # Only used as part of the cache key.
+
+    if not target_topics:
+        return ()
+
+    first_by_topic: dict[str, int] = {}
+    last_by_topic: dict[str, int] = {}
+
+    with open_asset_reader(file_path) as reader:
+        for topic, timestamp in reader.iter_message_headers(topics=list(target_topics)):
+            if topic not in first_by_topic:
+                first_by_topic[topic] = timestamp
+            last_by_topic[topic] = timestamp
+
+    return tuple(
+        (first_by_topic.get(topic), last_by_topic.get(topic))
+        for topic in target_topics
+    )
+
+
 def _resolve_stream_bounds(
     asset: Asset,
     *,
@@ -191,26 +227,25 @@ def _resolve_stream_bounds(
     if not streams:
         return []
 
-    first_by_topic: dict[str, int] = {}
-    last_by_topic: dict[str, int] = {}
-    target_topics = [stream.source_topic for stream in streams]
+    target_topics = tuple(stream.source_topic for stream in streams)
 
     try:
-        with open_asset_reader(asset.file_path) as reader:
-            for topic, timestamp in reader.iter_message_headers(topics=target_topics):
-                if topic not in first_by_topic:
-                    first_by_topic[topic] = timestamp
-                last_by_topic[topic] = timestamp
+        bounds_by_topic = _resolve_stream_bounds_for_topics(
+            asset.file_path,
+            target_topics,
+            file_mtime_ns=_file_mtime_ns(asset.file_path),
+        )
     except Exception as exc:
         raise EpisodePlaybackError(
             f"could not read episode stream headers for asset: {asset.file_name}"
         ) from exc
 
+    resolved_bounds = dict(zip(target_topics, bounds_by_topic, strict=False))
     return [
         replace(
             stream,
-            first_timestamp_ns=first_by_topic.get(stream.source_topic),
-            last_timestamp_ns=last_by_topic.get(stream.source_topic),
+            first_timestamp_ns=resolved_bounds.get(stream.source_topic, (None, None))[0],
+            last_timestamp_ns=resolved_bounds.get(stream.source_topic, (None, None))[1],
         )
         for stream in streams
     ]
@@ -353,6 +388,12 @@ def _bucket_index(
     return min(bucket_count - 1, max(0, index))
 
 
+def _exclusive_stop_ns(timestamp_ns: int | None) -> int | None:
+    if timestamp_ns is None:
+        return None
+    return timestamp_ns + 1
+
+
 def get_episode_timeline(
     session: Session,
     asset_id: str,
@@ -372,7 +413,11 @@ def get_episode_timeline(
     if topic_to_stream and detail.start_timestamp_ns is not None:
         try:
             with open_asset_reader(asset.file_path) as reader:
-                for topic, timestamp in reader.iter_message_headers(topics=list(topic_to_stream)):
+                for topic, timestamp in reader.iter_message_headers(
+                    topics=list(topic_to_stream),
+                    start_ns=detail.start_timestamp_ns,
+                    stop_ns=_exclusive_stop_ns(detail.end_timestamp_ns),
+                ):
                     stream = topic_to_stream.get(topic)
                     if stream is None:
                         continue
@@ -468,6 +513,65 @@ def _sample_from_message(stream: EpisodeStreamSummary, message: Message) -> Epis
     )
 
 
+def _collect_windowed_scalar_samples(
+    reader: RosReader,
+    *,
+    streams: list[EpisodeStreamSummary],
+    window_start_ns: int,
+    window_end_ns: int,
+) -> dict[str, list[EpisodeSampleData]]:
+    topic_to_stream = {stream.source_topic: stream for stream in streams if stream.modality == "scalar_series"}
+    if not topic_to_stream:
+        return {}
+
+    scalar_window_samples: dict[str, list[EpisodeSampleData]] = {
+        stream.id: [] for stream in topic_to_stream.values()
+    }
+    for message in reader.read_messages(
+        topics=list(topic_to_stream),
+        start_ns=window_start_ns,
+        stop_ns=_exclusive_stop_ns(window_end_ns),
+    ):
+        stream = topic_to_stream.get(message.topic)
+        if stream is None:
+            continue
+        scalar_window_samples[stream.id].append(_sample_from_message(stream, message))
+
+    return scalar_window_samples
+
+
+def _collect_latest_sample_messages(
+    reader: RosReader,
+    *,
+    streams: list[EpisodeStreamSummary],
+    timestamp_ns: int,
+    start_ns: int | None = None,
+    stop_ns: int | None = None,
+) -> dict[str, Message]:
+    topic_to_stream = {stream.source_topic: stream for stream in streams}
+    if not topic_to_stream:
+        return {}
+
+    latest_samples: dict[str, Message] = {}
+    for message in reader.read_messages(
+        topics=list(topic_to_stream),
+        start_ns=start_ns,
+        stop_ns=stop_ns,
+    ):
+        stream = topic_to_stream.get(message.topic)
+        if stream is None:
+            continue
+
+        if message.timestamp > timestamp_ns:
+            continue
+
+        previous = latest_samples.get(stream.id)
+        if previous is None or message.timestamp >= previous.timestamp:
+            latest_samples[stream.id] = message
+
+    return latest_samples
+
+
 def get_episode_samples(
     session: Session,
     asset_id: str,
@@ -485,37 +589,32 @@ def get_episode_samples(
 
     window_start_ns = max(0, timestamp_ns - window_before_ns)
     window_end_ns = timestamp_ns + window_after_ns
-    has_window = window_before_ns > 0 or window_after_ns > 0
 
+    scalar_streams = [stream for stream in selected_streams if stream.modality == "scalar_series"]
+    latest_candidate_streams = [stream for stream in selected_streams if stream.modality != "scalar_series"]
     scalar_window_samples: dict[str, list[EpisodeSampleData]] = {
-        stream.id: [] for stream in selected_streams if stream.modality == "scalar_series"
+        stream.id: [] for stream in scalar_streams
     }
-    nearest_samples: dict[str, tuple[int, EpisodeSampleData]] = {}
-    topic_to_stream = {stream.source_topic: stream for stream in selected_streams}
+    latest_sample_messages: dict[str, Message] = {}
 
-    if topic_to_stream:
+    if selected_streams:
         try:
             with open_asset_reader(asset.file_path) as reader:
-                for message in reader.read_messages(topics=list(topic_to_stream)):
-                    stream = topic_to_stream.get(message.topic)
-                    if stream is None:
-                        continue
+                if scalar_streams:
+                    scalar_window_samples = _collect_windowed_scalar_samples(
+                        reader,
+                        streams=scalar_streams,
+                        window_start_ns=window_start_ns,
+                        window_end_ns=window_end_ns,
+                    )
 
-                    if stream.modality == "scalar_series" and has_window:
-                        if window_start_ns <= message.timestamp <= window_end_ns:
-                            scalar_window_samples[stream.id].append(
-                                _sample_from_message(stream, message)
-                            )
-                        continue
-
-                    if has_window and not (window_start_ns <= message.timestamp <= window_end_ns):
-                        continue
-
-                    candidate = _sample_from_message(stream, message)
-                    distance = abs(message.timestamp - timestamp_ns)
-                    previous = nearest_samples.get(stream.id)
-                    if previous is None or distance < previous[0]:
-                        nearest_samples[stream.id] = (distance, candidate)
+                latest_sample_messages = _collect_latest_sample_messages(
+                    reader,
+                    streams=latest_candidate_streams,
+                    timestamp_ns=timestamp_ns,
+                    start_ns=window_start_ns if window_before_ns > 0 or window_after_ns > 0 else None,
+                    stop_ns=_exclusive_stop_ns(timestamp_ns),
+                )
         except Exception as exc:
             raise EpisodePlaybackError(
                 f"could not read episode samples for asset: {asset.file_name}"
@@ -523,16 +622,16 @@ def get_episode_samples(
 
     stream_results: list[EpisodeStreamSamples] = []
     for stream in selected_streams:
-        if stream.modality == "scalar_series" and has_window:
+        if stream.modality == "scalar_series":
             samples = sorted(
                 scalar_window_samples.get(stream.id, []),
                 key=lambda item: item.timestamp_ns,
             )
             selection_strategy = "window"
         else:
-            nearest = nearest_samples.get(stream.id)
-            samples = [nearest[1]] if nearest is not None else []
-            selection_strategy = "nearest"
+            latest_message = latest_sample_messages.get(stream.id)
+            samples = [_sample_from_message(stream, latest_message)] if latest_message is not None else []
+            selection_strategy = "latest_at_or_before"
 
         stream_results.append(
             EpisodeStreamSamples(

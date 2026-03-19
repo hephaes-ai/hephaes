@@ -13,6 +13,10 @@ python -m pip install -e ../hephaes
 python -m pip install -e ".[dev]"
 ```
 
+Replay websocket support depends on the backend install including a websocket
+transport library. Reinstall the backend package after pulling dependency
+changes so `websockets` is available in the active environment.
+
 ### Run
 
 From `backend/`:

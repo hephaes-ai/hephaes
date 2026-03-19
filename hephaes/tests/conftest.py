@@ -38,14 +38,18 @@ def make_mock_any_reader(
     mock_reader.topics = {conn.topic: conn for conn in connections}
     mock_reader.connections = connections
 
-    def _messages(connections=None):
+    def _messages(connections=None, start=None, stop=None):
         conns_to_use = connections or mock_reader.connections
         topic_set = {c.topic for c in conns_to_use}
         for topic, timestamp, data in messages:
             if topic in topic_set:
+                if start is not None and timestamp < start:
+                    continue
+                if stop is not None and timestamp >= stop:
+                    continue
                 yield conn_by_topic[topic], timestamp, b"rawdata"
 
-    mock_reader.messages = _messages
+    mock_reader.messages = MagicMock(side_effect=_messages)
 
     def _deserialize(rawdata, msgtype):
         # Return a simple dict so JSON serialization works
