@@ -48,17 +48,21 @@ def make_mock_any_reader_with_payloads(
     mock_reader.topics = {conn.topic: conn for conn in connections}
     mock_reader.connections = connections
 
-    def _messages(connections=None):
+    def _messages(connections=None, start=None, stop=None):
         conns_to_use = connections or mock_reader.connections
         topic_set = {conn.topic for conn in conns_to_use}
         for topic, timestamp, raw in records:
             if topic in topic_set:
+                if start is not None and timestamp < start:
+                    continue
+                if stop is not None and timestamp >= stop:
+                    continue
                 yield conn_by_topic[topic], timestamp, raw
 
     def _deserialize(rawdata, msgtype):
         return payload_by_raw[rawdata]
 
-    mock_reader.messages = _messages
+    mock_reader.messages = MagicMock(side_effect=_messages)
     mock_reader.deserialize = _deserialize
     return mock_reader
 
