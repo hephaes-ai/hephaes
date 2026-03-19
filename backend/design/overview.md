@@ -5,6 +5,7 @@
 - [architecture.md](./architecture.md): stack, app bootstrap, routing, module boundaries, and execution model
 - [data-model-and-storage.md](./data-model-and-storage.md): SQLite schema, JSON-backed records, output directories, and persistence strategy
 - [assets-indexing-and-tags.md](./assets-indexing-and-tags.md): ingestion, asset listing/detail, indexing, metadata extraction, and tag behavior
+- [dashboard-phased-implementation.md](./dashboard-phased-implementation.md): phased plan for a dashboard that starts with existing APIs and later adds summary routes and quality rollups
 - [jobs-conversions-playback-and-visualization.md](./jobs-conversions-playback-and-visualization.md): durable jobs, conversions, episode playback APIs, and Rerun visualization prep
 - [outputs-catalog-and-compute-actions.md](./outputs-catalog-and-compute-actions.md): phased plan for first-class output artifacts, outputs APIs, and compute actions such as VLM tagging
 - [testing-and-operations.md](./testing-and-operations.md): test structure, local operation, environment variables, and current implementation constraints
