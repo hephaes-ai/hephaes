@@ -68,33 +68,13 @@ import {
   formatDateTime,
   formatFileSize,
   formatJobType,
+  formatNumber,
   formatOutputAvailability,
   formatOutputFormat,
 } from "@/lib/format"
+import { buildHref, buildJobDetailHref } from "@/lib/navigation"
 import { buildOutputsHref } from "@/lib/outputs"
 import { cn } from "@/lib/utils"
-
-function formatNumber(value: number) {
-  return new Intl.NumberFormat().format(value)
-}
-
-function buildHref(
-  pathname: string,
-  params?: Record<string, string | null | undefined>
-) {
-  const searchParams = new URLSearchParams()
-
-  for (const [key, value] of Object.entries(params ?? {})) {
-    if (!value?.trim()) {
-      continue
-    }
-
-    searchParams.set(key, value.trim())
-  }
-
-  const query = searchParams.toString()
-  return query ? `${pathname}?${query}` : pathname
-}
 
 function buildJobListHref(params?: Record<string, string | null | undefined>) {
   return buildHref("/jobs", params)
@@ -104,10 +84,6 @@ function buildInventoryHref(
   params?: Record<string, string | null | undefined>
 ) {
   return buildHref("/", params)
-}
-
-function buildJobDetailHref(jobId: string, returnHref: string) {
-  return `/jobs/${jobId}?from=${encodeURIComponent(returnHref)}`
 }
 
 function getConversionStatusHref(status: ConversionStatus) {

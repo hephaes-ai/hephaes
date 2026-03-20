@@ -74,10 +74,10 @@ import {
   uploadAssetFile,
 } from "@/lib/api";
 import type { AssetSelectionScope } from "@/lib/future-workflows";
-import { formatDateTime, formatFileSize, getIndexActionLabel } from "@/lib/format";
+import { formatCount, formatDateTime, formatFileSize, getIndexActionLabel } from "@/lib/format";
+import { buildAssetDetailHref, buildInventoryReplayHref } from "@/lib/navigation";
 import { buildOutputsHref, countOutputsByAsset } from "@/lib/outputs";
 import { cn } from "@/lib/utils";
-import { buildReplayHref } from "@/lib/visualization";
 
 interface NoticeMessage {
   description?: string;
@@ -119,9 +119,6 @@ const DEFAULT_DIRECTORY_SCAN_FORM: DirectoryScanFormState = {
 };
 
 
-function formatCount(count: number, noun: string) {
-  return `${count} ${noun}${count === 1 ? "" : "s"}`;
-}
 
 function summarizeSkipped(skipped: AssetRegistrationSkip[]) {
   if (skipped.length === 0) {
@@ -192,17 +189,6 @@ function parseSort(value: string | null) {
     direction,
     value: normalizedValue,
   };
-}
-
-function buildAssetDetailHref(assetId: string, inventoryHref: string) {
-  return `/assets/${assetId}?from=${encodeURIComponent(inventoryHref)}`;
-}
-
-function buildInventoryReplayHref(assetId: string, inventoryHref: string) {
-  return buildReplayHref({
-    assetId,
-    from: inventoryHref,
-  });
 }
 
 function parseNonNegativeNumber(value: string | null) {

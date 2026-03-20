@@ -63,12 +63,18 @@ import { getErrorMessage, resolveBackendUrl } from "@/lib/api";
 import {
   formatDateTime,
   formatFileSize,
+  formatCount,
   formatOutputActionType,
   formatOutputAvailability,
   formatOutputFormat,
-  formatSentenceCase,
+  formatOutputRole,
   isWorkflowActiveStatus,
 } from "@/lib/format";
+import {
+  buildAssetDetailHref,
+  buildJobDetailHref,
+  buildOutputDetailHref,
+} from "@/lib/navigation";
 import { cn } from "@/lib/utils";
 
 const OUTPUT_FORMAT_OPTIONS: OutputFormat[] = ["parquet", "tfrecord", "json", "jsonl", "unknown"];
@@ -105,37 +111,6 @@ interface ActiveFilterChip {
   updates: Record<string, string | null>;
 }
 
-export function buildAssetDetailHref(assetId: string, returnHref: string) {
-  return `/assets/${assetId}?from=${encodeURIComponent(returnHref)}`;
-}
-
-export function buildJobDetailHref(jobId: string, returnHref: string) {
-  return `/jobs/${jobId}?from=${encodeURIComponent(returnHref)}`;
-}
-
-export function buildOutputDetailHref(outputId: string, returnHref: string) {
-  return `/outputs/${outputId}?from=${encodeURIComponent(returnHref)}`;
-}
-
-function formatCount(count: number, noun: string) {
-  return `${count} ${noun}${count === 1 ? "" : "s"}`;
-}
-
-export function formatOutputRole(role: OutputRole) {
-  if (role === "dataset") {
-    return "Dataset";
-  }
-
-  if (role === "manifest") {
-    return "Manifest";
-  }
-
-  if (role === "sidecar") {
-    return "Sidecar";
-  }
-
-  return formatSentenceCase(role);
-}
 
 function parseOutputSelection(value: string | null) {
   return Array.from(

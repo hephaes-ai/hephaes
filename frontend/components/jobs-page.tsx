@@ -13,6 +13,7 @@ import {
   formatJobType,
   isWorkflowActiveStatus,
 } from "@/lib/format";
+import { buildAssetDetailHref, buildJobDetailHref } from "@/lib/navigation";
 import { cn } from "@/lib/utils";
 
 import { EmptyState } from "@/components/empty-state";
@@ -34,14 +35,6 @@ import {
 
 const JOB_TYPE_OPTIONS: JobType[] = ["index", "convert", "prepare_visualization"];
 const JOB_STATUS_OPTIONS: JobStatus[] = ["queued", "running", "succeeded", "failed"];
-
-function buildAssetDetailHref(assetId: string, returnHref: string) {
-  return `/assets/${assetId}?from=${encodeURIComponent(returnHref)}`;
-}
-
-function buildJobDetailHref(jobId: string, returnHref: string) {
-  return `/jobs/${jobId}?from=${encodeURIComponent(returnHref)}`;
-}
 
 function JobsPageSkeleton() {
   return (

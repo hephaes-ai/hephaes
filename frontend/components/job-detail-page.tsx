@@ -19,7 +19,7 @@ import {
   formatJobType,
   isWorkflowActiveStatus,
 } from "@/lib/format";
-import { resolveReturnHref } from "@/lib/navigation";
+import { buildAssetDetailHref, resolveReturnHref } from "@/lib/navigation";
 import { buildOutputsHref } from "@/lib/outputs";
 
 import { MetadataField } from "@/components/metadata-field";
@@ -28,10 +28,6 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-
-function buildAssetDetailHref(assetId: string, returnHref: string) {
-  return `/assets/${assetId}?from=${encodeURIComponent(returnHref)}`;
-}
 
 function JobDetailSkeleton() {
   return (

@@ -1,3 +1,37 @@
+export function buildAssetDetailHref(assetId: string, returnHref: string) {
+  return `/assets/${assetId}?from=${encodeURIComponent(returnHref)}`;
+}
+
+export function buildJobDetailHref(jobId: string, returnHref: string) {
+  return `/jobs/${jobId}?from=${encodeURIComponent(returnHref)}`;
+}
+
+export function buildOutputDetailHref(outputId: string, returnHref: string) {
+  return `/outputs/${outputId}?from=${encodeURIComponent(returnHref)}`;
+}
+
+export function buildHref(
+  pathname: string,
+  params?: Record<string, string | null | undefined>,
+) {
+  const searchParams = new URLSearchParams();
+
+  for (const [key, value] of Object.entries(params ?? {})) {
+    if (!value?.trim()) {
+      continue;
+    }
+
+    searchParams.set(key, value.trim());
+  }
+
+  const query = searchParams.toString();
+  return query ? `${pathname}?${query}` : pathname;
+}
+
+export function buildInventoryReplayHref(assetId: string, returnHref: string) {
+  return buildHref("/replay", { asset_id: assetId, from: returnHref });
+}
+
 export function resolveReturnHref(from: string | null | undefined, fallbackHref: string) {
   if (!from) {
     return fallbackHref;

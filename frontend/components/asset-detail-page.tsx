@@ -46,7 +46,7 @@ import {
   getIndexActionLabel,
   isWorkflowActiveStatus,
 } from "@/lib/format";
-import { resolveReturnHref } from "@/lib/navigation";
+import { buildJobDetailHref, resolveReturnHref } from "@/lib/navigation";
 import { buildOutputsHref } from "@/lib/outputs";
 import { buildReplayHref } from "@/lib/visualization";
 
@@ -89,10 +89,6 @@ function formatRate(rateHz: number) {
   return `${rateHz.toFixed(rateHz >= 10 ? 0 : 1)} Hz`;
 }
 
-
-function buildJobDetailHref(jobId: string, returnHref: string) {
-  return `/jobs/${jobId}?from=${encodeURIComponent(returnHref)}`;
-}
 
 export function AssetDetailPage({ assetId }: { assetId: string }) {
   const searchParams = useSearchParams();
