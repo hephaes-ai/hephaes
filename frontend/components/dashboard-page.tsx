@@ -18,6 +18,7 @@ import {
 } from "lucide-react"
 
 import { AssetStatusBadge } from "@/components/asset-status-badge"
+import { EmptyState } from "@/components/empty-state"
 import { WorkflowStatusBadge } from "@/components/workflow-status-badge"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
@@ -67,33 +68,13 @@ import {
   formatDateTime,
   formatFileSize,
   formatJobType,
+  formatNumber,
   formatOutputAvailability,
   formatOutputFormat,
 } from "@/lib/format"
+import { buildHref, buildJobDetailHref } from "@/lib/navigation"
 import { buildOutputsHref } from "@/lib/outputs"
 import { cn } from "@/lib/utils"
-
-function formatNumber(value: number) {
-  return new Intl.NumberFormat().format(value)
-}
-
-function buildHref(
-  pathname: string,
-  params?: Record<string, string | null | undefined>
-) {
-  const searchParams = new URLSearchParams()
-
-  for (const [key, value] of Object.entries(params ?? {})) {
-    if (!value?.trim()) {
-      continue
-    }
-
-    searchParams.set(key, value.trim())
-  }
-
-  const query = searchParams.toString()
-  return query ? `${pathname}?${query}` : pathname
-}
 
 function buildJobListHref(params?: Record<string, string | null | undefined>) {
   return buildHref("/jobs", params)
@@ -103,10 +84,6 @@ function buildInventoryHref(
   params?: Record<string, string | null | undefined>
 ) {
   return buildHref("/", params)
-}
-
-function buildJobDetailHref(jobId: string, returnHref: string) {
-  return `/jobs/${jobId}?from=${encodeURIComponent(returnHref)}`
 }
 
 function getConversionStatusHref(status: ConversionStatus) {
@@ -154,24 +131,6 @@ export function DashboardPageFallback() {
   return <DashboardPageSkeleton />
 }
 
-function DashboardEmptyState() {
-  return (
-    <div className="rounded-xl border border-dashed px-6 py-16 text-center">
-      <h2 className="text-sm font-medium text-foreground">
-        No dashboard data yet
-      </h2>
-      <p className="mx-auto mt-2 max-w-2xl text-sm text-muted-foreground">
-        Register assets, run indexing, and create outputs to populate the
-        operational dashboard.
-      </p>
-      <div className="mt-4 flex justify-center">
-        <Button asChild size="sm" variant="outline">
-          <Link href="/">Open inventory</Link>
-        </Button>
-      </div>
-    </div>
-  )
-}
 
 function MetricCard({
   actionHref,
@@ -509,7 +468,17 @@ export function DashboardPage() {
   }
 
   if (isFullyLoadedWithoutData) {
-    return <DashboardEmptyState />
+    return (
+      <EmptyState
+        action={
+          <Button asChild size="sm" variant="outline">
+            <Link href="/">Open inventory</Link>
+          </Button>
+        }
+        description="Register assets, run indexing, and create outputs to populate the operational dashboard."
+        title="No dashboard data yet"
+      />
+    )
   }
 
   const assetRows: React.ReactNode[] = assetSummary

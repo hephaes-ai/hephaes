@@ -6,6 +6,9 @@ import { useSearchParams } from "next/navigation";
 import { ArrowLeft, ArrowRight, ArrowRightLeft, Database, Eye, RefreshCw, Waves } from "lucide-react";
 
 import { AssetStatusBadge } from "@/components/asset-status-badge";
+import { EmptyState } from "@/components/empty-state";
+import { InlineNotice } from "@/components/inline-notice";
+import { MetadataField } from "@/components/metadata-field";
 import { ConversionDialog } from "@/components/conversion-dialog";
 import { TagActionPanel, TagBadgeList } from "@/components/tag-controls";
 import { WorkflowStatusBadge } from "@/components/workflow-status-badge";
@@ -43,8 +46,9 @@ import {
   getIndexActionLabel,
   isWorkflowActiveStatus,
 } from "@/lib/format";
-import { resolveReturnHref } from "@/lib/navigation";
+import { buildJobDetailHref, resolveReturnHref } from "@/lib/navigation";
 import { buildOutputsHref } from "@/lib/outputs";
+import type { NoticeMessage } from "@/lib/types";
 import { buildReplayHref } from "@/lib/visualization";
 
 function AssetDetailSkeleton() {
@@ -86,58 +90,6 @@ function formatRate(rateHz: number) {
   return `${rateHz.toFixed(rateHz >= 10 ? 0 : 1)} Hz`;
 }
 
-function InlineNotice({
-  description,
-  title,
-  tone,
-}: {
-  description?: string;
-  title: string;
-  tone: "error" | "info";
-}) {
-  const className = tone === "info" ? "border-border bg-card" : "";
-
-  return (
-    <Alert className={className} variant={tone === "error" ? "destructive" : "default"}>
-      <AlertTitle>{title}</AlertTitle>
-      {description ? <AlertDescription>{description}</AlertDescription> : null}
-    </Alert>
-  );
-}
-
-function MetadataField({
-  label,
-  value,
-}: {
-  label: string;
-  value: React.ReactNode;
-}) {
-  return (
-    <div className="space-y-1">
-      <dt className="text-xs uppercase tracking-wide text-muted-foreground">{label}</dt>
-      <dd className="text-sm font-medium text-foreground">{value}</dd>
-    </div>
-  );
-}
-
-function MetadataEmptyState({
-  description,
-  title,
-}: {
-  description: string;
-  title: string;
-}) {
-  return (
-    <div className="rounded-lg border border-dashed px-4 py-8 text-sm text-muted-foreground">
-      <p className="font-medium text-foreground">{title}</p>
-      <p className="mt-2">{description}</p>
-    </div>
-  );
-}
-
-function buildJobDetailHref(jobId: string, returnHref: string) {
-  return `/jobs/${jobId}?from=${encodeURIComponent(returnHref)}`;
-}
 
 export function AssetDetailPage({ assetId }: { assetId: string }) {
   const searchParams = useSearchParams();
@@ -147,11 +99,7 @@ export function AssetDetailPage({ assetId }: { assetId: string }) {
   const [isConversionDialogOpen, setIsConversionDialogOpen] = React.useState(false);
   const [isRunningIndexAction, setIsRunningIndexAction] = React.useState(false);
   const [isUpdatingTags, setIsUpdatingTags] = React.useState(false);
-  const [requestMessage, setRequestMessage] = React.useState<{
-    description?: string;
-    title: string;
-    tone: "error" | "info";
-  } | null>(null);
+  const [requestMessage, setRequestMessage] = React.useState<NoticeMessage | null>(null);
 
   const returnHref = resolveReturnHref(searchParams.get("from"), "/");
   const currentDetailHref = React.useMemo(() => {
@@ -592,17 +540,17 @@ export function AssetDetailPage({ assetId }: { assetId: string }) {
               ) : null}
             </>
           ) : effectiveStatus === "failed" ? (
-            <MetadataEmptyState
+            <EmptyState variant="card"
               description="Retry indexing after fixing the source file or backend issue to regenerate metadata."
               title="No indexed metadata is available yet"
             />
           ) : effectiveStatus === "indexing" ? (
-            <MetadataEmptyState
+            <EmptyState variant="card"
               description="The metadata panels will populate automatically once the backend finishes indexing."
               title="Metadata is on the way"
             />
           ) : (
-            <MetadataEmptyState
+            <EmptyState variant="card"
               description="Use the index action above to extract duration, topic summaries, and replay readiness."
               title="Metadata has not been generated"
             />
@@ -651,7 +599,7 @@ export function AssetDetailPage({ assetId }: { assetId: string }) {
                 </div>
               ))
             ) : (
-              <MetadataEmptyState
+              <EmptyState variant="card"
                 description="Jobs will appear here after indexing, conversion, or replay-preparation runs are started for this asset."
                 title="No related jobs yet"
               />
@@ -703,7 +651,7 @@ export function AssetDetailPage({ assetId }: { assetId: string }) {
                 </div>
               ))
             ) : (
-              <MetadataEmptyState
+              <EmptyState variant="card"
                 description="Conversion requests launched from this asset will show up here once the backend records them."
                 title="No conversions yet"
               />
@@ -766,7 +714,7 @@ export function AssetDetailPage({ assetId }: { assetId: string }) {
               </Table>
             </div>
           ) : (
-            <MetadataEmptyState
+            <EmptyState variant="card"
               description="Topic summaries appear here after a successful indexing run."
               title="No indexed topics to show"
             />

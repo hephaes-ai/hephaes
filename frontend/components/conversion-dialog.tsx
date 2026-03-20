@@ -25,8 +25,8 @@ import { toast } from "@/components/ui/sonner";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { useBackendCache } from "@/hooks/use-backend";
+import { useCreateConversion } from "@/hooks/use-create-conversion";
 import {
-  createConversion,
   getConversion,
   getErrorMessage,
   type AssetSummary,
@@ -37,7 +37,7 @@ import {
   type ResampleMethod,
   type TFRecordConversionOutputRequest,
 } from "@/lib/api";
-import { formatDateTime, isWorkflowActiveStatus } from "@/lib/format";
+import { formatDateTime, formatSentenceCase, getWorkflowStatusClasses, isWorkflowActiveStatus } from "@/lib/format";
 import { buildOutputsHref } from "@/lib/outputs";
 
 type ParquetCompression = NonNullable<ParquetConversionOutputRequest["compression"]>;
@@ -94,21 +94,6 @@ function createDefaultFormState(): ConversionFormState {
   };
 }
 
-function formatSentenceCase(value: string) {
-  return `${value.slice(0, 1).toUpperCase()}${value.slice(1).replace(/_/g, " ")}`;
-}
-
-function getConversionStatusClasses(status: ConversionDetail["status"] | ConversionDetail["job"]["status"]) {
-  if (status === "succeeded") {
-    return "border-emerald-500/30 bg-emerald-500/10 text-emerald-900 dark:text-emerald-200";
-  }
-
-  if (status === "failed") {
-    return "border-destructive/30 bg-destructive/10 text-destructive";
-  }
-
-  return "";
-}
 
 function formatMappingSummary(mode: MappingMode) {
   return mode === "custom" ? "Custom JSON mapping" : "Automatic mapping";
@@ -254,9 +239,9 @@ export function ConversionDialog({
     revalidateJobs,
     revalidateOutputs,
   } = useBackendCache();
+  const { isSubmitting, submit: submitConversion } = useCreateConversion();
   const [formState, setFormState] = React.useState<ConversionFormState>(createDefaultFormState);
   const [createdConversion, setCreatedConversion] = React.useState<ConversionDetail | null>(null);
-  const [isSubmitting, setIsSubmitting] = React.useState(false);
   const [requestMessage, setRequestMessage] = React.useState<{
     description?: string;
     title: string;
@@ -299,7 +284,6 @@ export function ConversionDialog({
 
     setFormState(createDefaultFormState());
     setCreatedConversion(null);
-    setIsSubmitting(false);
     setRequestMessage(null);
   }, [open]);
 
@@ -371,32 +355,23 @@ export function ConversionDialog({
     }
 
     setRequestMessage(null);
-    setIsSubmitting(true);
 
-    try {
-      const payload = buildConversionPayload(assets, formState);
-      const result = await createConversion(payload);
+    const payload = buildConversionPayload(assets, formState);
+    const result = await submitConversion(payload, assets);
 
-      setCreatedConversion(result);
-      await Promise.all([
-        ...assets.map((asset) => revalidateAssetDetail(asset.id)),
-        revalidateConversionDetail(result.id),
-        revalidateConversions(),
-        revalidateJobs(),
-        revalidateOutputs(),
-      ]);
-    } catch (conversionError) {
-      const message = getErrorMessage(conversionError);
+    if (result.conversion) {
+      setCreatedConversion(result.conversion);
+    }
+
+    if (result.notice) {
       setRequestMessage({
-        description: message,
-        title: "Could not create conversion",
+        description: result.notice.description,
+        title: result.notice.title,
         tone: "error",
       });
       toast.error("Conversion failed", {
-        description: message,
+        description: result.notice.description,
       });
-    } finally {
-      setIsSubmitting(false);
     }
   }
 
@@ -423,7 +398,7 @@ export function ConversionDialog({
 
         {createdConversion ? (
           <div className="space-y-4 px-5 py-5 sm:px-6">
-            <Alert className={getConversionStatusClasses(createdConversion.status)}>
+            <Alert className={getWorkflowStatusClasses(createdConversion.status)}>
               <CheckCircle2 className="size-4" />
               <AlertTitle>Conversion created</AlertTitle>
               <AlertDescription>

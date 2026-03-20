@@ -13,8 +13,10 @@ import {
   formatJobType,
   isWorkflowActiveStatus,
 } from "@/lib/format";
+import { buildAssetDetailHref, buildJobDetailHref } from "@/lib/navigation";
 import { cn } from "@/lib/utils";
 
+import { EmptyState } from "@/components/empty-state";
 import { WorkflowStatusBadge } from "@/components/workflow-status-badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -34,14 +36,6 @@ import {
 const JOB_TYPE_OPTIONS: JobType[] = ["index", "convert", "prepare_visualization"];
 const JOB_STATUS_OPTIONS: JobStatus[] = ["queued", "running", "succeeded", "failed"];
 
-function buildAssetDetailHref(assetId: string, returnHref: string) {
-  return `/assets/${assetId}?from=${encodeURIComponent(returnHref)}`;
-}
-
-function buildJobDetailHref(jobId: string, returnHref: string) {
-  return `/jobs/${jobId}?from=${encodeURIComponent(returnHref)}`;
-}
-
 function JobsPageSkeleton() {
   return (
     <div className="space-y-6">
@@ -56,17 +50,6 @@ export function JobsPageFallback() {
   return <JobsPageSkeleton />;
 }
 
-function JobsEmptyState() {
-  return (
-    <div className="rounded-xl border border-dashed px-6 py-16 text-center">
-      <h2 className="text-sm font-medium text-foreground">No jobs yet</h2>
-      <p className="mx-auto mt-2 max-w-2xl text-sm text-muted-foreground">
-        Indexing, conversion, and visualization-preparation runs will appear here once the backend starts creating
-        durable jobs.
-      </p>
-    </div>
-  );
-}
 
 function formatTargetAssetLabel(asset: AssetSummary | undefined, assetId: string) {
   if (!asset) {
@@ -230,7 +213,10 @@ export function JobsPage() {
       </section>
 
       {jobs.length === 0 ? (
-        <JobsEmptyState />
+        <EmptyState
+          description="Indexing, conversion, and visualization-preparation runs will appear here once the backend starts creating durable jobs."
+          title="No jobs yet"
+        />
       ) : (
         <Card>
           <CardHeader className="space-y-4">

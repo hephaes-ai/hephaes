@@ -7,6 +7,7 @@ import type {
   OutputActionStatus,
   OutputAvailability,
   OutputFormat,
+  OutputRole,
 } from "@/lib/api";
 
 export function formatFileSize(bytes: number) {
@@ -145,4 +146,48 @@ export function formatWorkflowStatus(status: JobStatus | ConversionStatus | Outp
 
 export function isWorkflowActiveStatus(status: JobStatus | ConversionStatus | OutputActionStatus) {
   return status === "queued" || status === "running";
+}
+
+export function getWorkflowStatusClasses(status: JobStatus | ConversionStatus | OutputActionStatus) {
+  if (status === "succeeded") {
+    return "border-emerald-500/30 bg-emerald-500/10 text-emerald-900 dark:text-emerald-200";
+  }
+
+  if (status === "running") {
+    return "border-sky-500/30 bg-sky-500/10 text-sky-900 dark:text-sky-200";
+  }
+
+  if (status === "queued") {
+    return "border-amber-500/30 bg-amber-500/10 text-amber-900 dark:text-amber-200";
+  }
+
+  if (status === "failed") {
+    return "border-destructive/30 bg-destructive/10 text-destructive";
+  }
+
+  return "";
+}
+
+export function formatCount(count: number, noun: string) {
+  return `${count} ${noun}${count === 1 ? "" : "s"}`;
+}
+
+export function formatNumber(value: number) {
+  return new Intl.NumberFormat().format(value);
+}
+
+export function formatOutputRole(role: OutputRole) {
+  if (role === "dataset") {
+    return "Dataset";
+  }
+
+  if (role === "manifest") {
+    return "Manifest";
+  }
+
+  if (role === "sidecar") {
+    return "Sidecar";
+  }
+
+  return formatSentenceCase(role);
 }

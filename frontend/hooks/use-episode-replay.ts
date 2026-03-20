@@ -29,13 +29,13 @@ interface UseEpisodeReplayOptions extends ReplayOptionsSnapshot {
   interactionMode: ReplayInteractionMode
 }
 
-interface ReplayPlaybackState {
+export interface ReplayPlaybackState {
   isPlaying: boolean
   revision: number
   speed: number
 }
 
-interface UseEpisodeReplayResult {
+export interface UseEpisodeReplayResult {
   connectionStatus: ReplayConnectionStatus
   error: Error | null
   lastAckedRevision: number

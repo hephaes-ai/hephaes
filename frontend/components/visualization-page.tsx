@@ -3,7 +3,7 @@
 import * as React from "react"
 import Link from "next/link"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
-import { ArrowLeft, Pause, Play, SkipBack, SkipForward } from "lucide-react"
+import { ArrowLeft } from "lucide-react"
 
 import {
   useAsset,
@@ -22,6 +22,7 @@ import { resolveReturnHref } from "@/lib/navigation"
 import { buildReplayHref } from "@/lib/visualization"
 
 import { RerunViewer } from "@/components/rerun-viewer"
+import { VisualizationControls } from "@/components/visualization-controls"
 import { VisualizationScrubber } from "@/components/visualization-scrubber"
 import { WorkflowStatusBadge } from "@/components/workflow-status-badge"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -87,26 +88,6 @@ function parseLaneIds(value: string | null) {
     .split(",")
     .map((lane) => lane.trim())
     .filter(Boolean)
-}
-
-function formatDurationNs(durationNs: number) {
-  const normalizedDurationNs = Math.max(0, durationNs)
-  const seconds = normalizedDurationNs / 1_000_000_000
-  if (seconds < 60) {
-    return `${seconds.toFixed(2)} s`
-  }
-
-  const totalSeconds = Math.floor(seconds)
-  const hours = Math.floor(totalSeconds / 3600)
-  const minutes = Math.floor(totalSeconds / 60)
-  const remainingMinutes = minutes % 60
-  const remainingSeconds = totalSeconds % 60
-
-  if (hours > 0) {
-    return `${hours}h ${remainingMinutes}m ${remainingSeconds}s`
-  }
-
-  return `${minutes}m ${remainingSeconds}s`
 }
 
 export function VisualizationPage() {
@@ -618,8 +599,6 @@ export function VisualizationPage() {
 
   const effectiveTimestampNs = currentTimestampNs ?? timelineStartNs
   const cursorOffsetNs = Math.max(0, effectiveTimestampNs - timelineStartNs)
-  const stepBackwardDisabled = effectiveTimestampNs <= timelineStartNs
-  const stepForwardDisabled = effectiveTimestampNs >= timelineEndNs
   const confirmedSamplesResponse =
     replay.samples ?? fallbackSamplesResponse.data ?? null
   const confirmedResponseTimestampNs =
@@ -1006,126 +985,22 @@ export function VisualizationPage() {
 
       <Card>
         <CardContent className="space-y-5">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-            <div className="flex flex-wrap items-center gap-2">
-              <Button
-                onClick={() => {
-                  setIsPlaying(false)
-                  seekTo(timelineStartNs)
-                }}
-                size="sm"
-                type="button"
-                variant="outline"
-              >
-                <SkipBack className="size-3.5" />
-                Start
-              </Button>
-              {isPlaying ? (
-                <Button
-                  onClick={() => setIsPlaying(false)}
-                  size="sm"
-                  type="button"
-                  variant="secondary"
-                >
-                  <Pause className="size-3.5" />
-                  Pause
-                </Button>
-              ) : (
-                <Button
-                  onClick={() => {
-                    if (effectiveTimestampNs >= timelineEndNs) {
-                      seekTo(timelineStartNs)
-                    }
-
-                    setIsPlaying(true)
-                  }}
-                  size="sm"
-                  type="button"
-                  variant="secondary"
-                >
-                  <Play className="size-3.5" />
-                  Play
-                </Button>
-              )}
-              <Button
-                disabled={stepBackwardDisabled}
-                onClick={() => {
-                  setIsPlaying(false)
-                  seekTo(effectiveTimestampNs - stepSizeNs)
-                }}
-                size="sm"
-                type="button"
-                variant="outline"
-              >
-                Step -
-              </Button>
-              <Button
-                disabled={stepForwardDisabled}
-                onClick={() => {
-                  setIsPlaying(false)
-                  seekTo(effectiveTimestampNs + stepSizeNs)
-                }}
-                size="sm"
-                type="button"
-                variant="outline"
-              >
-                Step +
-              </Button>
-              <Button
-                onClick={() => {
-                  setIsPlaying(false)
-                  seekTo(timelineEndNs)
-                }}
-                size="sm"
-                type="button"
-                variant="outline"
-              >
-                <SkipForward className="size-3.5" />
-                End
-              </Button>
-            </div>
-
-            <div className="flex flex-wrap items-end gap-3 lg:justify-end">
-              <div className="flex flex-wrap items-center gap-2 lg:justify-end">
-                <Badge variant="outline">
-                  Cursor +{formatDurationNs(cursorOffsetNs)}
-                </Badge>
-                <Badge variant="outline">
-                  Window ±{formatDurationNs(samplesWindowNs)}
-                </Badge>
-                <Badge
-                  variant={
-                    replay.connectionStatus === "connected"
-                      ? "secondary"
-                      : "outline"
-                  }
-                >
-                  {replayTransportLabel}
-                </Badge>
-              </div>
-
-              <div className="max-w-[140px] space-y-1">
-                <label
-                  className="text-xs tracking-wide text-muted-foreground uppercase"
-                  htmlFor="playback-speed"
-                >
-                  Speed
-                </label>
-                <NativeSelect
-                  id="playback-speed"
-                  onChange={(event) =>
-                    setPlaybackSpeed(Number(event.target.value))
-                  }
-                  value={String(speed)}
-                >
-                  <option value="0.5">0.5x</option>
-                  <option value="1">1x</option>
-                  <option value="1.5">1.5x</option>
-                  <option value="2">2x</option>
-                </NativeSelect>
-              </div>
-            </div>
-          </div>
+          <VisualizationControls
+            cursorOffsetNs={cursorOffsetNs}
+            effectiveTimestampNs={effectiveTimestampNs}
+            isPlaying={isPlaying}
+            onPause={() => setIsPlaying(false)}
+            onPlay={() => setIsPlaying(true)}
+            onSeekTo={(timestampNs) => seekTo(timestampNs)}
+            onSetSpeed={setPlaybackSpeed}
+            replayTransportLabel={replayTransportLabel}
+            replayConnectionStatus={replay.connectionStatus}
+            samplesWindowNs={samplesWindowNs}
+            speed={speed}
+            stepSizeNs={stepSizeNs}
+            timelineEndNs={timelineEndNs}
+            timelineStartNs={timelineStartNs}
+          />
 
           {replay.error ? (
             <Alert>
