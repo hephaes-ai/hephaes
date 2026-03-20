@@ -35,7 +35,6 @@ import {
   useDashboardTrends,
 } from "@/hooks/use-backend"
 import type {
-  DashboardCountEntry,
   IndexingStatus,
   JobStatus,
 } from "@/lib/api"
@@ -45,12 +44,13 @@ import {
   formatDateTime,
   formatFileSize,
   formatNumber,
-  formatOutputAvailability,
-  formatOutputFormat,
 } from "@/lib/format"
 import { buildHref } from "@/lib/navigation"
 import { buildOutputsHref } from "@/lib/outputs"
 import { cn } from "@/lib/utils"
+
+const useIsomorphicLayoutEffect =
+  typeof window !== "undefined" ? React.useLayoutEffect : React.useEffect
 
 function buildJobListHref(params?: Record<string, string | null | undefined>) {
   return buildHref("/jobs", params)
@@ -76,17 +76,16 @@ function DashboardPageSkeleton() {
         <Skeleton className="h-9 w-40" />
         <Skeleton className="h-5 w-80 max-w-full" />
       </div>
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        {Array.from({ length: 8 }).map((_, index) => (
-          <Skeleton key={index} className="h-40 rounded-xl" />
+      <div className="grid gap-4 lg:grid-cols-2">
+        {Array.from({ length: 2 }).map((_, index) => (
+          <Skeleton key={index} className="h-[360px] rounded-xl" />
         ))}
       </div>
       <div className="grid gap-4 lg:grid-cols-2">
         {Array.from({ length: 2 }).map((_, index) => (
-          <Skeleton key={index} className="h-72 rounded-xl" />
+          <Skeleton key={index} className="h-[320px] rounded-xl" />
         ))}
       </div>
-      <Skeleton className="h-[360px] rounded-xl" />
     </div>
   )
 }
@@ -96,10 +95,9 @@ export function DashboardPageFallback() {
 }
 
 
-function MetricCard({
+function MetricTile({
   actionHref,
   actionLabel,
-  description,
   icon: Icon,
   loading = false,
   title,
@@ -107,7 +105,6 @@ function MetricCard({
 }: {
   actionHref?: string
   actionLabel?: string
-  description: string
   icon: React.ComponentType<{ className?: string }>
   loading?: boolean
   title: string
@@ -139,23 +136,148 @@ function MetricCard({
   )
 
   return (
-    <Card size="sm">
-      <CardHeader className="flex-row items-center justify-between gap-3 space-y-0">
-        <div className="min-w-0">
-          <CardTitle className="text-sm font-medium tracking-tight">
-            {title}
-          </CardTitle>
+    <div className="flex items-center justify-between gap-3 rounded-xl border border-border/70 bg-muted/20 px-4 py-3 transition-colors hover:bg-muted/30">
+      <div className="min-w-0">
+        <div className="text-sm font-medium tracking-tight text-foreground">
+          {title}
         </div>
-        {metricChip}
-      </CardHeader>
-      <CardContent className="space-y-2">
-        {loading ? (
-          <Skeleton className="h-4 w-full" />
-        ) : (
-          <p className="text-sm text-muted-foreground">{description}</p>
-        )}
-      </CardContent>
-    </Card>
+      </div>
+      {metricChip}
+    </div>
+  )
+}
+
+type MetricTileConfig = {
+  actionHref?: string
+  actionLabel?: string
+  icon: React.ComponentType<{ className?: string }>
+  key: string
+  loading?: boolean
+  title: string
+  value: string
+}
+
+function DashboardMetricsSection({
+  computedAt,
+  summary,
+}: {
+  computedAt: Date
+  summary: {
+    inventory: {
+      asset_count: number
+      registered_last_24h: number
+      registered_last_30d: number
+      registered_last_7d: number
+      total_asset_bytes: number
+    }
+    jobs: {
+      active_count: number
+      failed_last_24h: number
+    }
+    outputs: {
+      output_count: number
+      outputs_created_last_7d: number
+      total_output_bytes: number
+    }
+  } | null
+}) {
+  const metrics: MetricTileConfig[] = [
+    {
+      actionHref: "/inventory",
+      actionLabel: "Open inventory",
+      icon: Boxes,
+      key: "total-assets",
+      loading: !summary,
+      title: "Total assets",
+      value: summary ? formatNumber(summary.inventory.asset_count) : "0",
+    },
+    {
+      actionHref: "/inventory",
+      actionLabel: "Inspect storage",
+      icon: HardDrive,
+      key: "total-storage",
+      loading: !summary,
+      title: "Total storage",
+      value: summary ? formatFileSize(summary.inventory.total_asset_bytes) : "0 B",
+    },
+    {
+      actionHref: "/jobs",
+      actionLabel: "Open jobs",
+      icon: Activity,
+      key: "active-jobs",
+      loading: !summary,
+      title: "Active jobs",
+      value: summary ? formatNumber(summary.jobs.active_count) : "0",
+    },
+    {
+      actionHref: "/outputs",
+      actionLabel: "Open outputs",
+      icon: Database,
+      key: "output-artifacts",
+      loading: !summary,
+      title: "Output artifacts",
+      value: summary ? formatNumber(summary.outputs.output_count) : "0",
+    },
+    {
+      actionHref: buildInventoryHref({
+        start_after: new Date(
+          computedAt.getTime() - 7 * 24 * 60 * 60 * 1000
+        ).toISOString(),
+      }),
+      actionLabel: "View recent assets",
+      icon: TimerReset,
+      key: "new-assets-7d",
+      loading: !summary,
+      title: "New assets (7d)",
+      value: summary ? formatNumber(summary.inventory.registered_last_7d) : "0",
+    },
+    {
+      actionHref: buildJobListHref({ status: "failed" }),
+      actionLabel: "Open failures",
+      icon: ServerCrash,
+      key: "failed-jobs-24h",
+      loading: !summary,
+      title: "Failed jobs (24h)",
+      value: summary ? formatNumber(summary.jobs.failed_last_24h) : "0",
+    },
+    {
+      actionHref: "/outputs",
+      actionLabel: "Inspect bytes",
+      icon: PackageOpen,
+      key: "output-bytes",
+      loading: !summary,
+      title: "Output bytes",
+      value: summary ? formatFileSize(summary.outputs.total_output_bytes) : "0 B",
+    },
+    {
+      actionHref: buildInventoryHref({
+        start_after: new Date(
+          computedAt.getTime() - 24 * 60 * 60 * 1000
+        ).toISOString(),
+      }),
+      actionLabel: "View recent assets",
+      icon: Workflow,
+      key: "new-assets-24h",
+      loading: !summary,
+      title: "New assets (24h)",
+      value: summary ? formatNumber(summary.inventory.registered_last_24h) : "0",
+    },
+  ]
+
+  return (
+    <div className="grid gap-3 sm:grid-cols-2">
+      {metrics.map((metric) => (
+        <MetricTile
+          actionHref={metric.actionHref}
+          actionLabel={metric.actionLabel}
+          icon={metric.icon}
+          key={metric.key}
+          loading={metric.loading}
+          title={metric.title}
+          value={metric.value}
+        />
+      ))}
+    </div>
   )
 }
 
@@ -313,83 +435,170 @@ function StatusTabsCard({
   )
 }
 
-function TrendCard({
+function TrendChart({
   accentClassName,
+  animate = true,
   buckets,
-  description,
   emptyLabel,
   loading = false,
-  title,
 }: {
   accentClassName: string
+  animate?: boolean
   buckets: TrendBucket[]
-  description: string
   emptyLabel: string
   loading?: boolean
-  title: string
 }) {
   const maxValue = Math.max(...buckets.map((bucket) => bucket.count), 1)
 
+  if (loading) {
+    return (
+      <div className="space-y-3">
+        {Array.from({ length: 7 }).map((_, index) => (
+          <Skeleton key={index} className="h-5 w-full rounded-full" />
+        ))}
+      </div>
+    )
+  }
+
+  if (buckets.length === 0) {
+    return <p className="text-sm text-muted-foreground">{emptyLabel}</p>
+  }
+
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{title}</CardTitle>
-        <CardDescription>{description}</CardDescription>
-      </CardHeader>
-      <CardContent>
-        {loading ? (
-          <div className="space-y-3">
-            {Array.from({ length: 7 }).map((_, index) => (
-              <Skeleton key={index} className="h-5 w-full rounded-full" />
-            ))}
-          </div>
-        ) : buckets.length === 0 ? (
-          <p className="text-sm text-muted-foreground">{emptyLabel}</p>
-        ) : (
-          <div className="space-y-3">
-            {buckets.map((bucket) => (
-              <div key={bucket.key} className="flex items-center gap-3">
-                <span className="w-16 shrink-0 text-xs text-muted-foreground">
-                  {bucket.label}
-                </span>
-                <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
-                  <div
-                    className={cn(
-                      "h-full rounded-full transition-[width]",
-                      accentClassName
-                    )}
-                    style={{
-                      width: `${bucket.count === 0 ? 0 : Math.max((bucket.count / maxValue) * 100, 8)}%`,
-                    }}
-                  />
-                </div>
-                <span className="w-8 shrink-0 text-right text-sm font-medium">
-                  {bucket.count}
-                </span>
+    <div className="space-y-3">
+      {buckets.map((bucket) => {
+        const width = bucket.count === 0 ? 0 : Math.max((bucket.count / maxValue) * 100, 8)
+
+        return (
+          <div key={bucket.key} className="flex items-center gap-3">
+            <span className="w-16 shrink-0 text-xs text-muted-foreground">
+              {bucket.label}
+            </span>
+            <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
+              <div
+                className="h-full"
+                style={{
+                  width: `${width}%`,
+                }}
+              >
+                <div
+                  className={cn(
+                    "h-full w-full origin-left rounded-full transition-transform duration-500 ease-out",
+                    animate ? "scale-x-100" : "scale-x-0",
+                    accentClassName
+                  )}
+                />
               </div>
-            ))}
+            </div>
+            <span className="w-8 shrink-0 text-right text-sm font-medium">
+              {bucket.count}
+            </span>
           </div>
-        )}
-      </CardContent>
-    </Card>
+        )
+      })}
+    </div>
   )
 }
 
-function OutputCountRow({
-  count,
-  href,
-  label,
-}: {
-  count: number
-  href: string
+type TrendTab = {
+  accentClassName: string
+  buckets: TrendBucket[]
+  emptyLabel: string
+  key: string
   label: string
+}
+
+function TrendTabsCard({
+  className,
+  loading = false,
+  tabs,
+  title,
+}: {
+  className?: string
+  loading?: boolean
+  tabs: TrendTab[]
+  title: string
 }) {
+  const [activeTab, setActiveTab] = React.useState(tabs[0]?.key ?? "")
+  const activeTabData =
+    tabs.find((tab) => tab.key === activeTab) ?? tabs[0] ?? null
+  const activeTabKey = activeTabData?.key ?? ""
+  const [animateBars, setAnimateBars] = React.useState(false)
+  const baseId = React.useId()
+
+  useIsomorphicLayoutEffect(() => {
+    if (!activeTabKey) {
+      return
+    }
+
+    setAnimateBars(false)
+    const frame = window.requestAnimationFrame(() => setAnimateBars(true))
+
+    return () => window.cancelAnimationFrame(frame)
+  }, [activeTabKey])
+
+  if (!activeTabData) {
+    return (
+      <Card>
+        <CardHeader className="flex flex-col gap-3">
+          <CardTitle>{title}</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground">No trend data yet.</p>
+        </CardContent>
+      </Card>
+    )
+  }
+
   return (
-    <CountRow
-      badge={<Badge variant="outline">{label}</Badge>}
-      count={count}
-      href={href}
-    />
+    <Card className={className}>
+      <CardHeader className="flex flex-col gap-3">
+        <CardTitle>{title}</CardTitle>
+        <div aria-label={`${title} tabs`} role="tablist">
+          <div className="flex flex-wrap gap-2">
+            {tabs.map((tab) => {
+              const isActive = tab.key === activeTabData.key
+
+              return (
+                <button
+                  aria-controls={`${baseId}-panel-${tab.key}`}
+                  aria-selected={isActive}
+                  className={cn(
+                    "rounded-full border px-3 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+                    isActive
+                      ? "border-foreground bg-foreground text-background shadow-sm"
+                      : "border-border bg-background text-muted-foreground hover:text-foreground"
+                  )}
+                  id={`${baseId}-tab-${tab.key}`}
+                  key={tab.key}
+                  onClick={() => setActiveTab(tab.key)}
+                  role="tab"
+                  type="button"
+                >
+                  {tab.label}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="min-h-[15rem]">
+        <div
+          aria-labelledby={`${baseId}-tab-${activeTabData.key}`}
+          id={`${baseId}-panel-${activeTabData.key}`}
+          key={activeTabData.key}
+          role="tabpanel"
+        >
+          <TrendChart
+            accentClassName={activeTabData.accentClassName}
+            animate={animateBars}
+            buckets={activeTabData.buckets}
+            emptyLabel={activeTabData.emptyLabel}
+            loading={loading}
+          />
+        </div>
+      </CardContent>
+    </Card>
   )
 }
 
@@ -564,27 +773,6 @@ export function DashboardPage() {
       )
     : []
 
-  const outputAvailabilityRows: React.ReactNode[] = summary
-    ? summary.outputs.availability_counts.map((entry: DashboardCountEntry) => (
-          <OutputCountRow
-            count={entry.count}
-            href={buildOutputsHref({ availability: entry.key })}
-            key={entry.key}
-            label={formatOutputAvailability(entry.key)}
-          />
-        ))
-    : []
-
-  const outputFormatRows: React.ReactNode[] = summary
-    ? summary.outputs.format_counts.map((entry: DashboardCountEntry) => (
-        <OutputCountRow
-          count={entry.count}
-          href={buildOutputsHref({ format: entry.key })}
-          key={entry.key}
-          label={formatOutputFormat(entry.key)}
-        />
-      ))
-    : []
   const blockerRows: React.ReactNode[] = blockers
     ? [
         {
@@ -638,14 +826,10 @@ export function DashboardPage() {
               </h1>
               {summary ? (
                 <span className="rounded-full border px-2 py-0.5 text-xs text-muted-foreground">
-                  Phase 2 server summaries
+                  v0.1.0
                 </span>
               ) : null}
             </div>
-            <p className="max-w-3xl text-sm text-muted-foreground">
-              Operational overview backed by backend dashboard summary and trend
-              endpoints.
-            </p>
             {summary ? (
               <p className="text-xs text-muted-foreground">
                 Last computed {formatDateTime(summary.freshness.computed_at)}
@@ -672,112 +856,8 @@ export function DashboardPage() {
         </Alert>
       ) : null}
 
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <MetricCard
-          actionHref="/inventory"
-          actionLabel="Open inventory"
-          description={
-            summary
-              ? `${formatNumber(summary.inventory.registered_last_30d)} added in the last 30 days`
-              : "Loading asset totals"
-          }
-          icon={Boxes}
-          loading={!summary}
-          title="Total assets"
-          value={summary ? formatNumber(summary.inventory.asset_count) : "0"}
-        />
-        <MetricCard
-          actionHref="/inventory"
-          actionLabel="Inspect storage"
-          description={
-            summary
-              ? `${formatNumber(summary.inventory.registered_last_7d)} registered in the last 7 days`
-              : "Loading asset storage"
-          }
-          icon={HardDrive}
-          loading={!summary}
-          title="Total storage"
-          value={
-            summary ? formatFileSize(summary.inventory.total_asset_bytes) : "0 B"
-          }
-        />
-        <MetricCard
-          actionHref="/jobs"
-          actionLabel="Open jobs"
-          description={
-            summary
-              ? `${formatNumber(summary.jobs.failed_last_24h)} failures in the last 24 hours`
-              : "Loading workflow activity"
-          }
-          icon={Activity}
-          loading={!summary}
-          title="Active jobs"
-          value={summary ? formatNumber(summary.jobs.active_count) : "0"}
-        />
-        <MetricCard
-          actionHref="/outputs"
-          actionLabel="Open outputs"
-          description={
-            summary
-              ? `${formatNumber(summary.outputs.outputs_created_last_7d)} created in the last 7 days`
-              : "Loading output catalog"
-          }
-          icon={Database}
-          loading={!summary}
-          title="Output artifacts"
-          value={summary ? formatNumber(summary.outputs.output_count) : "0"}
-        />
-        <MetricCard
-          actionHref={buildInventoryHref({
-            start_after: new Date(
-              computedAt.getTime() - 7 * 24 * 60 * 60 * 1000
-            ).toISOString(),
-          })}
-          actionLabel="View recent assets"
-          description="Assets registered during the last 7 days."
-          icon={TimerReset}
-          loading={!summary}
-          title="New assets (7d)"
-          value={summary ? formatNumber(summary.inventory.registered_last_7d) : "0"}
-        />
-        <MetricCard
-          actionHref={buildJobListHref({ status: "failed" })}
-          actionLabel="Open failures"
-          description="Failed jobs observed during the last 24 hours."
-          icon={ServerCrash}
-          loading={!summary}
-          title="Failed jobs (24h)"
-          value={summary ? formatNumber(summary.jobs.failed_last_24h) : "0"}
-        />
-        <MetricCard
-          actionHref="/outputs"
-          actionLabel="Inspect bytes"
-          description="Total bytes reported by current output artifacts."
-          icon={PackageOpen}
-          loading={!summary}
-          title="Output bytes"
-          value={
-            summary ? formatFileSize(summary.outputs.total_output_bytes) : "0 B"
-          }
-        />
-        <MetricCard
-          actionHref={buildInventoryHref({
-            start_after: new Date(
-              computedAt.getTime() - 24 * 60 * 60 * 1000
-            ).toISOString(),
-          })}
-          actionLabel="View recent assets"
-          description="Assets registered during the last 24 hours."
-          icon={Workflow}
-          loading={!summary}
-          title="New assets (24h)"
-          value={
-            summary ? formatNumber(summary.inventory.registered_last_24h) : "0"
-          }
-        />
-      </section>
-
       <section className="grid gap-4 lg:grid-cols-2">
+        <DashboardMetricsSection summary={summary} computedAt={computedAt} />
         <StatusTabsCard
           tabs={[
             {
@@ -801,57 +881,42 @@ export function DashboardPage() {
           ]}
           title="Operational status"
         />
-        <CountCard
-          description="Output availability from the first-class artifact catalog."
-          emptyLabel="No outputs yet."
-          loading={!summary}
-          rows={outputAvailabilityRows}
-          title="Output availability"
-        />
-      </section>
-
-      <section className="grid gap-4 lg:grid-cols-2 xl:grid-cols-4">
-        <TrendCard
-          accentClassName="bg-sky-500/70"
-          buckets={registrationsTrend}
-          description="Assets registered each day over the last week."
-          emptyLabel="Registration trend data unavailable."
-          loading={!trends && !trendsResponse.error}
-          title="Registrations (7d)"
-        />
-        <TrendCard
-          accentClassName="bg-amber-500/70"
-          buckets={jobFailuresTrend}
-          description="Failed jobs recorded each day over the last week."
-          emptyLabel="Job failure trend data unavailable."
-          loading={!trends && !trendsResponse.error}
-          title="Job Failures (7d)"
-        />
-        <TrendCard
-          accentClassName="bg-rose-500/70"
-          buckets={conversionFailuresTrend}
-          description="Failed conversions recorded each day over the last week."
-          emptyLabel="Conversion failure trend data unavailable."
-          loading={!trends && !trendsResponse.error}
-          title="Conversion Failures (7d)"
-        />
-        <TrendCard
-          accentClassName="bg-emerald-500/70"
-          buckets={outputsTrend}
-          description="Output artifacts created each day over the last week."
-          emptyLabel="Output trend data unavailable."
-          loading={!trends && !trendsResponse.error}
-          title="Outputs (7d)"
-        />
       </section>
 
       <section className="grid gap-4 lg:grid-cols-2">
-        <CountCard
-          description="Formats currently represented in the output catalog."
-          emptyLabel="No output formats yet."
-          loading={!summary}
-          rows={outputFormatRows}
-          title="Outputs by format"
+        <TrendTabsCard
+          loading={!trends && !trendsResponse.error}
+          tabs={[
+            {
+              accentClassName: "bg-sky-500/70",
+              buckets: registrationsTrend,
+              emptyLabel: "Registration trend data unavailable.",
+              key: "registrations",
+              label: "Registrations",
+            },
+            {
+              accentClassName: "bg-amber-500/70",
+              buckets: jobFailuresTrend,
+              emptyLabel: "Job failure trend data unavailable.",
+              key: "job-failures",
+              label: "Job failures",
+            },
+            {
+              accentClassName: "bg-rose-500/70",
+              buckets: conversionFailuresTrend,
+              emptyLabel: "Conversion failure trend data unavailable.",
+              key: "conversion-failures",
+              label: "Conversion failures",
+            },
+            {
+              accentClassName: "bg-emerald-500/70",
+              buckets: outputsTrend,
+              emptyLabel: "Output trend data unavailable.",
+              key: "outputs",
+              label: "Outputs",
+            },
+          ]}
+          title="Recent Activity (7d)"
         />
         <CountCard
           description="Quick links into the highest-friction operational states."
