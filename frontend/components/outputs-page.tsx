@@ -75,6 +75,7 @@ import {
   buildJobDetailHref,
   buildOutputDetailHref,
 } from "@/lib/navigation";
+import type { ActiveFilterChip } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 const OUTPUT_FORMAT_OPTIONS: OutputFormat[] = ["parquet", "tfrecord", "json", "jsonl", "unknown"];
@@ -105,11 +106,6 @@ interface OutputPreviewFact {
   value: string;
 }
 
-interface ActiveFilterChip {
-  key: string;
-  label: string;
-  updates: Record<string, string | null>;
-}
 
 
 function parseOutputSelection(value: string | null) {
@@ -1527,7 +1523,7 @@ export function OutputsPage() {
                           if (filter.key === "search") {
                             setSearchInput("");
                           }
-                          updateFilters(filter.updates);
+                          updateFilters(filter.updates!);
                         }}
                         size="xs"
                         type="button"

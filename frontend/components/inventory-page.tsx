@@ -77,13 +77,8 @@ import type { AssetSelectionScope } from "@/lib/future-workflows";
 import { formatCount, formatDateTime, formatFileSize, getIndexActionLabel } from "@/lib/format";
 import { buildAssetDetailHref, buildInventoryReplayHref } from "@/lib/navigation";
 import { buildOutputsHref, countOutputsByAsset } from "@/lib/outputs";
+import type { ActiveFilterChip, NoticeMessage } from "@/lib/types";
 import { cn } from "@/lib/utils";
-
-interface NoticeMessage {
-  description?: string;
-  title: string;
-  tone: "error" | "info" | "success";
-}
 
 type InventorySort =
   | "file_name-asc"
@@ -97,11 +92,6 @@ type SortDirection = "asc" | "desc";
 
 const DEFAULT_SORT: InventorySort = "registered-desc";
 const STATUS_OPTIONS: IndexingStatus[] = ["pending", "indexing", "indexed", "failed"];
-
-interface ActiveFilterChip {
-  key: string;
-  label: string;
-}
 
 interface DirectoryScanFormState {
   directoryPath: string;

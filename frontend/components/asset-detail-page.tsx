@@ -48,6 +48,7 @@ import {
 } from "@/lib/format";
 import { buildJobDetailHref, resolveReturnHref } from "@/lib/navigation";
 import { buildOutputsHref } from "@/lib/outputs";
+import type { NoticeMessage } from "@/lib/types";
 import { buildReplayHref } from "@/lib/visualization";
 
 function AssetDetailSkeleton() {
@@ -98,11 +99,7 @@ export function AssetDetailPage({ assetId }: { assetId: string }) {
   const [isConversionDialogOpen, setIsConversionDialogOpen] = React.useState(false);
   const [isRunningIndexAction, setIsRunningIndexAction] = React.useState(false);
   const [isUpdatingTags, setIsUpdatingTags] = React.useState(false);
-  const [requestMessage, setRequestMessage] = React.useState<{
-    description?: string;
-    title: string;
-    tone: "error" | "info";
-  } | null>(null);
+  const [requestMessage, setRequestMessage] = React.useState<NoticeMessage | null>(null);
 
   const returnHref = resolveReturnHref(searchParams.get("from"), "/");
   const currentDetailHref = React.useMemo(() => {
