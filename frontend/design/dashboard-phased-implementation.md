@@ -168,6 +168,17 @@ Frontend work:
 - remove or repurpose the current `Phase 1 client aggregation` badge once the page is backed by server summaries
 - trim `lib/dashboard.ts` down to UI-only helpers such as trend shaping or recent-failure presentation if the heavy reducers become redundant
 
+Frontend phase-2 implementation checklist:
+
+- [x] document the concrete frontend phase-2 task list and execution order
+- [x] add dashboard summary and trends response types plus fetch helpers to `frontend/lib/api.ts`
+- [x] add `backendKeys.dashboardSummary`, `backendKeys.dashboardTrends`, `useDashboardSummary()`, and `useDashboardTrends()` to `frontend/hooks/use-backend.ts`
+- [x] refactor `frontend/components/dashboard-page.tsx` so cards, counts, and charts read from backend summary contracts instead of client-side asset and output aggregation
+- [x] preserve the existing empty state, partial-data alert, drill-down links, and recent-failures table while limiting list-based reads to UI that still needs record-level detail
+- [x] repurpose the current phase badge and description to reflect backend-owned dashboard rollups
+- [x] trim `frontend/lib/dashboard.ts` to UI-only shaping helpers that still serve the page after the summary swap
+- [x] run frontend validation for the changed files
+
 Metrics to unlock cleanly in this phase:
 
 - total indexed duration

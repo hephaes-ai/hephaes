@@ -2,7 +2,6 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { usePathname } from "next/navigation"
 import {
   Activity,
   ArrowRight,
@@ -12,7 +11,6 @@ import {
   PackageOpen,
   RefreshCw,
   ServerCrash,
-  ShieldAlert,
   TimerReset,
   Workflow,
 } from "lucide-react"
@@ -32,47 +30,25 @@ import {
 } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
-import {
-  useAssets,
-  useConversions,
-  useJobs,
-  useOutputs,
+  useDashboardBlockers,
+  useDashboardSummary,
+  useDashboardTrends,
 } from "@/hooks/use-backend"
 import type {
-  ConversionStatus,
+  DashboardCountEntry,
   IndexingStatus,
   JobStatus,
-  OutputAvailability,
-  OutputFormat,
 } from "@/lib/api"
 import { getErrorMessage } from "@/lib/api"
-import {
-  buildFailureTrend,
-  buildRecentFailures,
-  summarizeAssets,
-  summarizeConversions,
-  summarizeJobs,
-  summarizeOutputs,
-  type CountEntry,
-  type RecentFailureItem,
-  type TrendBucket,
-} from "@/lib/dashboard"
+import { shapeDashboardTrendBuckets, type TrendBucket } from "@/lib/dashboard"
 import {
   formatDateTime,
   formatFileSize,
-  formatJobType,
   formatNumber,
   formatOutputAvailability,
   formatOutputFormat,
 } from "@/lib/format"
-import { buildHref, buildJobDetailHref } from "@/lib/navigation"
+import { buildHref } from "@/lib/navigation"
 import { buildOutputsHref } from "@/lib/outputs"
 import { cn } from "@/lib/utils"
 
@@ -86,23 +62,11 @@ function buildInventoryHref(
   return buildHref("/", params)
 }
 
-function getConversionStatusHref(status: ConversionStatus) {
+function getConversionStatusHref(status: string) {
   return buildJobListHref({
     status,
     type: "convert",
   })
-}
-
-function getFailureTitle(failure: RecentFailureItem) {
-  if (failure.kind === "job" && failure.jobType) {
-    return `${formatJobType(failure.jobType)} job`
-  }
-
-  if (failure.outputFormat) {
-    return `${formatOutputFormat(failure.outputFormat as OutputFormat)} conversion`
-  }
-
-  return "Conversion"
 }
 
 function DashboardPageSkeleton() {
@@ -259,12 +223,14 @@ function TrendCard({
   accentClassName,
   buckets,
   description,
+  emptyLabel,
   loading = false,
   title,
 }: {
   accentClassName: string
   buckets: TrendBucket[]
   description: string
+  emptyLabel: string
   loading?: boolean
   title: string
 }) {
@@ -283,6 +249,8 @@ function TrendCard({
               <Skeleton key={index} className="h-5 w-full rounded-full" />
             ))}
           </div>
+        ) : buckets.length === 0 ? (
+          <p className="text-sm text-muted-foreground">{emptyLabel}</p>
         ) : (
           <div className="space-y-3">
             {buckets.map((bucket) => (
@@ -332,66 +300,44 @@ function OutputCountRow({
 }
 
 export function DashboardPage() {
-  const pathname = usePathname() || "/dashboard"
-  const assetsResponse = useAssets()
-  const jobsResponse = useJobs()
-  const conversionsResponse = useConversions()
-  const outputsResponse = useOutputs()
+  const blockersResponse = useDashboardBlockers()
+  const summaryResponse = useDashboardSummary()
+  const trendsResponse = useDashboardTrends(7)
 
-  const now = new Date()
-  const currentHref = pathname
-
-  const assetSummary = assetsResponse.data
-    ? summarizeAssets(assetsResponse.data, now)
-    : null
-  const jobSummary = jobsResponse.data
-    ? summarizeJobs(jobsResponse.data, now)
-    : null
-  const conversionSummary = conversionsResponse.data
-    ? summarizeConversions(conversionsResponse.data)
-    : null
-  const outputSummary = outputsResponse.data
-    ? summarizeOutputs(outputsResponse.data, now)
-    : null
-
-  const recentFailuresReady =
-    (jobsResponse.data !== undefined || !!jobsResponse.error) &&
-    (conversionsResponse.data !== undefined || !!conversionsResponse.error)
-
-  const recentFailures = React.useMemo(
-    () =>
-      recentFailuresReady
-        ? buildRecentFailures(
-            jobsResponse.data ?? [],
-            conversionsResponse.data ?? []
-          )
-        : [],
-    [conversionsResponse.data, jobsResponse.data, recentFailuresReady]
-  )
-  const failureTrend = recentFailuresReady
-    ? buildFailureTrend(recentFailures, 7, now)
+  const blockers = blockersResponse.data ?? null
+  const summary = summaryResponse.data ?? null
+  const trends = trendsResponse.data ?? null
+  const computedAt = summary?.freshness.computed_at
+    ? new Date(summary.freshness.computed_at)
+    : new Date()
+  const registrationsTrend = trends
+    ? shapeDashboardTrendBuckets(trends.registrations_by_day)
+    : []
+  const jobFailuresTrend = trends
+    ? shapeDashboardTrendBuckets(trends.job_failures_by_day)
+    : []
+  const conversionFailuresTrend = trends
+    ? shapeDashboardTrendBuckets(trends.conversion_failures_by_day)
+    : []
+  const outputsTrend = trends
+    ? shapeDashboardTrendBuckets(trends.outputs_created_by_day)
     : []
 
   const resources = [
     {
-      error: assetsResponse.error,
-      isLoading: assetsResponse.isLoading,
-      label: "assets",
+      error: blockersResponse.error,
+      isLoading: blockersResponse.isLoading,
+      label: "blockers",
     },
     {
-      error: jobsResponse.error,
-      isLoading: jobsResponse.isLoading,
-      label: "jobs",
+      error: summaryResponse.error,
+      isLoading: summaryResponse.isLoading,
+      label: "summary",
     },
     {
-      error: conversionsResponse.error,
-      isLoading: conversionsResponse.isLoading,
-      label: "conversions",
-    },
-    {
-      error: outputsResponse.error,
-      isLoading: outputsResponse.isLoading,
-      label: "outputs",
+      error: trendsResponse.error,
+      isLoading: trendsResponse.isLoading,
+      label: "trends",
     },
   ]
 
@@ -399,25 +345,19 @@ export function DashboardPage() {
     .filter((resource) => resource.error)
     .map((resource) => `${resource.label}: ${getErrorMessage(resource.error)}`)
 
-  const allLoading = resources.every((resource) => resource.isLoading)
-  const allErrored = resources.every((resource) => resource.error)
+  const summaryUnavailable = !summary && !!summaryResponse.error
   const shouldPoll =
-    (jobsResponse.data ?? []).some(
-      (job) => job.status === "queued" || job.status === "running"
-    ) ||
-    (conversionsResponse.data ?? []).some(
-      (conversion) =>
-        conversion.status === "queued" || conversion.status === "running"
-    )
+    (summary?.jobs.active_count ?? 0) > 0 ||
+    (summary?.conversions.status_counts.queued ?? 0) > 0 ||
+    (summary?.conversions.status_counts.running ?? 0) > 0
 
   const refreshAll = React.useCallback(async () => {
     await Promise.all([
-      assetsResponse.mutate(),
-      jobsResponse.mutate(),
-      conversionsResponse.mutate(),
-      outputsResponse.mutate(),
+      blockersResponse.mutate(),
+      summaryResponse.mutate(),
+      trendsResponse.mutate(),
     ])
-  }, [assetsResponse, conversionsResponse, jobsResponse, outputsResponse])
+  }, [blockersResponse, summaryResponse, trendsResponse])
 
   React.useEffect(() => {
     if (!shouldPoll) {
@@ -431,28 +371,28 @@ export function DashboardPage() {
     return () => window.clearInterval(intervalId)
   }, [refreshAll, shouldPoll])
 
-  const hasAnyData =
-    (assetsResponse.data?.length ?? 0) > 0 ||
-    (jobsResponse.data?.length ?? 0) > 0 ||
-    (conversionsResponse.data?.length ?? 0) > 0 ||
-    (outputsResponse.data?.length ?? 0) > 0
+  const hasAnyData = summary
+    ? summary.inventory.asset_count > 0 ||
+      summary.jobs.active_count > 0 ||
+      Object.values(summary.jobs.status_counts).some((count) => count > 0) ||
+      Object.values(summary.conversions.status_counts).some(
+        (count) => count > 0
+      ) ||
+      summary.outputs.output_count > 0
+    : false
 
-  const isFullyLoadedWithoutData =
-    !allLoading &&
-    !allErrored &&
-    resources.every((resource) => !resource.isLoading && !resource.error) &&
-    !hasAnyData
-
-  if (allLoading) {
+  if (!summary && summaryResponse.isLoading) {
     return <DashboardPageSkeleton />
   }
 
-  if (allErrored) {
+  if (summaryUnavailable) {
     return (
       <div className="space-y-4">
         <Alert variant="destructive">
           <AlertTitle>Dashboard unavailable</AlertTitle>
-          <AlertDescription>{errorMessages.join(" ")}</AlertDescription>
+          <AlertDescription>
+            {getErrorMessage(summaryResponse.error)}
+          </AlertDescription>
         </Alert>
         <div>
           <Button
@@ -467,7 +407,7 @@ export function DashboardPage() {
     )
   }
 
-  if (isFullyLoadedWithoutData) {
+  if (summary && !hasAnyData) {
     return (
       <EmptyState
         action={
@@ -481,7 +421,7 @@ export function DashboardPage() {
     )
   }
 
-  const assetRows: React.ReactNode[] = assetSummary
+  const assetRows: React.ReactNode[] = summary
     ? (
         [
           ["pending", buildInventoryHref({ status: "pending" })],
@@ -492,14 +432,14 @@ export function DashboardPage() {
       ).map(([status, href]) => (
         <CountRow
           badge={<AssetStatusBadge status={status} />}
-          count={assetSummary.indexingStatusCounts[status]}
+          count={summary.indexing.status_counts[status] ?? 0}
           href={href}
           key={status}
         />
       ))
     : []
 
-  const jobRows: React.ReactNode[] = jobSummary
+  const jobRows: React.ReactNode[] = summary
     ? (
         [
           ["queued", buildJobListHref({ status: "queued" })],
@@ -510,19 +450,19 @@ export function DashboardPage() {
       ).map(([status, href]) => (
         <CountRow
           badge={<WorkflowStatusBadge status={status} />}
-          count={jobSummary.statusCounts[status]}
+          count={summary.jobs.status_counts[status] ?? 0}
           href={href}
           key={status}
         />
       ))
     : []
 
-  const conversionRows: React.ReactNode[] = conversionSummary
-    ? (["queued", "running", "succeeded", "failed"] as ConversionStatus[]).map(
+  const conversionRows: React.ReactNode[] = summary
+    ? (["queued", "running", "succeeded", "failed"] as const).map(
         (status) => (
           <CountRow
             badge={<WorkflowStatusBadge status={status} />}
-            count={conversionSummary.statusCounts[status]}
+            count={summary.conversions.status_counts[status] ?? 0}
             href={getConversionStatusHref(status)}
             key={status}
           />
@@ -530,26 +470,65 @@ export function DashboardPage() {
       )
     : []
 
-  const outputAvailabilityRows: React.ReactNode[] = outputSummary
-    ? outputSummary.availabilityCounts.map(
-        (entry: CountEntry<OutputAvailability>) => (
+  const outputAvailabilityRows: React.ReactNode[] = summary
+    ? summary.outputs.availability_counts.map((entry: DashboardCountEntry) => (
           <OutputCountRow
             count={entry.count}
             href={buildOutputsHref({ availability: entry.key })}
             key={entry.key}
             label={formatOutputAvailability(entry.key)}
           />
-        )
-      )
+        ))
     : []
 
-  const outputFormatRows: React.ReactNode[] = outputSummary
-    ? outputSummary.formatCounts.map((entry: CountEntry<OutputFormat>) => (
+  const outputFormatRows: React.ReactNode[] = summary
+    ? summary.outputs.format_counts.map((entry: DashboardCountEntry) => (
         <OutputCountRow
           count={entry.count}
           href={buildOutputsHref({ format: entry.key })}
           key={entry.key}
           label={formatOutputFormat(entry.key)}
+        />
+      ))
+    : []
+  const blockerRows: React.ReactNode[] = blockers
+    ? [
+        {
+          count: blockers.pending_assets,
+          href: buildInventoryHref({ status: "pending" }),
+          label: "Pending assets",
+        },
+        {
+          count: blockers.failed_assets,
+          href: buildInventoryHref({ status: "failed" }),
+          label: "Failed assets",
+        },
+        {
+          count: blockers.failed_jobs,
+          href: buildJobListHref({ status: "failed" }),
+          label: "Failed jobs",
+        },
+        {
+          count: blockers.failed_conversions,
+          href: getConversionStatusHref("failed"),
+          label: "Failed conversions",
+        },
+        {
+          count: blockers.missing_outputs,
+          href: buildOutputsHref({ availability: "missing" }),
+          label: "Missing outputs",
+        },
+        {
+          count: blockers.invalid_outputs,
+          href: buildOutputsHref({ availability: "invalid" }),
+          label: "Invalid outputs",
+        },
+      ].map((row) => (
+        <CountRow
+          badge={<Badge variant="outline">{row.label}</Badge>}
+          count={row.count}
+          href={row.href}
+          key={row.label}
         />
       ))
     : []
@@ -563,19 +542,24 @@ export function DashboardPage() {
               <h1 className="text-2xl font-semibold tracking-tight">
                 Dashboard
               </h1>
-              {hasAnyData ? (
+              {summary ? (
                 <span className="rounded-full border px-2 py-0.5 text-xs text-muted-foreground">
-                  Phase 1 client aggregation
+                  Phase 2 server summaries
                 </span>
               ) : null}
             </div>
             <p className="max-w-3xl text-sm text-muted-foreground">
-              Operational overview built from the existing asset, job,
-              conversion, and output routes.
+              Operational overview backed by backend dashboard summary and trend
+              endpoints.
             </p>
+            {summary ? (
+              <p className="text-xs text-muted-foreground">
+                Last computed {formatDateTime(summary.freshness.computed_at)}
+              </p>
+            ) : null}
           </div>
           <Button
-            disabled={allLoading}
+            disabled={!summary && summaryResponse.isLoading}
             onClick={() => void refreshAll()}
             size="sm"
             type="button"
@@ -599,109 +583,102 @@ export function DashboardPage() {
           actionHref="/"
           actionLabel="Open inventory"
           description={
-            assetSummary
-              ? `${formatNumber(assetSummary.registeredLast30d)} added in the last 30 days`
+            summary
+              ? `${formatNumber(summary.inventory.registered_last_30d)} added in the last 30 days`
               : "Loading asset totals"
           }
           icon={Boxes}
-          loading={!assetSummary}
+          loading={!summary}
           title="Total assets"
-          value={assetSummary ? formatNumber(assetSummary.assetCount) : "0"}
+          value={summary ? formatNumber(summary.inventory.asset_count) : "0"}
         />
         <MetricCard
           actionHref="/"
           actionLabel="Inspect storage"
           description={
-            assetSummary
-              ? `${formatNumber(assetSummary.registeredLast7d)} registered in the last 7 days`
+            summary
+              ? `${formatNumber(summary.inventory.registered_last_7d)} registered in the last 7 days`
               : "Loading asset storage"
           }
           icon={HardDrive}
-          loading={!assetSummary}
+          loading={!summary}
           title="Total storage"
           value={
-            assetSummary ? formatFileSize(assetSummary.totalAssetBytes) : "0 B"
+            summary ? formatFileSize(summary.inventory.total_asset_bytes) : "0 B"
           }
         />
         <MetricCard
           actionHref="/jobs"
           actionLabel="Open jobs"
           description={
-            jobSummary
-              ? `${formatNumber(jobSummary.failedLast24h)} failures in the last 24 hours`
+            summary
+              ? `${formatNumber(summary.jobs.failed_last_24h)} failures in the last 24 hours`
               : "Loading workflow activity"
           }
           icon={Activity}
-          loading={!jobSummary}
+          loading={!summary}
           title="Active jobs"
-          value={jobSummary ? formatNumber(jobSummary.activeCount) : "0"}
+          value={summary ? formatNumber(summary.jobs.active_count) : "0"}
         />
         <MetricCard
           actionHref="/outputs"
           actionLabel="Open outputs"
           description={
-            outputSummary
-              ? `${formatNumber(outputSummary.outputsCreatedLast7d)} created in the last 7 days`
+            summary
+              ? `${formatNumber(summary.outputs.outputs_created_last_7d)} created in the last 7 days`
               : "Loading output catalog"
           }
           icon={Database}
-          loading={!outputSummary}
+          loading={!summary}
           title="Output artifacts"
-          value={outputSummary ? formatNumber(outputSummary.outputCount) : "0"}
+          value={summary ? formatNumber(summary.outputs.output_count) : "0"}
         />
         <MetricCard
           actionHref={buildInventoryHref({
             start_after: new Date(
-              now.getTime() - 7 * 24 * 60 * 60 * 1000
+              computedAt.getTime() - 7 * 24 * 60 * 60 * 1000
             ).toISOString(),
           })}
           actionLabel="View recent assets"
           description="Assets registered during the last 7 days."
           icon={TimerReset}
-          loading={!assetSummary}
+          loading={!summary}
           title="New assets (7d)"
-          value={
-            assetSummary ? formatNumber(assetSummary.registeredLast7d) : "0"
-          }
+          value={summary ? formatNumber(summary.inventory.registered_last_7d) : "0"}
         />
         <MetricCard
           actionHref={buildJobListHref({ status: "failed" })}
           actionLabel="Open failures"
           description="Failed jobs observed during the last 24 hours."
           icon={ServerCrash}
-          loading={!jobSummary}
+          loading={!summary}
           title="Failed jobs (24h)"
-          value={jobSummary ? formatNumber(jobSummary.failedLast24h) : "0"}
+          value={summary ? formatNumber(summary.jobs.failed_last_24h) : "0"}
         />
         <MetricCard
           actionHref="/outputs"
           actionLabel="Inspect bytes"
           description="Total bytes reported by current output artifacts."
           icon={PackageOpen}
-          loading={!outputSummary}
+          loading={!summary}
           title="Output bytes"
           value={
-            outputSummary
-              ? formatFileSize(outputSummary.totalOutputBytes)
-              : "0 B"
+            summary ? formatFileSize(summary.outputs.total_output_bytes) : "0 B"
           }
         />
         <MetricCard
-          actionHref={buildJobListHref({ type: "convert" })}
-          actionLabel="Open conversion jobs"
-          description="Succeeded, running, queued, and failed conversion work."
+          actionHref={buildInventoryHref({
+            start_after: new Date(
+              computedAt.getTime() - 24 * 60 * 60 * 1000
+            ).toISOString(),
+          })}
+          actionLabel="View recent assets"
+          description="Assets registered during the last 24 hours."
           icon={Workflow}
-          loading={!conversionSummary}
-          title="Conversions tracked"
+          loading={!summary}
+          title="New assets (24h)"
           value={
-            conversionSummary
-              ? formatNumber(
-                  Object.values(conversionSummary.statusCounts).reduce(
-                    (total, count) => total + count,
-                    0
-                  )
-                )
-              : "0"
+            summary ? formatNumber(summary.inventory.registered_last_24h) : "0"
           }
         />
       </section>
@@ -710,53 +687,64 @@ export function DashboardPage() {
         <CountCard
           description="Inventory readiness based on current asset indexing state."
           emptyLabel="No asset status data yet."
-          loading={!assetSummary}
+          loading={!summary}
           rows={assetRows}
           title="Indexing status"
         />
         <CountCard
           description="Current durable backend jobs across indexing, conversion, and visualization work."
           emptyLabel="No jobs yet."
-          loading={!jobSummary}
+          loading={!summary}
           rows={jobRows}
           title="Job status"
         />
         <CountCard
-          description="Conversion health using the existing conversions list route."
+          description="Conversion health from the backend dashboard summary."
           emptyLabel="No conversions yet."
-          loading={!conversionSummary}
+          loading={!summary}
           rows={conversionRows}
           title="Conversion status"
         />
         <CountCard
           description="Output availability from the first-class artifact catalog."
           emptyLabel="No outputs yet."
-          loading={!outputSummary}
+          loading={!summary}
           rows={outputAvailabilityRows}
           title="Output availability"
         />
       </section>
 
-      <section className="grid gap-4 lg:grid-cols-3">
+      <section className="grid gap-4 lg:grid-cols-2 xl:grid-cols-4">
         <TrendCard
           accentClassName="bg-sky-500/70"
-          buckets={assetSummary?.registrationsByDay ?? []}
+          buckets={registrationsTrend}
           description="Assets registered each day over the last week."
-          loading={!assetSummary}
+          emptyLabel="Registration trend data unavailable."
+          loading={!trends && !trendsResponse.error}
           title="Registrations (7d)"
         />
         <TrendCard
           accentClassName="bg-amber-500/70"
-          buckets={failureTrend}
-          description="Recent failed jobs and failed conversions by day."
-          loading={!recentFailuresReady}
-          title="Failures (7d)"
+          buckets={jobFailuresTrend}
+          description="Failed jobs recorded each day over the last week."
+          emptyLabel="Job failure trend data unavailable."
+          loading={!trends && !trendsResponse.error}
+          title="Job Failures (7d)"
+        />
+        <TrendCard
+          accentClassName="bg-rose-500/70"
+          buckets={conversionFailuresTrend}
+          description="Failed conversions recorded each day over the last week."
+          emptyLabel="Conversion failure trend data unavailable."
+          loading={!trends && !trendsResponse.error}
+          title="Conversion Failures (7d)"
         />
         <TrendCard
           accentClassName="bg-emerald-500/70"
-          buckets={outputSummary?.outputsByDay ?? []}
+          buckets={outputsTrend}
           description="Output artifacts created each day over the last week."
-          loading={!outputSummary}
+          emptyLabel="Output trend data unavailable."
+          loading={!trends && !trendsResponse.error}
           title="Outputs (7d)"
         />
       </section>
@@ -765,117 +753,18 @@ export function DashboardPage() {
         <CountCard
           description="Formats currently represented in the output catalog."
           emptyLabel="No output formats yet."
-          loading={!outputSummary}
+          loading={!summary}
           rows={outputFormatRows}
           title="Outputs by format"
         />
-        <Card>
-          <CardHeader>
-            <CardTitle>What is blocked</CardTitle>
-            <CardDescription>
-              Quick links into the highest-friction operational states.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            <CountRow
-              badge={<Badge variant="outline">Pending assets</Badge>}
-              count={assetSummary?.indexingStatusCounts.pending ?? 0}
-              href={buildInventoryHref({ status: "pending" })}
-            />
-            <CountRow
-              badge={<Badge variant="outline">Failed assets</Badge>}
-              count={assetSummary?.indexingStatusCounts.failed ?? 0}
-              href={buildInventoryHref({ status: "failed" })}
-            />
-            <CountRow
-              badge={<Badge variant="outline">Failed jobs</Badge>}
-              count={jobSummary?.statusCounts.failed ?? 0}
-              href={buildJobListHref({ status: "failed" })}
-            />
-            <CountRow
-              badge={<Badge variant="outline">Missing outputs</Badge>}
-              count={
-                outputSummary?.availabilityCounts.find(
-                  (entry) => entry.key === "missing"
-                )?.count ?? 0
-              }
-              href={buildOutputsHref({ availability: "missing" })}
-            />
-          </CardContent>
-        </Card>
+        <CountCard
+          description="Quick links into the highest-friction operational states."
+          emptyLabel="No blocker summary yet."
+          loading={!blockers && !blockersResponse.error}
+          rows={blockerRows}
+          title="What is blocked"
+        />
       </section>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <ShieldAlert className="size-4 text-muted-foreground" />
-            Recent failures
-          </CardTitle>
-          <CardDescription>
-            Latest failed jobs and failed conversions, with direct links back
-            into job detail.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {!recentFailuresReady ? (
-            <div className="space-y-3">
-              {Array.from({ length: 4 }).map((_, index) => (
-                <Skeleton key={index} className="h-12 rounded-lg" />
-              ))}
-            </div>
-          ) : recentFailures.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              No recent failures recorded.
-            </p>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Source</TableHead>
-                  <TableHead>Failure</TableHead>
-                  <TableHead>When</TableHead>
-                  <TableHead>Details</TableHead>
-                  <TableHead className="w-[110px] text-right">Open</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {recentFailures.map((failure) => (
-                  <TableRow key={`${failure.kind}:${failure.id}`}>
-                    <TableCell>
-                      <Badge
-                        variant={
-                          failure.kind === "conversion"
-                            ? "outline"
-                            : "secondary"
-                        }
-                      >
-                        {failure.kind === "conversion" ? "Conversion" : "Job"}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="font-medium">
-                      {getFailureTitle(failure)}
-                    </TableCell>
-                    <TableCell>{formatDateTime(failure.occurredAt)}</TableCell>
-                    <TableCell className="max-w-md text-sm text-muted-foreground">
-                      {failure.errorMessage ?? "No error message recorded."}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <Button asChild size="xs" variant="outline">
-                        <Link
-                          href={buildJobDetailHref(failure.jobId, currentHref)}
-                        >
-                          Open
-                          <ArrowRight className="size-3" />
-                        </Link>
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
     </div>
   )
 }
