@@ -1,4 +1,4 @@
-![Inventory](assets/inventory-031826.png)
+![Inventory](assets/dashboard-031926.png)
 
 # Hephaes Monorepo
 
