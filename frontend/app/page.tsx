@@ -1,11 +1,26 @@
-import { Suspense } from "react";
+import { redirect } from "next/navigation";
 
-import { InventoryPage, InventoryPageFallback } from "@/components/inventory-page";
+export default async function Page({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const params = await searchParams;
+  const nextParams = new URLSearchParams();
 
-export default function Page() {
-  return (
-    <Suspense fallback={<InventoryPageFallback />}>
-      <InventoryPage />
-    </Suspense>
-  );
+  for (const [key, value] of Object.entries(params)) {
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        nextParams.append(key, item);
+      }
+      continue;
+    }
+
+    if (typeof value === "string") {
+      nextParams.set(key, value);
+    }
+  }
+
+  const query = nextParams.toString();
+  redirect(query ? `/inventory?${query}` : "/dashboard");
 }

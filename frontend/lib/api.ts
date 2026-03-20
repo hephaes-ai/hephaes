@@ -22,6 +22,82 @@ export interface HealthResponse {
   status: string
 }
 
+export interface DashboardCountEntry {
+  count: number
+  key: string
+}
+
+export interface DashboardTrendBucketResponse {
+  count: number
+  date: string
+}
+
+export interface DashboardInventorySummary {
+  asset_count: number
+  registered_last_24h: number
+  registered_last_7d: number
+  registered_last_30d: number
+  total_asset_bytes: number
+}
+
+export interface DashboardIndexingSummary {
+  status_counts: Record<IndexingStatus, number>
+}
+
+export interface DashboardJobsSummary {
+  active_count: number
+  failed_last_24h: number
+  status_counts: Record<JobStatus, number>
+}
+
+export interface DashboardConversionsSummary {
+  status_counts: Record<ConversionStatus, number>
+}
+
+export interface DashboardOutputsSummary {
+  availability_counts: DashboardCountEntry[]
+  format_counts: DashboardCountEntry[]
+  output_count: number
+  outputs_created_last_7d: number
+  total_output_bytes: number
+}
+
+export interface DashboardFreshness {
+  computed_at: string
+  latest_asset_indexed_at: string | null
+  latest_asset_registration_at: string | null
+  latest_conversion_update_at: string | null
+  latest_job_update_at: string | null
+  latest_output_update_at: string | null
+}
+
+export interface DashboardSummaryResponse {
+  conversions: DashboardConversionsSummary
+  freshness: DashboardFreshness
+  indexing: DashboardIndexingSummary
+  inventory: DashboardInventorySummary
+  jobs: DashboardJobsSummary
+  outputs: DashboardOutputsSummary
+}
+
+export interface DashboardTrendsResponse {
+  conversion_failures_by_day: DashboardTrendBucketResponse[]
+  conversions_by_day: DashboardTrendBucketResponse[]
+  days: number
+  job_failures_by_day: DashboardTrendBucketResponse[]
+  outputs_created_by_day: DashboardTrendBucketResponse[]
+  registrations_by_day: DashboardTrendBucketResponse[]
+}
+
+export interface DashboardBlockersResponse {
+  failed_assets: number
+  failed_conversions: number
+  failed_jobs: number
+  invalid_outputs: number
+  missing_outputs: number
+  pending_assets: number
+}
+
 export interface AssetListQuery {
   max_duration?: number
   min_duration?: number
@@ -610,6 +686,20 @@ export function getErrorMessage(error: unknown) {
 
 export function getHealth() {
   return request<HealthResponse>("/health")
+}
+
+export function getDashboardSummary() {
+  return request<DashboardSummaryResponse>("/dashboard/summary")
+}
+
+export function getDashboardTrends(days = 7) {
+  const params = new URLSearchParams()
+  params.set("days", String(days))
+  return request<DashboardTrendsResponse>(`/dashboard/trends?${params.toString()}`)
+}
+
+export function getDashboardBlockers() {
+  return request<DashboardBlockersResponse>("/dashboard/blockers")
 }
 
 export function listAssets(query?: AssetListQuery | null) {

@@ -14,6 +14,25 @@ This plan addresses these issues in four phases, ordered so that each phase buil
 
 ---
 
+## Status Update
+
+Most of the first three phases of this plan have now landed.
+
+Completed structural work:
+
+- shared presentational components now live in `components/metadata-field.tsx`, `components/empty-state.tsx`, `components/inline-notice.tsx`, and `components/output-availability-badge.tsx`
+- shared utility modules now live in `lib/navigation.ts`, `lib/format.ts`, and `lib/types.ts`
+- focused mutation hooks now live in `hooks/use-index-asset.ts`, `hooks/use-create-conversion.ts`, `hooks/use-scan-directory.ts`, and `hooks/use-upload-assets.ts`
+
+Phase 4 is partially complete:
+
+- `inventory-page.tsx`, `outputs-page.tsx`, and `visualization-page.tsx` all shed substantial inline UI into extracted companion components
+- `dashboard-page.tsx`, `conversion-dialog.tsx`, and `asset-detail-page.tsx` remain the largest route-level components and are still the clearest remaining refactor targets
+
+The rest of this document remains useful as a historical plan and a guide for the remaining decomposition work.
+
+---
+
 ## Phase 1 — Extract Atomic Components
 
 **Goal:** Eliminate duplicated presentational components by extracting them into `components/`.

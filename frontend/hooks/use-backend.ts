@@ -5,6 +5,9 @@ import useSWR, { useSWRConfig } from "swr"
 
 import {
   createOutputAction,
+  getDashboardBlockers,
+  getDashboardSummary,
+  getDashboardTrends,
   getConversion,
   getAssetEpisode,
   getAssetDetail,
@@ -54,6 +57,9 @@ export const backendKeys = {
     ["assets", serializeAssetListQuery(query)] as const,
   conversion: (conversionId: string) => ["conversion", conversionId] as const,
   conversions: ["conversions"] as const,
+  dashboardBlockers: ["dashboard", "blockers"] as const,
+  dashboardSummary: ["dashboard", "summary"] as const,
+  dashboardTrends: (days = 7) => ["dashboard", "trends", days] as const,
   episode: (assetId: string, episodeId: string) =>
     ["episode", assetId, episodeId] as const,
   episodes: (assetId: string) => ["episodes", assetId] as const,
@@ -92,6 +98,18 @@ export function useAssets(query?: AssetListQuery | null) {
   return useSWR(query === null ? null : backendKeys.assets(query), () =>
     listAssets(query)
   )
+}
+
+export function useDashboardBlockers() {
+  return useSWR(backendKeys.dashboardBlockers, () => getDashboardBlockers())
+}
+
+export function useDashboardSummary() {
+  return useSWR(backendKeys.dashboardSummary, () => getDashboardSummary())
+}
+
+export function useDashboardTrends(days = 7) {
+  return useSWR(backendKeys.dashboardTrends(days), () => getDashboardTrends(days))
 }
 
 export function useAsset(assetId: string) {

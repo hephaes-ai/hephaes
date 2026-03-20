@@ -31,13 +31,39 @@ The current stack is not yet ideal for metrics that depend on per-asset indexed 
 
 Those should be phased in after backend summary APIs and richer `hephaes` extraction land.
 
+## Current Status
+
+Phase 1 is complete in the frontend.
+
+The current implementation ships:
+
+- `app/dashboard/page.tsx`
+- `components/dashboard-page.tsx`
+- `lib/dashboard.ts`
+- a `Dashboard` nav entry in `components/app-shell.tsx`
+
+The route currently aggregates `useAssets()`, `useJobs()`, `useConversions()`, and `useOutputs()` in the browser, then leans on the refactored shared frontend seams such as:
+
+- `components/empty-state.tsx`
+- `lib/format.ts`
+- `lib/navigation.ts`
+- `lib/outputs.ts`
+
+That means frontend phase 2 should be a data-source swap plus a small contract cleanup, not another route redesign.
+
 ## Current Frontend Seams
 
-Existing hooks and contracts already line up with a dashboard surface:
+After the recent frontend refactor, the main dashboard seams are:
 
+- `app/dashboard/page.tsx`
+- `components/dashboard-page.tsx`
 - `hooks/use-backend.ts`
 - `lib/api.ts`
+- `lib/dashboard.ts`
+- `lib/navigation.ts`
+- `lib/outputs.ts`
 - `components/app-shell.tsx`
+- `components/empty-state.tsx`
 
 Relevant read hooks already exist:
 
@@ -47,7 +73,7 @@ Relevant read hooks already exist:
 - `useOutputs()`
 - `useOutputActions()`
 
-That means phase 1 can be a new route plus aggregation logic, not a frontend architecture rewrite.
+That is how phase 1 shipped, and it also means phase 2 can stay focused on backend-owned contracts rather than frontend structure.
 
 ## Recommended Phases
 
@@ -68,6 +94,11 @@ The intended dashboard rollout across packages is:
 
 ### Phase 1: Client-Aggregated Operations Dashboard
 
+Status:
+
+- complete
+- the live page still labels itself as `Phase 1 client aggregation`
+
 Goal:
 
 - ship a useful dashboard without waiting on new backend endpoints
@@ -77,12 +108,12 @@ Dependencies:
 - this phase depends only on the existing backend read APIs plus the small stability/testing work described in backend phase 1
 - this phase does not require backend phase 2 or any new `hephaes` work beyond the current baseline
 
-Recommended route and files:
+Implemented route and files:
 
-- add `app/dashboard/page.tsx`
-- add `components/dashboard-page.tsx`
-- add dashboard-specific aggregation helpers under `lib/dashboard.ts`
-- add a `Dashboard` nav entry in `components/app-shell.tsx`
+- `app/dashboard/page.tsx`
+- `components/dashboard-page.tsx`
+- `lib/dashboard.ts`
+- `components/app-shell.tsx`
 
 Recommended phase-1 cards and charts:
 
@@ -104,11 +135,11 @@ Recommended data sources:
 - `useConversions()` for conversion throughput and success/failure ratios
 - `useOutputs()` for output growth, format mix, output availability
 
-Implementation note:
+Current implementation notes:
 
-- keep phase-1 aggregation inside the frontend for small to moderate local datasets
-- avoid fan-out fetching every asset detail just to compute deeper metrics
-- if a duration-based or modality-based card is desired before backend work lands, gate it behind a capped detail fetch and label it as approximate
+- phase-1 aggregation stays inside the frontend for small to moderate local datasets
+- the page intentionally avoids fan-out asset detail reads and works from existing list routes only
+- drill-down links already flow through the refactored shared navigation helpers instead of page-local URL builders
 
 Exit criteria:
 
@@ -126,13 +157,27 @@ Dependencies:
 
 - this phase depends directly on backend phase 2 landing `GET /dashboard/summary` and `GET /dashboard/trends`
 - this phase can preserve the phase-1 visual layout because the dependency change is in the data contract, not the page structure
+- the `hephaes` phase-1 dependency is already satisfied upstream
 
 Frontend work:
 
-- add `getDashboardSummary()` and `getDashboardTrends()` to `lib/api.ts`
-- add `useDashboardSummary()` and `useDashboardTrends()` to `hooks/use-backend.ts`
-- replace client-side reducers with server-provided rollups
-- preserve the same visual layout so the route does not need a redesign
+- add dashboard response types plus `getDashboardSummary()` and `getDashboardTrends()` to `lib/api.ts`
+- add `backendKeys.dashboardSummary`, `backendKeys.dashboardTrends`, `useDashboardSummary()`, and `useDashboardTrends()` to `hooks/use-backend.ts`
+- replace the `useAssets()` / `useJobs()` / `useConversions()` / `useOutputs()` dashboard fetch pattern in `components/dashboard-page.tsx` with the new summary hooks
+- keep the existing cards, trend panels, empty state, partial-data alert, and drill-down links so the route does not need a redesign
+- remove or repurpose the current `Phase 1 client aggregation` badge once the page is backed by server summaries
+- trim `lib/dashboard.ts` down to UI-only helpers such as trend shaping or recent-failure presentation if the heavy reducers become redundant
+
+Frontend phase-2 implementation checklist:
+
+- [x] document the concrete frontend phase-2 task list and execution order
+- [x] add dashboard summary and trends response types plus fetch helpers to `frontend/lib/api.ts`
+- [x] add `backendKeys.dashboardSummary`, `backendKeys.dashboardTrends`, `useDashboardSummary()`, and `useDashboardTrends()` to `frontend/hooks/use-backend.ts`
+- [x] refactor `frontend/components/dashboard-page.tsx` so cards, counts, and charts read from backend summary contracts instead of client-side asset and output aggregation
+- [x] preserve the existing empty state, partial-data alert, drill-down links, and recent-failures table while limiting list-based reads to UI that still needs record-level detail
+- [x] repurpose the current phase badge and description to reflect backend-owned dashboard rollups
+- [x] trim `frontend/lib/dashboard.ts` to UI-only shaping helpers that still serve the page after the summary swap
+- [x] run frontend validation for the changed files
 
 Metrics to unlock cleanly in this phase:
 
@@ -190,14 +235,17 @@ Likely frontend files to touch over time:
 - `hooks/use-backend.ts`
 - `lib/api.ts`
 - `lib/dashboard.ts`
+- `lib/navigation.ts`
+- `lib/outputs.ts`
 - optionally `components/ui/card.tsx` consumers for metric cards and trend panels
 
 ## Testing Plan
 
-- add unit coverage for aggregation helpers in `lib/dashboard.ts`
+- keep unit coverage for any UI-only helpers that remain in `lib/dashboard.ts`
+- add hook coverage for `useDashboardSummary()` and `useDashboardTrends()` once they land
 - add component-level coverage for empty, loading, and partial-data states
 - verify URL-driven drill-down links into `/`, `/jobs`, and `/outputs`
-- add at least one regression test for mixed-status data so failed and active work are counted correctly
+- add at least one regression test that verifies the backend summary payload reproduces the same mixed-status totals the phase-1 dashboard already shows
 
 ## Suggested First Slice
 

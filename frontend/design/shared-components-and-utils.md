@@ -13,9 +13,17 @@ The frontend uses a small layer of shared product-specific components on top of 
 - `theme-provider.tsx`: `next-themes` wrapper plus `d` keyboard shortcut
 - `theme-toggle.tsx`: visible header control for light/dark mode
 
+### Shared presentational components
+
+- `empty-state.tsx`: reusable empty-state shell used by inventory, dashboard, outputs, and detail surfaces
+- `inline-notice.tsx`: shared inline success, info, and error notice used by form and detail flows
+- `metadata-field.tsx`: shared labeled value row used across asset, job, and output detail views
+- `output-detail-content.tsx`: shared output detail content used by both the outputs workspace and the dedicated output route
+
 ### Status badges
 
 - `asset-status-badge.tsx`: `pending`, `indexing`, `indexed`, `failed`
+- `output-availability-badge.tsx`: `ready`, `missing`, `invalid`, and future output availability states
 - `workflow-status-badge.tsx`: `queued`, `running`, `succeeded`, `failed`
 
 These badges intentionally centralize both wording and color treatment.
@@ -33,9 +41,9 @@ These are used in both inventory selection flows and asset detail.
 
 `rerun-viewer.tsx` is a standalone official Rerun embed wrapper that can be reused once the main replay page enables embedded viewing end-to-end.
 
-## SWR Hooks
+## SWR Hooks And Mutations
 
-`hooks/use-backend.ts` is the frontend's request hook layer.
+`hooks/use-backend.ts` is the frontend's shared read-hook layer.
 
 ### Cache keys
 
@@ -49,11 +57,24 @@ The hook set can be grouped like this:
 - assets: `useAssets`, `useAsset`
 - tags: `useTags`
 - conversions: `useConversions`, `useConversion`
+- outputs: `useOutputs`, `useOutput`
+- output actions: `useOutputActions`, `useOutputAction`, `useCreateOutputAction`
 - jobs: `useJobs`, `useJob`
 - episodes and replay: `useAssetEpisodes`, `useAssetEpisode`, `useEpisodeViewerSource`, `useEpisodeTimeline`, `useEpisodeSamples`
 - mutations with shared cache effects: `usePrepareVisualization`, `useBackendCache`
 
 `usePrepareVisualization` is intentionally not a generic mutation helper. It exists because replay preparation needs both UI state and multi-key revalidation.
+
+### Focused mutation hooks
+
+The recent frontend refactor moved several workflow mutations out of the largest page components and into dedicated hooks:
+
+- `use-index-asset.ts`
+- `use-create-conversion.ts`
+- `use-scan-directory.ts`
+- `use-upload-assets.ts`
+
+Each hook owns its own in-flight state and delegates revalidation through `useBackendCache()` so orchestration components stay thinner.
 
 ## API Module
 
@@ -61,7 +82,7 @@ The hook set can be grouped like this:
 
 ### What it defines
 
-- asset, tag, conversion, job, episode, timeline, sample, and viewer-source types
+- asset, tag, conversion, job, output, output-action, episode, timeline, sample, and viewer-source types
 - request payload types for registration, scanning, tagging, conversion, and replay preparation
 - `BackendApiError`
 - `getErrorMessage()`
@@ -78,6 +99,8 @@ The module currently covers:
 - tags
 - conversions
 - jobs
+- outputs
+- output actions
 - episode list and detail
 - viewer-source status
 - prepare-visualization
@@ -94,12 +117,45 @@ Formatting helpers used throughout the UI:
 - timestamps
 - durations
 - sentence-case labels
+- counts and number formatting
+- output format, role, and availability labels
 - indexing action labels
-- workflow-active checks
+- workflow-active checks and shared status classes
 
 ### `lib/navigation.ts`
 
-Contains `resolveReturnHref()` so nested routes only accept safe in-app return paths.
+Contains shared route builders plus safe return-navigation handling:
+
+- `buildAssetDetailHref()`
+- `buildJobDetailHref()`
+- `buildOutputDetailHref()`
+- `buildHref()`
+- `buildInventoryReplayHref()`
+- `resolveReturnHref()`
+
+### `lib/dashboard.ts`
+
+Owns the phase-1 dashboard's client-side aggregation and trend helpers:
+
+- asset, job, conversion, and output summaries
+- recent-failure merging
+- daily trend bucket shaping
+
+When backend phase 2 lands, this module should shrink toward UI-only shaping instead of owning the primary rollups.
+
+### `lib/outputs.ts`
+
+Provides shared helpers for the outputs workspace:
+
+- `buildOutputsHref()` for filtered drill-down links
+- `countOutputsByAsset()` for cross-surface output counts
+
+### `lib/types.ts`
+
+Holds shared UI-layer types that are reused across multiple components:
+
+- `ActiveFilterChip`
+- `NoticeMessage`
 
 ### `lib/visualization.ts`
 

@@ -10,8 +10,8 @@ import { Button } from "@/components/ui/button"
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
-  const isDashboardRoute = pathname === "/dashboard"
-  const isInventoryRoute = pathname === "/"
+  const isDashboardRoute = pathname === "/" || pathname === "/dashboard"
+  const isInventoryRoute = pathname === "/inventory"
   const isJobsRoute = pathname === "/jobs" || pathname.startsWith("/jobs/")
   const isOutputsRoute =
     pathname === "/outputs" || pathname.startsWith("/outputs/")
@@ -24,7 +24,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <div className="min-w-0">
               <Link
                 className="flex items-center gap-2 text-sm font-semibold tracking-tight text-foreground"
-                href="/"
+                href="/dashboard"
               >
                 <span className="relative block size-8 shrink-0">
                   <Image
@@ -63,7 +63,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   size="sm"
                   variant={isInventoryRoute ? "secondary" : "ghost"}
                 >
-                  <Link href="/">Inventory</Link>
+                  <Link href="/inventory">Inventory</Link>
                 </Button>
                 <Button
                   asChild

@@ -22,6 +22,16 @@ The current backend is not yet optimized for dashboard-scale aggregation because
 - there is no dedicated dashboard summary endpoint
 - the app still relies on `create_all()` instead of migrations, so schema changes should stay additive
 
+## Current Status
+
+The cross-package groundwork is now in place:
+
+- frontend phase 1 is live at `/dashboard` and currently aggregates `assets`, `jobs`, `conversions`, and `outputs` in the browser
+- `hephaes` phase 1 landed in `hephaes.metrics`
+- backend indexing already consumes those `hephaes` helpers for topic classification and visualization-readiness summaries
+
+The backend still has no `dashboard` routes, which makes backend phase 2 the next backend milestone.
+
 ## Current Capability Map
 
 Metrics the backend already supports well enough for phase 1:
@@ -68,14 +78,19 @@ The intended dashboard rollout across packages is:
 
 ### Phase 1: Support Frontend Aggregation Without New Schema Work
 
+Status:
+
+- complete
+- the frontend dashboard now ships against the existing list routes
+
 Goal:
 
 - let the frontend ship a dashboard using existing list routes
 
 Dependencies:
 
-- this phase can start immediately from the current API surface and does not require new `hephaes` work
-- this phase is meant to run alongside frontend phase 1 so the first dashboard can ship against existing routes
+- this phase ran against the current API surface and did not require new schema work
+- this phase shipped alongside frontend phase 1 so the first dashboard could launch against existing routes
 
 Backend work in this phase should stay minimal:
 
@@ -103,7 +118,7 @@ Goal:
 
 Dependencies:
 
-- this phase depends on `hephaes` phase 1 so backend summary routes can reuse stable metric-derivation helpers instead of re-encoding heuristics ad hoc
+- this phase depends on `hephaes` phase 1, which is now satisfied by `hephaes.metrics`, so backend summary routes can reuse stable metric-derivation helpers instead of re-encoding heuristics ad hoc
 - this phase unblocks frontend phase 2, which should switch from client aggregation to these backend-owned rollups
 
 Recommended new routes:
@@ -154,6 +169,20 @@ Recommended modules:
 - `app/api/dashboard.py`
 - `app/schemas/dashboard.py`
 - `app/services/dashboard.py`
+- `app/main.py`
+
+Phase 2 implementation tasks:
+
+- [x] Define additive dashboard response contracts in `app/schemas/dashboard.py` for summary, trends, blockers, and freshness timestamps
+- [x] Implement SQL-backed dashboard aggregations in `app/services/dashboard.py` for assets, jobs, conversions, and outputs without materializing whole tables
+- [x] Reuse durable status enums and preserve zero-count buckets so empty datasets still return stable shapes
+- [x] Add backend-owned daily time buckets for registrations, job failures, conversions, and outputs with a shared lookback window
+- [x] Surface freshness timestamps that tell the frontend when each source area last changed and when the summary was computed
+- [x] Add a lightweight blockers summary for failed indexing, failed jobs, failed conversions, and unavailable outputs
+- [x] Expose `GET /dashboard/summary`, `GET /dashboard/trends`, and `GET /dashboard/blockers` in `app/api/dashboard.py`
+- [x] Register the dashboard router in `app/main.py`
+- [x] Add regression coverage for empty datasets and mixed operational states in a dedicated dashboard API test module
+- [x] Run targeted backend tests for the new dashboard routes before frontend phase 2 consumes them
 
 Exit criteria:
 
@@ -239,7 +268,8 @@ When summary routes land:
 
 ## Suggested Backend Sequence
 
-1. Ship frontend dashboard against current APIs.
-2. Add dedicated dashboard schemas, service, and routes.
-3. Move expensive or repetitive rollups into backend-owned aggregates.
-4. Add richer quality and readiness summaries after `hephaes` exposes stable extraction helpers.
+1. Phase 1 is complete: the frontend dashboard ships against current APIs.
+2. Add dedicated dashboard schemas, service, routes, and router registration.
+3. Switch frontend phase 2 to the new backend-owned summary contracts.
+4. Move expensive or repetitive rollups into backend-owned aggregates.
+5. Add richer quality and readiness summaries after later `hephaes` phases expose stable extraction helpers.

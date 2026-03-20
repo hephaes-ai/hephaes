@@ -6,9 +6,11 @@ The frontend is a local-first Next.js application for working with registered RO
 
 Core product surfaces currently implemented:
 
+- operational dashboard
 - inventory browsing and ingestion
 - asset detail and metadata inspection
 - durable job monitoring
+- dedicated outputs workspace and output-scoped actions
 - conversion launch and output inspection
 - replay timeline browsing and viewer-source preparation
 
@@ -33,10 +35,13 @@ The current frontend stack is defined in `frontend/package.json` and `frontend/c
 The files under `app/` stay intentionally thin:
 
 - `app/layout.tsx` sets metadata, fonts, global CSS, and wraps everything with providers plus the shell
+- `app/dashboard/page.tsx` renders the dashboard route
 - `app/page.tsx` renders the inventory route
 - `app/assets/[assetId]/page.tsx` renders the asset detail route
 - `app/jobs/page.tsx` renders the jobs list
 - `app/jobs/[jobId]/page.tsx` renders the job detail
+- `app/outputs/page.tsx` renders the outputs workspace
+- `app/outputs/[outputId]/page.tsx` renders the output detail route
 - `app/replay/page.tsx` renders the replay workflow
 - `app/visualize/page.tsx` redirects old replay links into `/replay`
 
@@ -47,7 +52,7 @@ Every page component uses `Suspense` and hands the real implementation to a rout
 `components/app-shell.tsx` owns the persistent chrome:
 
 - header with logo and route navigation
-- inventory and jobs tabs
+- dashboard, inventory, outputs, and jobs tabs
 - backend connectivity badge
 - theme toggle
 - centered max-width layout shared by every route
@@ -74,36 +79,49 @@ This means route components can assume consistent feedback handling and a shared
 - base URL resolution from `NEXT_PUBLIC_BACKEND_BASE_URL`
 - a generic `request<T>` helper
 - normalized backend error parsing through `BackendApiError`
-- endpoint helpers for assets, tags, conversions, jobs, episodes, replay source, timeline, and samples
+- endpoint helpers for assets, tags, conversions, jobs, outputs, output actions, episodes, replay source, timeline, and samples
 
 The API layer is intentionally thin and does not try to reshape backend responses into a different client model.
 
-### SWR hooks
+### SWR hooks and mutations
 
-`hooks/use-backend.ts` wraps the API helper functions in SWR hooks and centralizes cache keys:
+`hooks/use-backend.ts` wraps the read helpers in SWR hooks, owns shared cache keys, and exposes mutation helpers that need multi-key cache effects:
 
 - `useHealth`
 - `useAssets` and `useAsset`
 - `useTags`
 - `useJobs` and `useJob`
 - `useConversions` and `useConversion`
+- `useOutputs`, `useOutput`, `useOutputActions`, and `useOutputAction`
 - `useAssetEpisodes` and `useAssetEpisode`
 - `useEpisodeViewerSource`
 - `useEpisodeTimeline`
 - `useEpisodeSamples`
+- `useCreateOutputAction`
 - `usePrepareVisualization`
 - `useBackendCache`
 
 `useBackendCache` exists so route components can revalidate related surfaces together after a mutation without duplicating SWR key details.
 
+The broader mutation layer is now split into focused hooks outside `use-backend.ts`:
+
+- `hooks/use-index-asset.ts`
+- `hooks/use-create-conversion.ts`
+- `hooks/use-scan-directory.ts`
+- `hooks/use-upload-assets.ts`
+
+These hooks keep user-facing notices, in-flight state, and cache revalidation close to each workflow instead of leaving page components to call API helpers directly.
+
 ### Polling model
 
 There is no single global polling loop. Each surface starts polling only while it has active work:
 
+- dashboard polls while jobs or conversions are still active
 - inventory polls while indexing is active or pending actions are in flight
 - asset detail polls while indexing, jobs, or conversions are still active
 - jobs list polls while any job is active
 - job detail polls while the job or linked conversion is active
+- outputs list and output detail poll while output actions are active
 - replay polls viewer-source preparation and sample windows while playback or dragging is active
 
 That keeps idle pages calm while still giving long-running backend jobs live feedback.
