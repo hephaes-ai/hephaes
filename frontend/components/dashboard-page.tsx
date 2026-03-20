@@ -59,7 +59,7 @@ function buildJobListHref(params?: Record<string, string | null | undefined>) {
 function buildInventoryHref(
   params?: Record<string, string | null | undefined>
 ) {
-  return buildHref("/", params)
+  return buildHref("/inventory", params)
 }
 
 function getConversionStatusHref(status: string) {
@@ -82,7 +82,7 @@ function DashboardPageSkeleton() {
         ))}
       </div>
       <div className="grid gap-4 lg:grid-cols-2">
-        {Array.from({ length: 4 }).map((_, index) => (
+        {Array.from({ length: 2 }).map((_, index) => (
           <Skeleton key={index} className="h-72 rounded-xl" />
         ))}
       </div>
@@ -113,37 +113,47 @@ function MetricCard({
   title: string
   value: string
 }) {
+  const metricChip = loading ? (
+    <div className="flex shrink-0 items-center gap-2 rounded-lg border bg-muted/60 px-3 py-2 text-muted-foreground">
+      <Icon className="size-4 shrink-0" />
+      <Skeleton className="h-4 w-12" />
+    </div>
+  ) : actionHref ? (
+    <Link
+      aria-label={`${actionLabel ?? title}: ${value}`}
+      className="flex shrink-0 items-center gap-2 rounded-lg border bg-muted/60 px-3 py-2 text-muted-foreground transition-colors hover:bg-muted/80 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+      href={actionHref}
+    >
+      <Icon className="size-4 shrink-0" />
+      <span className="whitespace-nowrap text-sm font-semibold leading-none text-foreground tabular-nums">
+        {value}
+      </span>
+    </Link>
+  ) : (
+    <div className="flex shrink-0 items-center gap-2 rounded-lg border bg-muted/60 px-3 py-2 text-muted-foreground">
+      <Icon className="size-4 shrink-0" />
+      <span className="whitespace-nowrap text-sm font-semibold leading-none text-foreground tabular-nums">
+        {value}
+      </span>
+    </div>
+  )
+
   return (
     <Card size="sm">
-      <CardHeader className="flex-row items-start justify-between gap-3 space-y-0">
-        <div className="space-y-1">
-          <CardDescription>{title}</CardDescription>
-          {loading ? (
-            <Skeleton className="h-8 w-24" />
-          ) : (
-            <CardTitle className="text-2xl font-semibold tracking-tight">
-              {value}
-            </CardTitle>
-          )}
+      <CardHeader className="flex-row items-center justify-between gap-3 space-y-0">
+        <div className="min-w-0">
+          <CardTitle className="text-sm font-medium tracking-tight">
+            {title}
+          </CardTitle>
         </div>
-        <div className="rounded-lg border bg-muted/60 p-2 text-muted-foreground">
-          <Icon className="size-4" />
-        </div>
+        {metricChip}
       </CardHeader>
-      <CardContent className="space-y-3">
+      <CardContent className="space-y-2">
         {loading ? (
           <Skeleton className="h-4 w-full" />
         ) : (
           <p className="text-sm text-muted-foreground">{description}</p>
         )}
-        {actionHref && actionLabel ? (
-          <Button asChild size="xs" variant="outline">
-            <Link href={actionHref}>
-              {actionLabel}
-              <ArrowRight className="size-3" />
-            </Link>
-          </Button>
-        ) : null}
       </CardContent>
     </Card>
   )
@@ -213,6 +223,90 @@ function CountCard({
           <div className="space-y-2">{rows}</div>
         ) : (
           <p className="text-sm text-muted-foreground">{emptyLabel}</p>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+type StatusTab = {
+  emptyLabel: string
+  key: string
+  label: string
+  rows: React.ReactNode[]
+}
+
+function StatusTabsCard({
+  tabs,
+  title,
+}: {
+  tabs: StatusTab[]
+  title: string
+}) {
+  const [activeTab, setActiveTab] = React.useState(tabs[0]?.key ?? "")
+  const activeTabData =
+    tabs.find((tab) => tab.key === activeTab) ?? tabs[0] ?? null
+  const baseId = React.useId()
+
+  if (!activeTabData) {
+    return (
+      <Card>
+        <CardHeader className="flex flex-col gap-3">
+          <CardTitle>{title}</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground">No status data yet.</p>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-col gap-3">
+        <CardTitle>{title}</CardTitle>
+        <div aria-label={`${title} tabs`} role="tablist">
+          <div className="flex flex-wrap gap-2">
+            {tabs.map((tab) => {
+              const isActive = tab.key === activeTabData.key
+
+              return (
+                <button
+                  aria-controls={`${baseId}-panel-${tab.key}`}
+                  aria-selected={isActive}
+                  className={cn(
+                    "rounded-full border px-3 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+                    isActive
+                      ? "border-foreground bg-foreground text-background shadow-sm"
+                      : "border-border bg-background text-muted-foreground hover:text-foreground"
+                  )}
+                  id={`${baseId}-tab-${tab.key}`}
+                  key={tab.key}
+                  onClick={() => setActiveTab(tab.key)}
+                  role="tab"
+                  type="button"
+                >
+                  {tab.label}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {activeTabData.rows.length > 0 ? (
+          <div
+            aria-labelledby={`${baseId}-tab-${activeTabData.key}`}
+            className="space-y-2"
+            id={`${baseId}-panel-${activeTabData.key}`}
+            role="tabpanel"
+          >
+            {activeTabData.rows}
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            {activeTabData.emptyLabel}
+          </p>
         )}
       </CardContent>
     </Card>
@@ -412,7 +506,7 @@ export function DashboardPage() {
       <EmptyState
         action={
           <Button asChild size="sm" variant="outline">
-            <Link href="/">Open inventory</Link>
+            <Link href="/inventory">Open inventory</Link>
           </Button>
         }
         description="Register assets, run indexing, and create outputs to populate the operational dashboard."
@@ -580,7 +674,7 @@ export function DashboardPage() {
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <MetricCard
-          actionHref="/"
+          actionHref="/inventory"
           actionLabel="Open inventory"
           description={
             summary
@@ -593,7 +687,7 @@ export function DashboardPage() {
           value={summary ? formatNumber(summary.inventory.asset_count) : "0"}
         />
         <MetricCard
-          actionHref="/"
+          actionHref="/inventory"
           actionLabel="Inspect storage"
           description={
             summary
@@ -684,26 +778,28 @@ export function DashboardPage() {
       </section>
 
       <section className="grid gap-4 lg:grid-cols-2">
-        <CountCard
-          description="Inventory readiness based on current asset indexing state."
-          emptyLabel="No asset status data yet."
-          loading={!summary}
-          rows={assetRows}
-          title="Indexing status"
-        />
-        <CountCard
-          description="Current durable backend jobs across indexing, conversion, and visualization work."
-          emptyLabel="No jobs yet."
-          loading={!summary}
-          rows={jobRows}
-          title="Job status"
-        />
-        <CountCard
-          description="Conversion health from the backend dashboard summary."
-          emptyLabel="No conversions yet."
-          loading={!summary}
-          rows={conversionRows}
-          title="Conversion status"
+        <StatusTabsCard
+          tabs={[
+            {
+              emptyLabel: "No asset status data yet.",
+              key: "indexing",
+              label: "Indexing",
+              rows: assetRows,
+            },
+            {
+              emptyLabel: "No jobs yet.",
+              key: "jobs",
+              label: "Jobs",
+              rows: jobRows,
+            },
+            {
+              emptyLabel: "No conversions yet.",
+              key: "conversion",
+              label: "Conversion",
+              rows: conversionRows,
+            },
+          ]}
+          title="Operational status"
         />
         <CountCard
           description="Output availability from the first-class artifact catalog."

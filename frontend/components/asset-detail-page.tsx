@@ -101,7 +101,7 @@ export function AssetDetailPage({ assetId }: { assetId: string }) {
   const [isUpdatingTags, setIsUpdatingTags] = React.useState(false);
   const [requestMessage, setRequestMessage] = React.useState<NoticeMessage | null>(null);
 
-  const returnHref = resolveReturnHref(searchParams.get("from"), "/");
+  const returnHref = resolveReturnHref(searchParams.get("from"), "/inventory");
   const currentDetailHref = React.useMemo(() => {
     const currentQuery = searchParams.toString();
     return currentQuery ? `/assets/${assetId}?${currentQuery}` : `/assets/${assetId}`;

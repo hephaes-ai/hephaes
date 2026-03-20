@@ -105,7 +105,7 @@ export function VisualizationPage() {
   )
   const speedFromUrl = parsePositiveNumber(searchParams.get("speed"), 1)
   const timestampFromUrl = parseTimestampNs(searchParams.get("timestamp_ns"))
-  const returnHref = resolveReturnHref(searchParams.get("from"), "/")
+  const returnHref = resolveReturnHref(searchParams.get("from"), "/inventory")
 
   const [isPlaying, setIsPlaying] = React.useState(false)
   const [speed, setSpeed] = React.useState(speedFromUrl)
