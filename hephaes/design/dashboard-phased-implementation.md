@@ -20,11 +20,24 @@ That is enough to support backend summaries like:
 
 It is not yet enough to support richer quality and ML-readiness metrics in a clean, reusable way.
 
+## Current Status
+
+Phase 1 is complete in `hephaes`.
+
+That work landed as:
+
+- `src/hephaes/metrics.py`
+- downstream usage in `backend/app/services/indexing.py`
+- coverage in `tests/test_metrics.py`
+
+Phases 2 through 4 remain future work.
+
 ## Current Seams In `hephaes`
 
 Relevant modules today:
 
 - `src/hephaes/profiler.py`
+- `src/hephaes/metrics.py`
 - `src/hephaes/models.py`
 - `src/hephaes/manifest.py`
 - `src/hephaes/converter.py`
@@ -35,6 +48,10 @@ Useful current outputs:
 - `TemporalMetadata`
 - `Topic`
 - `EpisodeManifest`
+- `BagTopicSummary`
+- `VisualizationReadinessSummary`
+- `DatasetArtifactSummary`
+- `ManifestReadinessFlags`
 
 Those are already consumed downstream by the backend indexing and conversion paths.
 
@@ -57,6 +74,11 @@ The intended dashboard rollout across packages is:
 
 ### Phase 1: Add Pure Metric-Derivation Helpers
 
+Status:
+
+- complete
+- backend indexing already imports the phase-1 helpers instead of owning those heuristics itself
+
 Goal:
 
 - expose reusable helpers that derive dashboard-friendly summaries from existing metadata models
@@ -66,9 +88,9 @@ Dependencies:
 - this phase has no dependency on new frontend or backend dashboard work
 - this phase is the shared foundation for backend phase 2 summary routes and backend phase 3 quality rollups
 
-Recommended additions:
+Implemented additions:
 
-- a new module such as `src/hephaes/metrics.py` or `src/hephaes/quality.py`
+- `src/hephaes/metrics.py`
 - pure functions that accept `BagMetadata`, `Topic`, or `EpisodeManifest`
 - no backend-specific imports or storage concerns
 
@@ -88,16 +110,16 @@ Exit criteria:
 
 Implementation tasks:
 
-- [ ] Create `src/hephaes/metrics.py` as the phase-1 home for dashboard-friendly derivation helpers.
-- [ ] Implement topic classification helpers such as `infer_topic_modality(message_type)` and `infer_sensor_family(message_type)`.
-- [ ] Move the current message-type heuristic out of backend indexing and make `hephaes` the source of truth for modality and sensor-family inference.
-- [ ] Implement a helper that summarizes `BagMetadata.topics` into counts by modality and counts by sensor family.
-- [ ] Implement a helper that derives visualization-readiness signals from topic summaries, including `has_visualizable_streams` and `visualizable_stream_count`.
-- [ ] Implement a helper that derives dataset summary signals from `EpisodeManifest`, including format, rows written, field count, and source storage information.
-- [ ] Implement lightweight readiness-flag helpers from manifest metadata, such as `has_manifest`, `has_rows`, and `has_required_fields`.
-- [ ] Decide which helpers stay module-local in `hephaes.metrics` for now and which should be imported by downstream callers immediately.
-- [ ] Add unit tests for empty-topic bags, mixed-modality bags, unknown message types, and manifests with minimal fields only.
-- [ ] Add regression tests that lock in the current heuristic behavior before downstream layers start depending on it.
+- [x] Create `src/hephaes/metrics.py` as the phase-1 home for dashboard-friendly derivation helpers.
+- [x] Implement topic classification helpers such as `infer_topic_modality(message_type)` and `infer_sensor_family(message_type)`.
+- [x] Move the current message-type heuristic out of backend indexing and make `hephaes` the source of truth for modality and sensor-family inference.
+- [x] Implement a helper that summarizes `BagMetadata.topics` into counts by modality and counts by sensor family.
+- [x] Implement a helper that derives visualization-readiness signals from topic summaries, including `has_visualizable_streams` and `visualizable_stream_count`.
+- [x] Implement a helper that derives dataset summary signals from `EpisodeManifest`, including format, rows written, field count, and source storage information.
+- [x] Implement lightweight readiness-flag helpers from manifest metadata, such as `has_manifest`, `has_rows`, and `has_required_fields`.
+- [x] Decide which helpers stay module-local in `hephaes.metrics` for now and which should be imported by downstream callers immediately.
+- [x] Add unit tests for empty-topic bags, mixed-modality bags, unknown message types, and manifests with minimal fields only.
+- [x] Add regression tests that lock in the current heuristic behavior before downstream layers start depending on it.
 
 ### Phase 2: Add Opt-In Quality Profiling
 
