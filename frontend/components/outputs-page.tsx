@@ -18,6 +18,9 @@ import {
   X,
 } from "lucide-react";
 
+import { EmptyState } from "@/components/empty-state";
+import { MetadataField } from "@/components/metadata-field";
+import { OutputAvailabilityBadge } from "@/components/output-availability-badge";
 import { WorkflowStatusBadge } from "@/components/workflow-status-badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -386,53 +389,6 @@ export function OutputsPageFallback() {
   return <OutputsPageSkeleton />;
 }
 
-function OutputsEmptyState({
-  action,
-  description,
-  title,
-}: {
-  action?: React.ReactNode;
-  description: string;
-  title: string;
-}) {
-  return (
-    <div className="rounded-xl border border-dashed px-6 py-16 text-center">
-      <h2 className="text-sm font-medium text-foreground">{title}</h2>
-      <p className="mx-auto mt-2 max-w-2xl text-sm text-muted-foreground">{description}</p>
-      {action ? <div className="mt-4 flex justify-center">{action}</div> : null}
-    </div>
-  );
-}
-
-export function MetadataField({
-  label,
-  value,
-}: {
-  label: string;
-  value: React.ReactNode;
-}) {
-  return (
-    <div className="space-y-1">
-      <dt className="text-xs uppercase tracking-wide text-muted-foreground">{label}</dt>
-      <dd className="text-sm font-medium text-foreground">{value}</dd>
-    </div>
-  );
-}
-
-export function OutputAvailabilityBadge({ availability }: { availability: OutputAvailability }) {
-  const className =
-    availability === "ready"
-      ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-900 dark:text-emerald-200"
-      : availability === "missing"
-        ? "border-amber-500/30 bg-amber-500/10 text-amber-900 dark:text-amber-200"
-        : "";
-
-  return (
-    <Badge className={className} variant={availability === "invalid" ? "destructive" : "outline"}>
-      {formatOutputAvailability(availability)}
-    </Badge>
-  );
-}
 
 export function OutputRoleBadge({ role }: { role: OutputRole }) {
   return <Badge variant="outline">{formatOutputRole(role)}</Badge>;
@@ -1617,7 +1573,7 @@ export function OutputsPage() {
         </CardHeader>
         <CardContent>
           {outputs.length === 0 ? (
-            <OutputsEmptyState
+            <EmptyState
               action={
                 hasAppliedFilters ? (
                   <Button onClick={clearWorkspaceFilters} type="button" variant="outline">

@@ -22,6 +22,7 @@ import {
 import { resolveReturnHref } from "@/lib/navigation";
 import { buildOutputsHref } from "@/lib/outputs";
 
+import { MetadataField } from "@/components/metadata-field";
 import { WorkflowStatusBadge } from "@/components/workflow-status-badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -48,21 +49,6 @@ function JobDetailSkeleton() {
 
 export function JobDetailPageFallback() {
   return <JobDetailSkeleton />;
-}
-
-function MetadataField({
-  label,
-  value,
-}: {
-  label: string;
-  value: React.ReactNode;
-}) {
-  return (
-    <div className="space-y-1">
-      <dt className="text-xs uppercase tracking-wide text-muted-foreground">{label}</dt>
-      <dd className="text-sm font-medium text-foreground">{value}</dd>
-    </div>
-  );
 }
 
 function TargetAssetLinks({

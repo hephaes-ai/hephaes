@@ -19,6 +19,8 @@ import {
 } from "lucide-react";
 
 import { AssetStatusBadge } from "@/components/asset-status-badge";
+import { EmptyState } from "@/components/empty-state";
+import { InlineNotice } from "@/components/inline-notice";
 import { ConversionDialog } from "@/components/conversion-dialog";
 import { TagActionPanel, TagBadgeList } from "@/components/tag-controls";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -77,6 +79,12 @@ import { buildOutputsHref, countOutputsByAsset } from "@/lib/outputs";
 import { cn } from "@/lib/utils";
 import { buildReplayHref } from "@/lib/visualization";
 
+interface NoticeMessage {
+  description?: string;
+  title: string;
+  tone: "error" | "info" | "success";
+}
+
 type InventorySort =
   | "file_name-asc"
   | "file_name-desc"
@@ -89,12 +97,6 @@ type SortDirection = "asc" | "desc";
 
 const DEFAULT_SORT: InventorySort = "registered-desc";
 const STATUS_OPTIONS: IndexingStatus[] = ["pending", "indexing", "indexed", "failed"];
-
-interface FormMessage {
-  description?: string;
-  title: string;
-  tone: "error" | "info" | "success";
-}
 
 interface ActiveFilterChip {
   key: string;
@@ -116,21 +118,6 @@ const DEFAULT_DIRECTORY_SCAN_FORM: DirectoryScanFormState = {
   recursive: true,
 };
 
-function FormNotice({ message }: { message: FormMessage }) {
-  const className =
-    message.tone === "success"
-      ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-900 dark:text-emerald-200"
-      : message.tone === "info"
-        ? "border-border bg-card"
-        : "";
-
-  return (
-    <Alert className={className} variant={message.tone === "error" ? "destructive" : "default"}>
-      <AlertTitle>{message.title}</AlertTitle>
-      {message.description ? <AlertDescription>{message.description}</AlertDescription> : null}
-    </Alert>
-  );
-}
 
 function formatCount(count: number, noun: string) {
   return `${count} ${noun}${count === 1 ? "" : "s"}`;
@@ -294,23 +281,6 @@ function SortButton({
   );
 }
 
-function InventoryEmptyState({
-  action,
-  description,
-  title,
-}: {
-  action?: React.ReactNode;
-  description: string;
-  title: string;
-}) {
-  return (
-    <div className="rounded-xl border border-dashed px-6 py-16 text-center">
-      <h2 className="text-sm font-medium text-foreground">{title}</h2>
-      <p className="mx-auto mt-2 max-w-2xl text-sm text-muted-foreground">{description}</p>
-      {action ? <div className="mt-4 flex justify-center">{action}</div> : null}
-    </div>
-  );
-}
 
 function getBulkIndexActionLabel(assets: AssetSummary[], pendingAssetIds: Set<string>) {
   const actionableAssets = assets.filter(
@@ -615,13 +585,13 @@ export function InventoryPage() {
   const sort = parseSort(searchParams.get("sort"));
   const searchParamsString = searchParams.toString();
 
-  const [formMessage, setFormMessage] = React.useState<FormMessage | null>(null);
+  const [formMessage, setNoticeMessage] = React.useState<NoticeMessage | null>(null);
   const [isUploadingFiles, setIsUploadingFiles] = React.useState(false);
   const [uploadProgress, setUploadProgress] = React.useState<UploadProgressState | null>(null);
   const [isDirectoryScanDialogOpen, setIsDirectoryScanDialogOpen] = React.useState(false);
   const [directoryScanForm, setDirectoryScanForm] =
     React.useState<DirectoryScanFormState>(DEFAULT_DIRECTORY_SCAN_FORM);
-  const [directoryScanMessage, setDirectoryScanMessage] = React.useState<FormMessage | null>(null);
+  const [directoryScanMessage, setDirectoryScanMessage] = React.useState<NoticeMessage | null>(null);
   const [isScanningDirectory, setIsScanningDirectory] = React.useState(false);
   const [searchInput, setSearchInput] = React.useState(appliedSearch);
   const [isBrowsePanelOpen, setIsBrowsePanelOpen] = React.useState(false);
@@ -786,7 +756,7 @@ export function InventoryPage() {
   }
 
   function onShowPlannedFeature(title: string, description: string) {
-    setFormMessage({
+    setNoticeMessage({
       description,
       title,
       tone: "info",
@@ -809,7 +779,7 @@ export function InventoryPage() {
       return;
     }
 
-    setFormMessage(null);
+    setNoticeMessage(null);
     setIsUploadingFiles(true);
     setUploadProgress({
       completed: 0,
@@ -861,7 +831,7 @@ export function InventoryPage() {
       }
 
       const description = descriptionParts.join(". ") || "No uploaded files changed the inventory.";
-      const tone: FormMessage["tone"] =
+      const tone: NoticeMessage["tone"] =
         unexpectedErrors.length > 0 && registeredAssets.length === 0 && skipped.length === 0
           ? "error"
           : registeredAssets.length > 0 && skipped.length === 0 && unexpectedErrors.length === 0
@@ -883,7 +853,7 @@ export function InventoryPage() {
         return;
       }
 
-      setFormMessage({
+      setNoticeMessage({
         description,
         title,
         tone,
@@ -951,7 +921,7 @@ export function InventoryPage() {
       }
 
       const description = descriptionParts.join(". ");
-      const tone: FormMessage["tone"] =
+      const tone: NoticeMessage["tone"] =
         result.registered_assets.length > 0 && result.skipped.length === 0
           ? "success"
           : result.registered_assets.length > 0 || result.skipped.length > 0 || result.discovered_file_count === 0
@@ -968,7 +938,7 @@ export function InventoryPage() {
 
       setIsDirectoryScanDialogOpen(false);
       setDirectoryScanForm(DEFAULT_DIRECTORY_SCAN_FORM);
-      setFormMessage({
+      setNoticeMessage({
         description,
         title,
         tone,
@@ -1152,7 +1122,7 @@ export function InventoryPage() {
       return;
     }
 
-    setFormMessage(null);
+    setNoticeMessage(null);
     setPendingAssetIds((current) => new Set(current).add(asset.id));
 
     try {
@@ -1161,7 +1131,7 @@ export function InventoryPage() {
     } catch (indexError) {
       const message = getErrorMessage(indexError);
 
-      setFormMessage({
+      setNoticeMessage({
         description: `${asset.file_name}: ${message}`,
         title: "Indexing failed",
         tone: "error",
@@ -1184,7 +1154,7 @@ export function InventoryPage() {
       return;
     }
 
-    setFormMessage(null);
+    setNoticeMessage(null);
     setIsBulkIndexingSelection(true);
 
     try {
@@ -1222,7 +1192,7 @@ export function InventoryPage() {
       if (indexedCount > 0 && failureMessages.length > 0) {
         const description = `${indexedCount} asset${indexedCount === 1 ? "" : "s"} indexed. ${failureMessages[0]}${failureMessages.length > 1 ? ` ${failureMessages.length - 1} more failed.` : ""}`;
 
-        setFormMessage({
+        setNoticeMessage({
           description,
           title: "Selection indexed with warnings",
           tone: "info",
@@ -1232,7 +1202,7 @@ export function InventoryPage() {
       }
 
       const description = failureMessages[0] ?? "No selected assets could be indexed.";
-      setFormMessage({
+      setNoticeMessage({
         description,
         title: "Selected assets failed to index",
         tone: "error",
@@ -1244,7 +1214,7 @@ export function InventoryPage() {
   }
 
   async function onIndexPendingAssets() {
-    setFormMessage(null);
+    setNoticeMessage(null);
     setIsIndexingPendingAssets(true);
 
     try {
@@ -1261,7 +1231,7 @@ export function InventoryPage() {
       if (result.failed_assets.length > 0) {
         const description = `${result.indexed_assets.length} asset${result.indexed_assets.length === 1 ? "" : "s"} indexed. ${result.failed_assets.length} asset${result.failed_assets.length === 1 ? "" : "s"} failed.`;
 
-        setFormMessage({
+        setNoticeMessage({
           description,
           title: "Pending indexing completed with warnings",
           tone: "info",
@@ -1272,7 +1242,7 @@ export function InventoryPage() {
     } catch (indexError) {
       const message = getErrorMessage(indexError);
 
-      setFormMessage({
+      setNoticeMessage({
         description: message,
         title: "Could not index pending assets",
         tone: "error",
@@ -1288,7 +1258,7 @@ export function InventoryPage() {
     const assetsNeedingTag = selectedVisibleAssets.filter((asset) => !assetHasTag(asset, tag.id));
 
     if (assetsNeedingTag.length === 0) {
-      setFormMessage({
+      setNoticeMessage({
         description: `All selected assets already have the ${tag.name} tag.`,
         title: "Selection already tagged",
         tone: "info",
@@ -1296,7 +1266,7 @@ export function InventoryPage() {
       return;
     }
 
-    setFormMessage(null);
+    setNoticeMessage(null);
     setIsUpdatingSelectionTags(true);
 
     try {
@@ -1320,7 +1290,7 @@ export function InventoryPage() {
 
       if (taggedCount > 0) {
         const description = `${taggedCount} asset${taggedCount === 1 ? "" : "s"} tagged with ${tag.name}. ${failureMessages[0]}${failureMessages.length > 1 ? ` ${failureMessages.length - 1} more failed.` : ""}`;
-        setFormMessage({
+        setNoticeMessage({
           description,
           title: "Tags applied with warnings",
           tone: "info",
@@ -1330,7 +1300,7 @@ export function InventoryPage() {
       }
 
       const description = failureMessages[0] ?? `No selected assets could be tagged with ${tag.name}.`;
-      setFormMessage({
+      setNoticeMessage({
         description,
         title: "Could not apply tag",
         tone: "error",
@@ -1344,7 +1314,7 @@ export function InventoryPage() {
   async function onApplyExistingTagToSelection(tagId: string) {
     const selectedTag = availableTags.find((tag) => tag.id === tagId);
     if (!selectedTag) {
-      setFormMessage({
+      setNoticeMessage({
         description: "Select an existing tag to apply it to the current selection.",
         title: "Tag not found",
         tone: "error",
@@ -1363,7 +1333,7 @@ export function InventoryPage() {
       return;
     }
 
-    setFormMessage(null);
+    setNoticeMessage(null);
     setIsUpdatingSelectionTags(true);
 
     try {
@@ -1372,7 +1342,7 @@ export function InventoryPage() {
       await applyTagToSelectedAssets(createdTag);
     } catch (tagError) {
       const message = getErrorMessage(tagError);
-      setFormMessage({
+      setNoticeMessage({
         description: message,
         title: "Could not create tag",
         tone: "error",
@@ -1442,7 +1412,7 @@ export function InventoryPage() {
         </div>
       </section>
 
-      {formMessage ? <FormNotice message={formMessage} /> : null}
+      {formMessage ? <InlineNotice description={formMessage.description} title={formMessage.title} tone={formMessage.tone} /> : null}
 
       <Card className="flex-1">
         <CardHeader className="space-y-4">
@@ -1794,14 +1764,14 @@ export function InventoryPage() {
           ) : null}
 
           {!isLoading && !assetsResponse.error && isInventoryEmpty ? (
-            <InventoryEmptyState
+            <EmptyState
               description="Use the add files button above to open the file explorer and populate the inventory."
               title="No assets registered yet"
             />
           ) : null}
 
           {showNoResults ? (
-            <InventoryEmptyState
+            <EmptyState
               action={
                 <Button onClick={resetBrowseState} size="sm" type="button" variant="outline">
                   Clear filters
@@ -1863,7 +1833,7 @@ export function InventoryPage() {
           </DialogHeader>
 
           <form className="space-y-4" onSubmit={onScanDirectory}>
-            {directoryScanMessage ? <FormNotice message={directoryScanMessage} /> : null}
+            {directoryScanMessage ? <InlineNotice description={directoryScanMessage.description} title={directoryScanMessage.title} tone={directoryScanMessage.tone} /> : null}
 
             <div className="space-y-2">
               <Label className="text-xs uppercase tracking-wide text-muted-foreground" htmlFor="directory-scan-path">
