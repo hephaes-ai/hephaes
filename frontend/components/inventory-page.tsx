@@ -4,41 +4,32 @@ import * as React from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
-  ArrowRightLeft,
   ArrowRight,
-  ArrowUpDown,
+  ArrowRightLeft,
   ChevronDown,
-  ChevronUp,
   FolderOpen,
-  MoreHorizontal,
   RefreshCw,
   Search,
   Tag,
-  Upload,
   X,
 } from "lucide-react";
 
-import { AssetStatusBadge } from "@/components/asset-status-badge";
+import { ConversionDialog } from "@/components/conversion-dialog";
 import { EmptyState } from "@/components/empty-state";
 import { InlineNotice } from "@/components/inline-notice";
-import { ConversionDialog } from "@/components/conversion-dialog";
-import { TagActionPanel, TagBadgeList } from "@/components/tag-controls";
+import { InventoryScanDialog } from "@/components/inventory-scan-dialog";
+import { AssetsTable, AssetsTableSkeleton, DEFAULT_SORT, parseSort } from "@/components/inventory-table";
+import type { InventorySort, SortColumn } from "@/components/inventory-table";
+import { InventoryUploadButton } from "@/components/inventory-upload-dialog";
+import { TagActionPanel } from "@/components/tag-controls";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Checkbox } from "@/components/ui/checkbox";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -47,139 +38,17 @@ import { Label } from "@/components/ui/label";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/sonner";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { useAssets, useBackendCache, useOutputs, useTags } from "@/hooks/use-backend";
-import type {
-  AssetListQuery,
-  AssetRegistrationSkip,
-  AssetSummary,
-  IndexingStatus,
-  TagSummary,
-} from "@/lib/api";
-import {
-  attachTagToAsset,
-  BackendApiError,
-  createTag,
-  getErrorMessage,
-  indexAsset,
-  reindexAllAssets,
-  scanDirectoryForAssets,
-  uploadAssetFile,
-} from "@/lib/api";
+import { useIndexAsset } from "@/hooks/use-index-asset";
+import type { AssetListQuery, AssetSummary, IndexingStatus, TagSummary } from "@/lib/api";
+import { attachTagToAsset, createTag, getErrorMessage } from "@/lib/api";
 import type { AssetSelectionScope } from "@/lib/future-workflows";
-import { formatCount, formatDateTime, formatFileSize, getIndexActionLabel } from "@/lib/format";
-import { buildAssetDetailHref, buildInventoryReplayHref } from "@/lib/navigation";
-import { buildOutputsHref, countOutputsByAsset } from "@/lib/outputs";
+import { buildAssetDetailHref } from "@/lib/navigation";
+import { countOutputsByAsset } from "@/lib/outputs";
 import type { ActiveFilterChip, NoticeMessage } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-type InventorySort =
-  | "file_name-asc"
-  | "file_name-desc"
-  | "file_size-asc"
-  | "file_size-desc"
-  | "registered-desc"
-  | "registered-asc";
-type SortColumn = "file_name" | "file_size" | "registered";
-type SortDirection = "asc" | "desc";
-
-const DEFAULT_SORT: InventorySort = "registered-desc";
 const STATUS_OPTIONS: IndexingStatus[] = ["pending", "indexing", "indexed", "failed"];
-
-interface DirectoryScanFormState {
-  directoryPath: string;
-  recursive: boolean;
-}
-
-interface UploadProgressState {
-  completed: number;
-  total: number;
-}
-
-const DEFAULT_DIRECTORY_SCAN_FORM: DirectoryScanFormState = {
-  directoryPath: "",
-  recursive: true,
-};
-
-
-
-function summarizeSkipped(skipped: AssetRegistrationSkip[]) {
-  if (skipped.length === 0) {
-    return "";
-  }
-
-  const duplicateCount = skipped.filter((item) => item.reason === "duplicate").length;
-  const invalidCount = skipped.filter((item) => item.reason === "invalid_path").length;
-  const parts: string[] = [];
-
-  if (duplicateCount > 0) {
-    parts.push(`${formatCount(duplicateCount, "duplicate")} skipped`);
-  }
-
-  if (invalidCount > 0) {
-    parts.push(`${formatCount(invalidCount, "invalid file")} skipped`);
-  }
-
-  const firstDetail = skipped[0]?.detail;
-  if (firstDetail) {
-    parts.push(firstDetail);
-  }
-
-  return parts.join(". ");
-}
-
-function classifyUploadedFileSkip(file: File, error: unknown): AssetRegistrationSkip | null {
-  if (!(error instanceof BackendApiError)) {
-    return null;
-  }
-
-  if (error.status === 409) {
-    return {
-      detail: error.message,
-      file_path: file.name,
-      reason: "duplicate",
-    };
-  }
-
-  if (error.status === 400) {
-    return {
-      detail: error.message,
-      file_path: file.name,
-      reason: "invalid_path",
-    };
-  }
-
-  return null;
-}
-
-function isValidSort(value: string | null): value is InventorySort {
-  return (
-    value === "file_name-asc" ||
-    value === "file_name-desc" ||
-    value === "file_size-asc" ||
-    value === "file_size-desc" ||
-    value === "registered-desc" ||
-    value === "registered-asc"
-  );
-}
-
-function parseSort(value: string | null) {
-  const normalizedValue = isValidSort(value) ? value : DEFAULT_SORT;
-  const [column, direction] = normalizedValue.split("-") as [SortColumn, SortDirection];
-
-  return {
-    column,
-    direction,
-    value: normalizedValue,
-  };
-}
 
 function parseNonNegativeNumber(value: string | null) {
   if (!value) {
@@ -224,40 +93,6 @@ function isValidIndexingStatus(value: string): value is IndexingStatus {
   return STATUS_OPTIONS.includes(value as IndexingStatus);
 }
 
-function SortButton({
-  active,
-  direction,
-  disabled = false,
-  label,
-  onClick,
-}: {
-  active: boolean;
-  direction: SortDirection;
-  disabled?: boolean;
-  label: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      className={cn(
-        "inline-flex items-center gap-1 rounded-md px-1 py-1 text-left text-xs font-semibold tracking-wide text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-40",
-        active && "text-foreground",
-      )}
-      disabled={disabled}
-      onClick={onClick}
-      type="button"
-    >
-      {label}
-      {active ? (
-        direction === "asc" ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />
-      ) : (
-        <ArrowUpDown className="size-3.5" />
-      )}
-    </button>
-  );
-}
-
-
 function getBulkIndexActionLabel(assets: AssetSummary[], pendingAssetIds: Set<string>) {
   const actionableAssets = assets.filter(
     (asset) => asset.indexing_status !== "indexing" && !pendingAssetIds.has(asset.id),
@@ -278,12 +113,8 @@ function getBulkIndexActionLabel(assets: AssetSummary[], pendingAssetIds: Set<st
   return "Index selected";
 }
 
-function getAssetTags(asset: AssetSummary) {
-  return asset.tags ?? [];
-}
-
 function assetHasTag(asset: AssetSummary, tagId: string) {
-  return getAssetTags(asset).some((tag) => tag.id === tagId);
+  return (asset.tags ?? []).some((tag) => tag.id === tagId);
 }
 
 function findExistingTagByName(tags: TagSummary[], name: string) {
@@ -315,211 +146,6 @@ function getAssetSelectionScope({
   return "all-assets";
 }
 
-function AssetsTable({
-  assets,
-  inventoryHref,
-  onRunAssetAction,
-  onSelectAll,
-  onSelectAsset,
-  onSort,
-  outputCountsByAsset,
-  pendingAssetIds,
-  selectedAssetIds,
-  sort,
-}: {
-  assets: AssetSummary[];
-  inventoryHref: string;
-  onRunAssetAction: (asset: AssetSummary) => void;
-  onSelectAll: (checked: boolean | "indeterminate") => void;
-  onSelectAsset: (assetId: string, checked: boolean | "indeterminate") => void;
-  onSort: (column: SortColumn) => void;
-  outputCountsByAsset: Map<string, number>;
-  pendingAssetIds: Set<string>;
-  selectedAssetIds: Set<string>;
-  sort: ReturnType<typeof parseSort>;
-}) {
-  const router = useRouter();
-
-  const selectedCount = assets.filter((asset) => selectedAssetIds.has(asset.id)).length;
-  const allVisibleSelected = assets.length > 0 && selectedCount === assets.length;
-  const someVisibleSelected = selectedCount > 0 && selectedCount < assets.length;
-
-  function openAsset(assetId: string) {
-    router.push(buildAssetDetailHref(assetId, inventoryHref));
-  }
-
-  function onRowKeyDown(event: React.KeyboardEvent<HTMLTableRowElement>, assetId: string) {
-    if (event.target instanceof Element && event.target.closest("[data-stop-row-click='true']")) {
-      return;
-    }
-
-    if (event.key !== "Enter" && event.key !== " ") {
-      return;
-    }
-
-    event.preventDefault();
-    openAsset(assetId);
-  }
-
-  function onRowClick(event: React.MouseEvent<HTMLTableRowElement>, assetId: string) {
-    if (event.target instanceof Element && event.target.closest("[data-stop-row-click='true']")) {
-      return;
-    }
-
-    openAsset(assetId);
-  }
-
-  return (
-    <div className="overflow-x-auto">
-      <Table className="min-w-[860px]">
-        <TableHeader>
-          <TableRow>
-            <TableHead className="w-12">
-              <div className="flex items-center justify-center" data-stop-row-click="true">
-                <Checkbox
-                  aria-label="Select all visible assets"
-                  checked={allVisibleSelected ? true : someVisibleSelected ? "indeterminate" : false}
-                  onCheckedChange={onSelectAll}
-                />
-              </div>
-            </TableHead>
-            <TableHead className="min-w-72">
-              <SortButton
-                active={sort.column === "file_name"}
-                direction={sort.direction}
-                label="File name"
-                onClick={() => onSort("file_name")}
-              />
-            </TableHead>
-            <TableHead>File type</TableHead>
-            <TableHead>
-              <SortButton
-                active={sort.column === "file_size"}
-                direction={sort.direction}
-                label="File size"
-                onClick={() => onSort("file_size")}
-              />
-            </TableHead>
-            <TableHead>Indexing status</TableHead>
-            <TableHead>
-              <SortButton
-                active={sort.column === "registered"}
-                direction={sort.direction}
-                label="Date added"
-                onClick={() => onSort("registered")}
-              />
-            </TableHead>
-            <TableHead>Last indexed</TableHead>
-            <TableHead className="w-12 text-right">Action</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {assets.map((asset) => {
-            const isSelected = selectedAssetIds.has(asset.id);
-            const isRunningAction = pendingAssetIds.has(asset.id);
-            const effectiveStatus: IndexingStatus = isRunningAction ? "indexing" : asset.indexing_status;
-            const outputCount = outputCountsByAsset.get(asset.id) ?? 0;
-
-            return (
-              <TableRow
-                key={asset.id}
-                aria-label={`Open ${asset.file_name}`}
-                className={cn("cursor-pointer", isSelected && "bg-muted/35")}
-                onClick={(event) => onRowClick(event, asset.id)}
-                onKeyDown={(event) => onRowKeyDown(event, asset.id)}
-                role="link"
-                tabIndex={0}
-              >
-                <TableCell>
-                  <div className="flex items-center justify-center" data-stop-row-click="true">
-                    <Checkbox
-                      aria-label={`Select ${asset.file_name}`}
-                      checked={isSelected}
-                      onCheckedChange={(checked) => onSelectAsset(asset.id, checked)}
-                    />
-                  </div>
-                </TableCell>
-                <TableCell className="max-w-0">
-                  <div className="space-y-1">
-                    <div className="font-medium text-foreground">{asset.file_name}</div>
-                    <div className="truncate text-xs text-muted-foreground">{asset.file_path}</div>
-                    {getAssetTags(asset).length > 0 ? (
-                      <TagBadgeList className="pt-1" maxVisible={2} tags={getAssetTags(asset)} />
-                    ) : null}
-                    {outputCount > 0 ? (
-                      <div className="pt-1">
-                        <Badge variant="outline">
-                          {outputCount} output{outputCount === 1 ? "" : "s"}
-                        </Badge>
-                      </div>
-                    ) : null}
-                  </div>
-                </TableCell>
-                <TableCell className="uppercase text-muted-foreground">{asset.file_type}</TableCell>
-                <TableCell>{formatFileSize(asset.file_size)}</TableCell>
-                <TableCell>
-                  <AssetStatusBadge status={effectiveStatus} />
-                </TableCell>
-                <TableCell>{formatDateTime(asset.registered_time)}</TableCell>
-                <TableCell>{formatDateTime(asset.last_indexed_time, "Not indexed yet")}</TableCell>
-                <TableCell className="text-right">
-                  <div data-stop-row-click="true">
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button size="icon" variant="ghost" className="size-8">
-                          <MoreHorizontal className="size-4" />
-                          <span className="sr-only">Actions</span>
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem
-                          disabled={isRunningAction || asset.indexing_status === "indexing"}
-                          onClick={() => onRunAssetAction(asset)}
-                        >
-                          {isRunningAction ? <RefreshCw className="size-4 animate-spin" /> : null}
-                          {getIndexActionLabel(asset.indexing_status, isRunningAction)}
-                        </DropdownMenuItem>
-                        {asset.indexing_status === "indexed" ? (
-                          <DropdownMenuItem asChild>
-                            <Link href={buildInventoryReplayHref(asset.id, inventoryHref)}>Replay</Link>
-                          </DropdownMenuItem>
-                        ) : null}
-                        {outputCount > 0 ? (
-                          <DropdownMenuItem asChild>
-                            <Link href={buildOutputsHref({ assetId: asset.id })}>Outputs</Link>
-                          </DropdownMenuItem>
-                        ) : null}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
-                </TableCell>
-              </TableRow>
-            );
-          })}
-        </TableBody>
-      </Table>
-    </div>
-  );
-}
-
-function AssetsTableSkeleton() {
-  return (
-    <div className="space-y-3">
-      {Array.from({ length: 5 }).map((_, index) => (
-        <div key={index} className="grid gap-3 rounded-lg border px-4 py-3 md:grid-cols-[40px_2fr_0.7fr_0.9fr_1fr_1fr_1fr]">
-          <Skeleton className="h-10" />
-          <Skeleton className="h-10" />
-          <Skeleton className="h-10" />
-          <Skeleton className="h-10" />
-          <Skeleton className="h-10" />
-          <Skeleton className="h-10" />
-          <Skeleton className="h-10" />
-        </div>
-      ))}
-    </div>
-  );
-}
-
 export function InventoryPageFallback() {
   return (
     <div className="space-y-6">
@@ -545,8 +171,8 @@ export function InventoryPage() {
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { revalidateAssetLists, revalidateJobs, revalidateTags } = useBackendCache();
-  const uploadInputRef = React.useRef<HTMLInputElement | null>(null);
+  const { revalidateAssetLists, revalidateTags } = useBackendCache();
+  const { pendingAssetIds, runBulkIndex, runIndexAsset, runIndexPending } = useIndexAsset();
 
   const appliedSearch = searchParams.get("search")?.trim() ?? "";
   const activeTag = searchParams.get("tag")?.trim() ?? "";
@@ -562,13 +188,7 @@ export function InventoryPage() {
   const searchParamsString = searchParams.toString();
 
   const [formMessage, setNoticeMessage] = React.useState<NoticeMessage | null>(null);
-  const [isUploadingFiles, setIsUploadingFiles] = React.useState(false);
-  const [uploadProgress, setUploadProgress] = React.useState<UploadProgressState | null>(null);
   const [isDirectoryScanDialogOpen, setIsDirectoryScanDialogOpen] = React.useState(false);
-  const [directoryScanForm, setDirectoryScanForm] =
-    React.useState<DirectoryScanFormState>(DEFAULT_DIRECTORY_SCAN_FORM);
-  const [directoryScanMessage, setDirectoryScanMessage] = React.useState<NoticeMessage | null>(null);
-  const [isScanningDirectory, setIsScanningDirectory] = React.useState(false);
   const [searchInput, setSearchInput] = React.useState(appliedSearch);
   const [isBrowsePanelOpen, setIsBrowsePanelOpen] = React.useState(false);
   const [isConversionDialogOpen, setIsConversionDialogOpen] = React.useState(false);
@@ -576,7 +196,6 @@ export function InventoryPage() {
   const [isBulkIndexingSelection, setIsBulkIndexingSelection] = React.useState(false);
   const [isIndexingPendingAssets, setIsIndexingPendingAssets] = React.useState(false);
   const [isUpdatingSelectionTags, setIsUpdatingSelectionTags] = React.useState(false);
-  const [pendingAssetIds, setPendingAssetIds] = React.useState<Set<string>>(new Set());
   const [selectedAssetIds, setSelectedAssetIds] = React.useState<Set<string>>(new Set());
 
   React.useEffect(() => {
@@ -739,200 +358,6 @@ export function InventoryPage() {
     });
   }
 
-  function onOpenUploadPicker() {
-    if (isUploadingFiles) {
-      return;
-    }
-
-    uploadInputRef.current?.click();
-  }
-
-  async function onUploadFiles(event: React.ChangeEvent<HTMLInputElement>) {
-    const files = Array.from(event.target.files ?? []);
-    event.target.value = "";
-
-    if (files.length === 0) {
-      return;
-    }
-
-    setNoticeMessage(null);
-    setIsUploadingFiles(true);
-    setUploadProgress({
-      completed: 0,
-      total: files.length,
-    });
-
-    const registeredAssets: AssetSummary[] = [];
-    const skipped: AssetRegistrationSkip[] = [];
-    const unexpectedErrors: string[] = [];
-
-    try {
-      for (const [index, file] of files.entries()) {
-        try {
-          const asset = await uploadAssetFile(file);
-          registeredAssets.push(asset);
-        } catch (uploadError) {
-          const classifiedSkip = classifyUploadedFileSkip(file, uploadError);
-          if (classifiedSkip) {
-            skipped.push(classifiedSkip);
-          } else {
-            unexpectedErrors.push(`${file.name}: ${getErrorMessage(uploadError)}`);
-          }
-        } finally {
-          setUploadProgress({
-            completed: index + 1,
-            total: files.length,
-          });
-        }
-      }
-
-      if (registeredAssets.length > 0) {
-        await revalidateAssetLists();
-      }
-
-      const descriptionParts: string[] = [];
-
-      if (registeredAssets.length > 0) {
-        descriptionParts.push(`${formatCount(registeredAssets.length, "file")} uploaded to inventory`);
-      }
-
-      if (skipped.length > 0) {
-        descriptionParts.push(summarizeSkipped(skipped));
-      }
-
-      if (unexpectedErrors.length > 0) {
-        descriptionParts.push(
-          `${unexpectedErrors[0]}${unexpectedErrors.length > 1 ? ` ${unexpectedErrors.length - 1} more upload${unexpectedErrors.length - 1 === 1 ? "" : "s"} failed.` : ""}`,
-        );
-      }
-
-      const description = descriptionParts.join(". ") || "No uploaded files changed the inventory.";
-      const tone: NoticeMessage["tone"] =
-        unexpectedErrors.length > 0 && registeredAssets.length === 0 && skipped.length === 0
-          ? "error"
-          : registeredAssets.length > 0 && skipped.length === 0 && unexpectedErrors.length === 0
-            ? "success"
-            : "info";
-      const title =
-        registeredAssets.length > 0 && skipped.length === 0 && unexpectedErrors.length === 0
-          ? "Uploads finished"
-          : registeredAssets.length > 0
-            ? "Uploads finished with warnings"
-            : unexpectedErrors.length > 0 && skipped.length === 0
-              ? "Uploads failed"
-              : "No uploaded files were added";
-
-      if (tone === "success") {
-        toast.success(registeredAssets.length === 1 ? "Upload completed" : "Uploads completed", {
-          description,
-        });
-        return;
-      }
-
-      setNoticeMessage({
-        description,
-        title,
-        tone,
-      });
-      toast[tone](title, { description });
-    } finally {
-      setIsUploadingFiles(false);
-      setUploadProgress(null);
-    }
-  }
-
-  function onDirectoryScanDialogChange(nextOpen: boolean) {
-    if (!nextOpen && isScanningDirectory) {
-      return;
-    }
-
-    setIsDirectoryScanDialogOpen(nextOpen);
-
-    if (!nextOpen) {
-      setDirectoryScanForm(DEFAULT_DIRECTORY_SCAN_FORM);
-      setDirectoryScanMessage(null);
-    }
-  }
-
-  async function onScanDirectory(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-
-    const normalizedPath = directoryScanForm.directoryPath.trim();
-    if (!normalizedPath) {
-      setDirectoryScanMessage({
-        description: "Enter a local directory path before scanning.",
-        title: "Directory required",
-        tone: "error",
-      });
-      return;
-    }
-
-    setDirectoryScanMessage(null);
-    setIsScanningDirectory(true);
-
-    try {
-      const result = await scanDirectoryForAssets({
-        directory_path: normalizedPath,
-        recursive: directoryScanForm.recursive,
-      });
-
-      if (result.registered_assets.length > 0) {
-        await revalidateAssetLists();
-      }
-
-      const descriptionParts = [
-        `Scanned ${result.scanned_directory} and found ${formatCount(result.discovered_file_count, "supported file")}`,
-      ];
-
-      if (result.registered_assets.length > 0) {
-        descriptionParts.push(`${formatCount(result.registered_assets.length, "file")} added to inventory`);
-      }
-
-      if (result.skipped.length > 0) {
-        descriptionParts.push(summarizeSkipped(result.skipped));
-      }
-
-      if (result.discovered_file_count === 0) {
-        descriptionParts.push("No supported .bag or .mcap files were discovered");
-      }
-
-      const description = descriptionParts.join(". ");
-      const tone: NoticeMessage["tone"] =
-        result.registered_assets.length > 0 && result.skipped.length === 0
-          ? "success"
-          : result.registered_assets.length > 0 || result.skipped.length > 0 || result.discovered_file_count === 0
-            ? "info"
-            : "error";
-      const title =
-        result.registered_assets.length > 0 && result.skipped.length === 0
-          ? "Directory scanned"
-          : result.registered_assets.length > 0
-            ? "Directory scanned with warnings"
-            : result.discovered_file_count === 0
-              ? "No supported files found"
-              : "No new files were added";
-
-      setIsDirectoryScanDialogOpen(false);
-      setDirectoryScanForm(DEFAULT_DIRECTORY_SCAN_FORM);
-      setNoticeMessage({
-        description,
-        title,
-        tone,
-      });
-      toast[tone](title, { description });
-    } catch (scanError) {
-      const message = getErrorMessage(scanError);
-      setDirectoryScanMessage({
-        description: message,
-        title: "Could not scan directory",
-        tone: "error",
-      });
-      toast.error("Directory scan failed", { description: message });
-    } finally {
-      setIsScanningDirectory(false);
-    }
-  }
-
   function onSearchSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     updateBrowseState({ search: searchInput });
@@ -1055,10 +480,6 @@ export function InventoryPage() {
     hasServerFilters,
     selectedCount,
   });
-  const uploadButtonLabel =
-    isUploadingFiles && uploadProgress
-      ? `Uploading ${uploadProgress.completed}/${uploadProgress.total}`
-      : "Upload files";
 
   const isLoading = assetsResponse.isLoading;
   const isInventoryEmpty = !hasAppliedFilters && totalRegisteredCount === 0;
@@ -1085,105 +506,25 @@ export function InventoryPage() {
     return () => window.clearInterval(intervalId);
   }, [allAssetsResponse, assetsResponse, hasServerFilters, shouldPollAssets]);
 
-  async function refreshAssetLists() {
-    await Promise.all([revalidateAssetLists(), revalidateJobs()]);
-  }
-
-  async function refreshTagAwareData() {
-    await Promise.all([revalidateAssetLists(), revalidateTags()]);
-  }
-
   async function onRunAssetAction(asset: AssetSummary) {
-    if (asset.indexing_status === "indexing" || pendingAssetIds.has(asset.id)) {
-      return;
-    }
-
     setNoticeMessage(null);
-    setPendingAssetIds((current) => new Set(current).add(asset.id));
-
-    try {
-      await indexAsset(asset.id);
-      await refreshAssetLists();
-    } catch (indexError) {
-      const message = getErrorMessage(indexError);
-
-      setNoticeMessage({
-        description: `${asset.file_name}: ${message}`,
-        title: "Indexing failed",
-        tone: "error",
-      });
-      toast.error("Could not index asset", {
-        description: `${asset.file_name}: ${message}`,
-      });
-      await refreshAssetLists();
-    } finally {
-      setPendingAssetIds((current) => {
-        const next = new Set(current);
-        next.delete(asset.id);
-        return next;
-      });
+    const notice = await runIndexAsset(asset);
+    if (notice) {
+      setNoticeMessage(notice);
+      toast.error("Could not index asset", { description: notice.description });
     }
   }
 
   async function onRunBulkIndex() {
-    if (actionableSelectedAssets.length === 0) {
-      return;
-    }
-
     setNoticeMessage(null);
     setIsBulkIndexingSelection(true);
 
     try {
-      setPendingAssetIds((current) => {
-        const next = new Set(current);
-        for (const asset of actionableSelectedAssets) {
-          next.add(asset.id);
-        }
-        return next;
-      });
-
-      let indexedCount = 0;
-      const failureMessages: string[] = [];
-
-      for (const asset of actionableSelectedAssets) {
-        try {
-          await indexAsset(asset.id);
-          indexedCount += 1;
-        } catch (indexError) {
-          failureMessages.push(`${asset.file_name}: ${getErrorMessage(indexError)}`);
-        } finally {
-          setPendingAssetIds((current) => {
-            const next = new Set(current);
-            next.delete(asset.id);
-            return next;
-          });
-          await refreshAssetLists();
-        }
+      const notice = await runBulkIndex(actionableSelectedAssets);
+      if (notice) {
+        setNoticeMessage(notice);
+        toast[notice.tone](notice.title, { description: notice.description });
       }
-
-      if (indexedCount > 0 && failureMessages.length === 0) {
-        return;
-      }
-
-      if (indexedCount > 0 && failureMessages.length > 0) {
-        const description = `${indexedCount} asset${indexedCount === 1 ? "" : "s"} indexed. ${failureMessages[0]}${failureMessages.length > 1 ? ` ${failureMessages.length - 1} more failed.` : ""}`;
-
-        setNoticeMessage({
-          description,
-          title: "Selection indexed with warnings",
-          tone: "info",
-        });
-        toast.info("Partial indexing complete", { description });
-        return;
-      }
-
-      const description = failureMessages[0] ?? "No selected assets could be indexed.";
-      setNoticeMessage({
-        description,
-        title: "Selected assets failed to index",
-        tone: "error",
-      });
-      toast.error("Bulk indexing failed", { description });
     } finally {
       setIsBulkIndexingSelection(false);
     }
@@ -1194,40 +535,25 @@ export function InventoryPage() {
     setIsIndexingPendingAssets(true);
 
     try {
-      const result = await reindexAllAssets();
-      await refreshAssetLists();
-
-      if (result.total_requested === 0) {
-        toast.info("Nothing to index", {
-          description: "There were no pending or failed assets to index.",
-        });
-        return;
+      const notice = await runIndexPending();
+      if (notice) {
+        if (notice.tone === "info" && notice.title === "Nothing to index") {
+          toast.info(notice.title, { description: notice.description });
+        } else if (notice.tone === "error") {
+          setNoticeMessage(notice);
+          toast.error(notice.title, { description: notice.description });
+        } else {
+          setNoticeMessage(notice);
+          toast.info(notice.title, { description: notice.description });
+        }
       }
-
-      if (result.failed_assets.length > 0) {
-        const description = `${result.indexed_assets.length} asset${result.indexed_assets.length === 1 ? "" : "s"} indexed. ${result.failed_assets.length} asset${result.failed_assets.length === 1 ? "" : "s"} failed.`;
-
-        setNoticeMessage({
-          description,
-          title: "Pending indexing completed with warnings",
-          tone: "info",
-        });
-        toast.info("Index pending finished", { description });
-        return;
-      }
-    } catch (indexError) {
-      const message = getErrorMessage(indexError);
-
-      setNoticeMessage({
-        description: message,
-        title: "Could not index pending assets",
-        tone: "error",
-      });
-      toast.error("Index pending failed", { description: message });
-      await refreshAssetLists();
     } finally {
       setIsIndexingPendingAssets(false);
     }
+  }
+
+  async function refreshTagAwareData() {
+    await Promise.all([revalidateAssetLists(), revalidateTags()]);
   }
 
   async function applyTagToSelectedAssets(tag: TagSummary) {
@@ -1346,27 +672,20 @@ export function InventoryPage() {
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
+            <InventoryUploadButton
+              onUploadComplete={(notice) => {
+                setNoticeMessage(notice);
+              }}
+            />
             <Button
               className="shrink-0"
-              disabled={isUploadingFiles}
-              onClick={onOpenUploadPicker}
-              size="sm"
-              type="button"
-              variant="outline"
-            >
-              <Upload className="size-4" />
-              {uploadButtonLabel}
-            </Button>
-            <Button
-              className="shrink-0"
-              disabled={isScanningDirectory}
               onClick={() => setIsDirectoryScanDialogOpen(true)}
               size="sm"
               type="button"
               variant="outline"
             >
               <FolderOpen className="size-4" />
-              {isScanningDirectory ? "Scanning..." : "Scan directory"}
+              Scan directory
             </Button>
             <Button
               className="shrink-0"
@@ -1799,80 +1118,12 @@ export function InventoryPage() {
         </DialogContent>
       </Dialog>
 
-      <Dialog onOpenChange={onDirectoryScanDialogChange} open={isDirectoryScanDialogOpen}>
-        <DialogContent className="max-w-lg" showCloseButton={!isScanningDirectory}>
-          <DialogHeader>
-            <DialogTitle>Scan directory</DialogTitle>
-            <DialogDescription>
-              Register every supported `.bag` or `.mcap` file in a local directory without selecting them one by one.
-            </DialogDescription>
-          </DialogHeader>
-
-          <form className="space-y-4" onSubmit={onScanDirectory}>
-            {directoryScanMessage ? <InlineNotice description={directoryScanMessage.description} title={directoryScanMessage.title} tone={directoryScanMessage.tone} /> : null}
-
-            <div className="space-y-2">
-              <Label className="text-xs uppercase tracking-wide text-muted-foreground" htmlFor="directory-scan-path">
-                Directory path
-              </Label>
-              <Input
-                disabled={isScanningDirectory}
-                id="directory-scan-path"
-                onChange={(event) =>
-                  setDirectoryScanForm((current) => ({
-                    ...current,
-                    directoryPath: event.target.value,
-                  }))
-                }
-                placeholder="/path/to/recordings"
-                value={directoryScanForm.directoryPath}
-              />
-            </div>
-
-            <label className="flex items-start gap-3 rounded-lg border bg-muted/20 px-3 py-3">
-              <Checkbox
-                checked={directoryScanForm.recursive}
-                disabled={isScanningDirectory}
-                onCheckedChange={(checked) =>
-                  setDirectoryScanForm((current) => ({
-                    ...current,
-                    recursive: checked === true,
-                  }))
-                }
-              />
-              <span className="space-y-1">
-                <span className="block text-sm font-medium text-foreground">Scan recursively</span>
-                <span className="block text-sm text-muted-foreground">
-                  Include supported files from nested directories instead of only the top-level folder.
-                </span>
-              </span>
-            </label>
-
-            <DialogFooter>
-              <Button
-                disabled={isScanningDirectory}
-                onClick={() => onDirectoryScanDialogChange(false)}
-                type="button"
-                variant="ghost"
-              >
-                Cancel
-              </Button>
-              <Button disabled={isScanningDirectory} type="submit">
-                {isScanningDirectory ? <RefreshCw className="size-3.5 animate-spin" /> : null}
-                {isScanningDirectory ? "Scanning..." : "Scan directory"}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-
-      <input
-        accept=".bag,.mcap"
-        className="sr-only"
-        multiple
-        onChange={onUploadFiles}
-        ref={uploadInputRef}
-        type="file"
+      <InventoryScanDialog
+        onScanComplete={(notice) => {
+          setNoticeMessage(notice);
+        }}
+        onOpenChange={setIsDirectoryScanDialogOpen}
+        open={isDirectoryScanDialogOpen}
       />
     </div>
   );

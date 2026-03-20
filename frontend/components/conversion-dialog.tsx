@@ -25,8 +25,8 @@ import { toast } from "@/components/ui/sonner";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { useBackendCache } from "@/hooks/use-backend";
+import { useCreateConversion } from "@/hooks/use-create-conversion";
 import {
-  createConversion,
   getConversion,
   getErrorMessage,
   type AssetSummary,
@@ -239,9 +239,9 @@ export function ConversionDialog({
     revalidateJobs,
     revalidateOutputs,
   } = useBackendCache();
+  const { isSubmitting, submit: submitConversion } = useCreateConversion();
   const [formState, setFormState] = React.useState<ConversionFormState>(createDefaultFormState);
   const [createdConversion, setCreatedConversion] = React.useState<ConversionDetail | null>(null);
-  const [isSubmitting, setIsSubmitting] = React.useState(false);
   const [requestMessage, setRequestMessage] = React.useState<{
     description?: string;
     title: string;
@@ -284,7 +284,6 @@ export function ConversionDialog({
 
     setFormState(createDefaultFormState());
     setCreatedConversion(null);
-    setIsSubmitting(false);
     setRequestMessage(null);
   }, [open]);
 
@@ -356,32 +355,23 @@ export function ConversionDialog({
     }
 
     setRequestMessage(null);
-    setIsSubmitting(true);
 
-    try {
-      const payload = buildConversionPayload(assets, formState);
-      const result = await createConversion(payload);
+    const payload = buildConversionPayload(assets, formState);
+    const result = await submitConversion(payload, assets);
 
-      setCreatedConversion(result);
-      await Promise.all([
-        ...assets.map((asset) => revalidateAssetDetail(asset.id)),
-        revalidateConversionDetail(result.id),
-        revalidateConversions(),
-        revalidateJobs(),
-        revalidateOutputs(),
-      ]);
-    } catch (conversionError) {
-      const message = getErrorMessage(conversionError);
+    if (result.conversion) {
+      setCreatedConversion(result.conversion);
+    }
+
+    if (result.notice) {
       setRequestMessage({
-        description: message,
-        title: "Could not create conversion",
+        description: result.notice.description,
+        title: result.notice.title,
         tone: "error",
       });
       toast.error("Conversion failed", {
-        description: message,
+        description: result.notice.description,
       });
-    } finally {
-      setIsSubmitting(false);
     }
   }
 
