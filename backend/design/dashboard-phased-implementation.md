@@ -171,6 +171,19 @@ Recommended modules:
 - `app/services/dashboard.py`
 - `app/main.py`
 
+Phase 2 implementation tasks:
+
+- [x] Define additive dashboard response contracts in `app/schemas/dashboard.py` for summary, trends, blockers, and freshness timestamps
+- [x] Implement SQL-backed dashboard aggregations in `app/services/dashboard.py` for assets, jobs, conversions, and outputs without materializing whole tables
+- [x] Reuse durable status enums and preserve zero-count buckets so empty datasets still return stable shapes
+- [x] Add backend-owned daily time buckets for registrations, job failures, conversions, and outputs with a shared lookback window
+- [x] Surface freshness timestamps that tell the frontend when each source area last changed and when the summary was computed
+- [x] Add a lightweight blockers summary for failed indexing, failed jobs, failed conversions, and unavailable outputs
+- [x] Expose `GET /dashboard/summary`, `GET /dashboard/trends`, and `GET /dashboard/blockers` in `app/api/dashboard.py`
+- [x] Register the dashboard router in `app/main.py`
+- [x] Add regression coverage for empty datasets and mixed operational states in a dedicated dashboard API test module
+- [x] Run targeted backend tests for the new dashboard routes before frontend phase 2 consumes them
+
 Exit criteria:
 
 - dashboard routes return summary payloads without requiring the client to fetch whole tables
