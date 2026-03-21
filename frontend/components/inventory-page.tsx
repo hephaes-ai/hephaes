@@ -14,7 +14,6 @@ import {
   X,
 } from "lucide-react";
 
-import { ConversionDialog } from "@/components/conversion-dialog";
 import { EmptyState } from "@/components/empty-state";
 import { InlineNotice } from "@/components/inline-notice";
 import { InventoryScanDialog } from "@/components/inventory-scan-dialog";
@@ -42,8 +41,7 @@ import { useAssets, useBackendCache, useOutputs, useTags } from "@/hooks/use-bac
 import { useIndexAsset } from "@/hooks/use-index-asset";
 import type { AssetListQuery, AssetSummary, IndexingStatus, TagSummary } from "@/lib/api";
 import { attachTagToAsset, createTag, getErrorMessage } from "@/lib/api";
-import type { AssetSelectionScope } from "@/lib/future-workflows";
-import { buildAssetDetailHref } from "@/lib/navigation";
+import { buildAssetDetailHref, buildConversionHref } from "@/lib/navigation";
 import { countOutputsByAsset } from "@/lib/outputs";
 import type { ActiveFilterChip, NoticeMessage } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -122,30 +120,6 @@ function findExistingTagByName(tags: TagSummary[], name: string) {
   return tags.find((tag) => tag.name.trim().toLowerCase() === normalizedName);
 }
 
-function getAssetSelectionScope({
-  hasSearch,
-  hasServerFilters,
-  selectedCount,
-}: {
-  hasSearch: boolean;
-  hasServerFilters: boolean;
-  selectedCount: number;
-}): AssetSelectionScope {
-  if (selectedCount > 0) {
-    return "selected-assets";
-  }
-
-  if (hasSearch) {
-    return "search-results";
-  }
-
-  if (hasServerFilters) {
-    return "filtered-assets";
-  }
-
-  return "all-assets";
-}
-
 export function InventoryPageFallback() {
   return (
     <div className="space-y-6">
@@ -191,7 +165,6 @@ export function InventoryPage() {
   const [isDirectoryScanDialogOpen, setIsDirectoryScanDialogOpen] = React.useState(false);
   const [searchInput, setSearchInput] = React.useState(appliedSearch);
   const [isBrowsePanelOpen, setIsBrowsePanelOpen] = React.useState(false);
-  const [isConversionDialogOpen, setIsConversionDialogOpen] = React.useState(false);
   const [isTagDialogOpen, setIsTagDialogOpen] = React.useState(false);
   const [isBulkIndexingSelection, setIsBulkIndexingSelection] = React.useState(false);
   const [isIndexingPendingAssets, setIsIndexingPendingAssets] = React.useState(false);
@@ -475,10 +448,9 @@ export function InventoryPage() {
   const totalCountLabel =
     typeof totalRegisteredCount === "number" ? `${totalRegisteredCount} registered` : "Loading total";
   const inventoryHref = searchParamsString ? `${pathname}?${searchParamsString}` : pathname;
-  const selectionScope = getAssetSelectionScope({
-    hasSearch: appliedSearch.length > 0,
-    hasServerFilters,
-    selectedCount,
+  const convertHref = buildConversionHref({
+    assetIds: selectedVisibleAssets.map((asset) => asset.id),
+    from: inventoryHref,
   });
 
   const isLoading = assetsResponse.isLoading;
@@ -754,9 +726,11 @@ export function InventoryPage() {
                 </Button>
               ) : null}
               {selectedCount > 0 ? (
-                <Button onClick={() => setIsConversionDialogOpen(true)} size="sm" type="button" variant="outline">
-                  <ArrowRightLeft className="size-3.5" />
-                  Convert
+                <Button asChild size="sm" variant="outline">
+                  <Link href={convertHref}>
+                    <ArrowRightLeft className="size-3.5" />
+                    Convert
+                  </Link>
                 </Button>
               ) : null}
               {selectedCount > 0 ? (
@@ -1089,12 +1063,6 @@ export function InventoryPage() {
           ) : null}
         </CardContent>
       </Card>
-
-      <ConversionDialog
-        assets={selectedVisibleAssets}
-        onOpenChange={setIsConversionDialogOpen}
-        open={isConversionDialogOpen}
-      />
 
       <Dialog onOpenChange={setIsTagDialogOpen} open={isTagDialogOpen}>
         <DialogContent className="max-w-md">

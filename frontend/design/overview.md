@@ -20,6 +20,7 @@
 - `/assets/[assetId]`: asset detail, indexed metadata, tag editing, related jobs, conversion history, and replay launch
 - `/jobs`: durable backend job history with type/status filtering
 - `/jobs/[jobId]`: job detail plus linked conversion output and asset navigation
+- `/convert`: conversion setup and live status for selected assets
 - `/outputs`: output catalog, filtering, selection, and output-scoped compute actions
 - `/outputs/[outputId]`: output detail with artifact metadata and action history
 - `/replay`: replay and visualization shell
