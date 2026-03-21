@@ -1,6 +1,6 @@
 import { Suspense } from "react";
 
-import { JobDetailPage, JobDetailPageFallback } from "@/components/job-detail-page";
+import { JobDetailPage, JobDetailPageFallback } from "./job-detail-page";
 
 export default async function JobDetailRoute({
   params,

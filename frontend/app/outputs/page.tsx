@@ -1,6 +1,6 @@
 import { Suspense } from "react";
 
-import { OutputsPage, OutputsPageFallback } from "@/components/outputs-page";
+import { OutputsPage, OutputsPageFallback } from "./outputs-page";
 
 export default function OutputsRoute() {
   return (

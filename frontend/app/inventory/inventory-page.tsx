@@ -16,10 +16,10 @@ import {
 
 import { EmptyState } from "@/components/empty-state";
 import { InlineNotice } from "@/components/inline-notice";
-import { InventoryScanDialog } from "@/components/inventory-scan-dialog";
-import { AssetsTable, AssetsTableSkeleton, DEFAULT_SORT, parseSort } from "@/components/inventory-table";
-import type { InventorySort, SortColumn } from "@/components/inventory-table";
-import { InventoryUploadButton } from "@/components/inventory-upload-dialog";
+import { InventoryScanDialog } from "./inventory-scan-dialog";
+import { AssetsTable, AssetsTableSkeleton, DEFAULT_SORT, parseSort } from "./inventory-table";
+import type { InventorySort, SortColumn } from "./inventory-table";
+import { InventoryUploadButton } from "./inventory-upload-dialog";
 import { TagActionPanel } from "@/components/tag-controls";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";

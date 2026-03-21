@@ -1,6 +1,6 @@
 import { Suspense } from "react";
 
-import { VisualizationPage, VisualizationPageFallback } from "@/components/visualization-page";
+import { VisualizationPage, VisualizationPageFallback } from "./visualization-page";
 
 export default function ReplayRoute() {
   return (

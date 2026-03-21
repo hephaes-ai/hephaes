@@ -3,7 +3,7 @@ import { Suspense } from "react"
 import {
   DashboardPage,
   DashboardPageFallback,
-} from "@/components/dashboard-page"
+} from "./dashboard-page"
 
 export default function DashboardRoute() {
   return (
