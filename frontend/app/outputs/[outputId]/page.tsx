@@ -1,6 +1,6 @@
 import { Suspense } from "react";
 
-import { OutputDetailPage, OutputDetailPageFallback } from "@/components/output-detail-page";
+import { OutputDetailPage, OutputDetailPageFallback } from "./output-detail-page";
 
 interface OutputDetailRouteProps {
   params: Promise<{ outputId: string }>;

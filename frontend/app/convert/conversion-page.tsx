@@ -45,7 +45,7 @@ import {
   type ConversionFormState,
   type ParquetCompression,
   type TFRecordCompression,
-} from "@/components/conversion-workflow";
+} from "./conversion-workflow";
 
 function parseAssetIds(rawAssetIds: string | null | undefined) {
   return Array.from(

@@ -1,6 +1,6 @@
 import { Suspense } from "react";
 
-import { AssetDetailPage, AssetDetailPageFallback } from "@/components/asset-detail-page";
+import { AssetDetailPage, AssetDetailPageFallback } from "./asset-detail-page";
 
 interface AssetPageProps {
   params: Promise<{

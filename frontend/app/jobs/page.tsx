@@ -1,6 +1,6 @@
 import { Suspense } from "react";
 
-import { JobsPage, JobsPageFallback } from "@/components/jobs-page";
+import { JobsPage, JobsPageFallback } from "./jobs-page";
 
 export default function JobsRoute() {
   return (
