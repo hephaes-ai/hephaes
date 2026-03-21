@@ -106,18 +106,20 @@ If the job is linked to a conversion, the page shows:
 
 This avoids making users jump to a separate conversion-detail route that does not currently exist.
 
-## Conversion Dialog
+## Conversion Page
 
-`components/conversion-dialog.tsx` is the main mutation surface for backend conversions.
+`components/conversion-page.tsx` is the main mutation surface for backend conversions.
 
 It is opened from:
 
 - the inventory page for selected assets
 - the asset detail page for the current asset
 
+The `/convert` route keeps the workflow URL-backed instead of modal-driven.
+
 ## Conversion Form Model
 
-The dialog keeps a structured local form state with four areas:
+The page keeps a structured local form state with four areas:
 
 - output format
 - mapping mode
@@ -135,7 +137,7 @@ Each format only reveals its relevant compression options.
 
 ### Mapping modes
 
-The dialog supports:
+The page supports:
 
 - automatic mapping
 - custom JSON mapping
@@ -149,7 +151,7 @@ Optional resampling can be enabled with:
 - frequency in Hz
 - method: `downsample` or `interpolate`
 
-The dialog blocks submission if the frequency is not a positive number.
+The page blocks submission if the frequency is not a positive number.
 
 ### Manifest output
 
@@ -157,7 +159,7 @@ The user can ask the backend to write a manifest alongside the conversion output
 
 ## Conversion Guardrails
 
-The dialog intentionally blocks submission when:
+The page intentionally blocks submission when:
 
 - no assets are selected
 - a submission is already in progress
@@ -169,14 +171,14 @@ That keeps conversion requests aligned with the backend's expected prerequisites
 
 ## Submission And Follow-Up
 
-On submit, the dialog:
+On submit, the page:
 
 1. builds a `ConversionCreateRequest`
 2. creates the conversion through `createConversion()`
 3. stores the returned `ConversionDetail`
 4. revalidates related asset, job, and conversion data
 
-Once created, the dialog flips from input mode into status mode instead of closing immediately.
+Once created, the page flips from input mode into status mode instead of navigating away immediately.
 
 The post-submit state shows:
 
@@ -191,14 +193,14 @@ The post-submit state shows:
 
 ## Conversion Polling
 
-If the created conversion or its job is still active, the dialog polls `getConversion()` every 1.5 seconds while it remains open. Poll results also trigger revalidation of:
+If the created conversion or its job is still active, the page polls `getConversion()` every 1.5 seconds while it remains open. Poll results also trigger revalidation of:
 
 - related asset detail pages
 - conversion detail cache
 - conversion list
 - jobs list
 
-This keeps the conversion dialog useful as a live handoff surface rather than a fire-and-forget submit button.
+This keeps the conversion page useful as a live handoff surface rather than a fire-and-forget submit button.
 
 ## Shared Workflow Semantics
 

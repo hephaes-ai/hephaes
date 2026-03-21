@@ -9,7 +9,6 @@ import { AssetStatusBadge } from "@/components/asset-status-badge";
 import { EmptyState } from "@/components/empty-state";
 import { InlineNotice } from "@/components/inline-notice";
 import { MetadataField } from "@/components/metadata-field";
-import { ConversionDialog } from "@/components/conversion-dialog";
 import { TagActionPanel, TagBadgeList } from "@/components/tag-controls";
 import { WorkflowStatusBadge } from "@/components/workflow-status-badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -46,7 +45,7 @@ import {
   getIndexActionLabel,
   isWorkflowActiveStatus,
 } from "@/lib/format";
-import { buildJobDetailHref, resolveReturnHref } from "@/lib/navigation";
+import { buildConversionHref, buildJobDetailHref, resolveReturnHref } from "@/lib/navigation";
 import { buildOutputsHref } from "@/lib/outputs";
 import type { NoticeMessage } from "@/lib/types";
 import { buildReplayHref } from "@/lib/visualization";
@@ -96,7 +95,6 @@ export function AssetDetailPage({ assetId }: { assetId: string }) {
   const { revalidateAssetLists, revalidateConversions, revalidateJobs, revalidateTags } = useBackendCache();
   const { data, error, isLoading, mutate } = useAsset(assetId);
   const tagsResponse = useTags();
-  const [isConversionDialogOpen, setIsConversionDialogOpen] = React.useState(false);
   const [isRunningIndexAction, setIsRunningIndexAction] = React.useState(false);
   const [isUpdatingTags, setIsUpdatingTags] = React.useState(false);
   const [requestMessage, setRequestMessage] = React.useState<NoticeMessage | null>(null);
@@ -186,6 +184,10 @@ export function AssetDetailPage({ assetId }: { assetId: string }) {
   const replayHref = buildReplayHref({
     assetId: asset.id,
     episodeId: data.episodes.length === 1 ? data.episodes[0].episode_id : null,
+    from: currentDetailHref,
+  });
+  const convertHref = buildConversionHref({
+    assetIds: [asset.id],
     from: currentDetailHref,
   });
   const rawMetadataEntries = Object.entries(metadata?.raw_metadata ?? {}).filter(([, value]) => {
@@ -364,9 +366,11 @@ export function AssetDetailPage({ assetId }: { assetId: string }) {
                 <Link href={buildOutputsHref({ assetId: asset.id })}>View outputs</Link>
               </Button>
             ) : null}
-            <Button onClick={() => setIsConversionDialogOpen(true)} size="sm" type="button" variant="outline">
-              <ArrowRightLeft className="size-3.5" />
-              Convert
+            <Button asChild size="sm" type="button" variant="outline">
+              <Link href={convertHref}>
+                <ArrowRightLeft className="size-3.5" />
+                Convert
+              </Link>
             </Button>
             <Button
               disabled={isActionDisabled}
@@ -722,11 +726,6 @@ export function AssetDetailPage({ assetId }: { assetId: string }) {
         </CardContent>
       </Card>
 
-      <ConversionDialog
-        assets={[asset]}
-        onOpenChange={setIsConversionDialogOpen}
-        open={isConversionDialogOpen}
-      />
     </div>
   );
 }

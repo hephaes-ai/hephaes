@@ -10,6 +10,34 @@ export function buildOutputDetailHref(outputId: string, returnHref: string) {
   return `/outputs/${outputId}?from=${encodeURIComponent(returnHref)}`;
 }
 
+export function buildConversionHref({
+  assetIds,
+  conversionId,
+  from,
+}: {
+  assetIds: string[];
+  conversionId?: string | null;
+  from?: string | null;
+}) {
+  const params = new URLSearchParams();
+
+  const normalizedAssetIds = assetIds.map((assetId) => assetId.trim()).filter(Boolean);
+  if (normalizedAssetIds.length > 0) {
+    params.set("asset_ids", normalizedAssetIds.join(","));
+  }
+
+  if (conversionId?.trim()) {
+    params.set("conversion_id", conversionId.trim());
+  }
+
+  if (from?.trim()) {
+    params.set("from", from.trim());
+  }
+
+  const query = params.toString();
+  return query ? `/convert?${query}` : "/convert";
+}
+
 export function buildHref(
   pathname: string,
   params?: Record<string, string | null | undefined>,

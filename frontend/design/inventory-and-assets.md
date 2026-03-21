@@ -11,7 +11,7 @@ It combines:
 - local refinements and sorting
 - asset selection and bulk actions
 - tag management for selections
-- conversion launch for selections
+- conversion launch for selections through `/convert`
 - per-row indexing and replay entry points
 
 ## Inventory Data Model
@@ -105,11 +105,9 @@ Bulk behaviors currently implemented:
 
 - bulk selection for visible rows
 - bulk indexing for selected assets
-- bulk conversion launch for selected visible assets
+- bulk conversion launch for selected visible assets through `/convert`
 - bulk tag application or tag creation for the selection
 - clear selection
-
-The page also computes a lightweight `selectionScope` value using `lib/future-workflows.ts` so future saved-selection and dataset workflows can reuse the same semantics.
 
 ## Indexing Behavior
 
@@ -160,7 +158,7 @@ It combines:
 - top-level asset identity and status
 - indexing actions
 - tag editing
-- conversion launch
+- conversion launch through `/convert`
 - replay launch
 - indexed metadata
 - related jobs

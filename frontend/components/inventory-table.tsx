@@ -253,7 +253,9 @@ export function AssetsTable({
                 </TableCell>
                 <TableCell className="max-w-0">
                   <div className="space-y-1">
-                    <div className="font-medium text-foreground">{asset.file_name}</div>
+                    <div className="truncate font-medium text-foreground" title={asset.file_name}>
+                      {asset.file_name}
+                    </div>
                     <div className="truncate text-xs text-muted-foreground">{asset.file_path}</div>
                     {getAssetTags(asset).length > 0 ? (
                       <TagBadgeList className="pt-1" maxVisible={2} tags={getAssetTags(asset)} />
