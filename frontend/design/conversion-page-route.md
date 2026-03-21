@@ -179,6 +179,55 @@ At that point:
 - the page should become the canonical conversion surface
 - any remaining dialog wrapper can be deleted after the cutover is stable
 
+## Implementation Tasks
+
+Use this checklist to turn the plan into incremental PR-sized work.
+
+### 1. Shared helpers and route contract
+
+- [ ] Add a navigation helper in `frontend/lib/navigation.ts` for building `/convert` links from `asset_ids`, `conversion_id`, and `from`.
+- [ ] Extract the conversion form-state types and payload helpers out of `frontend/components/conversion-dialog.tsx` so the page can reuse them cleanly.
+- [ ] Keep `useCreateConversion()` as the mutation boundary so the page inherits the existing cache revalidation behavior.
+
+### 2. New conversion page scaffold
+
+- [ ] Add `frontend/app/convert/page.tsx` with the same Suspense pattern used by the other routes.
+- [ ] Create `frontend/components/conversion-page.tsx` and a matching fallback skeleton.
+- [ ] Parse `asset_ids`, `conversion_id`, and `from` from the query string.
+- [ ] Resolve selected assets from `useAssets()` and show a blocking state when the selection is missing or stale.
+- [ ] Reuse `resolveReturnHref()` to keep the back navigation local to the app.
+
+### 3. Draft conversion flow
+
+- [ ] Render the existing conversion sections on the page: output format, options, mapping, and review.
+- [ ] Keep the same validation rules for indexed assets, custom mapping JSON, and resample frequency.
+- [ ] Submit through `useCreateConversion()` and keep the created conversion in local state.
+- [ ] Update the route to include the created `conversion_id` after a successful submit so the status view can survive refresh.
+- [ ] Preserve a clear path back to the originating inventory or asset detail view.
+
+### 4. Live status flow
+
+- [ ] Load the created conversion with `useConversion(conversion_id)` when the page is in status mode.
+- [ ] Poll every 1.5 seconds while the conversion or linked job is active.
+- [ ] Surface conversion status, job status, output path, output files, and error state in the page view.
+- [ ] Keep the links to job detail and outputs available after submission.
+- [ ] Revalidate related caches after refreshes so the page stays in sync with the rest of the app.
+
+### 5. Launch-point migration
+
+- [ ] Update the inventory convert action to navigate to `/convert` instead of opening the dialog.
+- [ ] Update the asset detail convert action to navigate to `/convert` instead of opening the dialog.
+- [ ] Pass the selected asset IDs and source href through the URL so the conversion page can reconstruct context.
+- [ ] Remove the local dialog state from `inventory-page.tsx` and `asset-detail-page.tsx` once the route is wired up.
+
+### 6. Cleanup and verification
+
+- [ ] Stop mounting `ConversionDialog` from the inventory and asset detail routes after the page cutover.
+- [ ] Decide whether `components/conversion-dialog.tsx` should be deleted or retained temporarily as a helper extraction source.
+- [ ] Verify direct visits with no `asset_ids`, stale `asset_ids`, and unindexed assets all produce friendly blocking states.
+- [ ] Verify a conversion that is mid-flight still refreshes correctly after a browser reload.
+- [ ] Verify the job and outputs links still work from the new page.
+
 ## Status View Behavior
 
 The page should keep the same handoff that the dialog already provides today.
