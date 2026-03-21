@@ -6,6 +6,7 @@
 - [frontend-refactor-plan.md](./frontend-refactor-plan.md): structural refactor status, extracted shared components, and remaining page decomposition work
 - [inventory-and-assets.md](./inventory-and-assets.md): inventory route, asset detail route, indexing, tagging, filtering, and conversion entry points
 - [jobs-and-conversions.md](./jobs-and-conversions.md): jobs list/detail flows and the conversion workflow
+- [conversion-page-route.md](./conversion-page-route.md): plan for replacing the modal conversion flow with a dedicated conversion page
 - [dashboard-phased-implementation.md](./dashboard-phased-implementation.md): current dashboard phase status plus the plan for backend-owned rollups and later readiness metrics
 - [outputs-page-and-compute-actions.md](./outputs-page-and-compute-actions.md): phased plan for a dedicated outputs workspace and output-scoped compute actions
 - [replay-and-visualization.md](./replay-and-visualization.md): replay route, timeline/scrubber behavior, viewer-source preparation, and Rerun integration state

@@ -11,9 +11,6 @@ import {
   useAssetEpisodes,
   useEpisodeSamples,
   useEpisodeTimeline,
-  useEpisodeViewerSource,
-  useJob,
-  usePrepareVisualization,
 } from "@/hooks/use-backend"
 import { useEpisodeReplay } from "@/hooks/use-episode-replay"
 import { BackendApiError, getErrorMessage } from "@/lib/api"
@@ -21,10 +18,8 @@ import { formatDateTime, formatDuration } from "@/lib/format"
 import { resolveReturnHref } from "@/lib/navigation"
 import { buildReplayHref } from "@/lib/visualization"
 
-import { RerunViewer } from "@/components/rerun-viewer"
 import { VisualizationControls } from "@/components/visualization-controls"
 import { VisualizationScrubber } from "@/components/visualization-scrubber"
-import { WorkflowStatusBadge } from "@/components/workflow-status-badge"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -131,21 +126,6 @@ export function VisualizationPage() {
     (episodeResponse.data?.has_visualizable_streams ??
       selectedEpisode?.has_visualizable_streams) !== false
   const timelineResponse = useEpisodeTimeline(assetId, resolvedEpisodeId)
-  const viewerSourceResponse = useEpisodeViewerSource(
-    assetId,
-    resolvedEpisodeId
-  )
-  const prepareVisualization = usePrepareVisualization()
-  const [preparationJobId, setPreparationJobId] = React.useState<string | null>(
-    null
-  )
-  const autoPreparationAttemptKeyRef = React.useRef<string | null>(null)
-
-  const effectiveViewerSourceJobId =
-    viewerSourceResponse.data?.job_id ??
-    viewerSourceResponse.data?.preparation_job_id ??
-    preparationJobId
-  const preparationJobResponse = useJob(effectiveViewerSourceJobId ?? "")
 
   const timeline = timelineResponse.data
   const timelineStartNs =
@@ -243,26 +223,6 @@ export function VisualizationPage() {
     resolvedEpisodeId,
     shouldUseRestSamples ? samplesQuery : null
   )
-
-  const viewerSourceStatus = viewerSourceResponse.data?.status ?? "none"
-  const viewerSourceErrorMessage =
-    viewerSourceResponse.data?.error_message ?? null
-  const isPreparingViewerSource =
-    viewerSourceStatus === "preparing" || prepareVisualization.isPreparing
-  const isViewerSourceReady =
-    viewerSourceStatus === "ready" &&
-    Boolean(viewerSourceResponse.data?.source_url)
-  const hasViewerVersionMismatch =
-    viewerSourceStatus === "none" &&
-    Boolean(viewerSourceErrorMessage) &&
-    /incompatible|version/i.test(viewerSourceErrorMessage ?? "")
-  const autoPrepareViewerSourceKey =
-    assetId &&
-    resolvedEpisodeId &&
-    hasVisualizableData &&
-    viewerSourceStatus === "none"
-      ? `${assetId}:${resolvedEpisodeId}:${hasViewerVersionMismatch ? "viewer-version-mismatch" : "missing-viewer-source"}`
-      : null
 
   const updateVisualizeState = React.useCallback(
     (updates: Record<string, string | null>) => {
@@ -440,90 +400,6 @@ export function VisualizationPage() {
     isScrubberDragging,
     searchParams,
     updateVisualizeState,
-  ])
-
-  React.useEffect(() => {
-    if (!resolvedEpisodeId) {
-      return
-    }
-
-    if (!isPreparingViewerSource) {
-      return
-    }
-
-    const intervalId = window.setInterval(() => {
-      void viewerSourceResponse.mutate()
-      if (effectiveViewerSourceJobId) {
-        void preparationJobResponse.mutate()
-      }
-    }, 1500)
-
-    return () => window.clearInterval(intervalId)
-  }, [
-    effectiveViewerSourceJobId,
-    isPreparingViewerSource,
-    preparationJobResponse,
-    resolvedEpisodeId,
-    viewerSourceResponse,
-  ])
-
-  React.useEffect(() => {
-    if (viewerSourceResponse.data?.job_id) {
-      setPreparationJobId(viewerSourceResponse.data.job_id)
-    }
-  }, [viewerSourceResponse.data?.job_id])
-
-  const onPrepareVisualization = React.useCallback(async () => {
-    if (!assetId || !resolvedEpisodeId) {
-      return
-    }
-
-    prepareVisualization.reset()
-
-    try {
-      const response = await prepareVisualization.trigger(
-        assetId,
-        resolvedEpisodeId
-      )
-      setPreparationJobId(response.job.id)
-      await viewerSourceResponse.mutate()
-      await preparationJobResponse.mutate()
-    } catch {
-      // Error rendering is handled through prepareVisualization.error and existing alerts.
-    }
-  }, [
-    assetId,
-    preparationJobResponse,
-    prepareVisualization,
-    resolvedEpisodeId,
-    viewerSourceResponse,
-  ])
-
-  React.useEffect(() => {
-    if (!autoPrepareViewerSourceKey) {
-      return
-    }
-
-    if (
-      viewerSourceResponse.isLoading ||
-      viewerSourceResponse.error ||
-      prepareVisualization.isPreparing
-    ) {
-      return
-    }
-
-    if (autoPreparationAttemptKeyRef.current === autoPrepareViewerSourceKey) {
-      return
-    }
-
-    autoPreparationAttemptKeyRef.current = autoPrepareViewerSourceKey
-    void onPrepareVisualization()
-  }, [
-    autoPrepareViewerSourceKey,
-    onPrepareVisualization,
-    prepareVisualization.isPreparing,
-    viewerSourceResponse.error,
-    viewerSourceResponse.isLoading,
   ])
 
   if (!assetId) {
@@ -790,196 +666,6 @@ export function VisualizationPage() {
               </AlertDescription>
             </Alert>
           ) : null}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardContent className="space-y-3 pt-6">
-          {!resolvedEpisodeId ? (
-            <Alert>
-              <AlertTitle>Replay source is waiting for an episode</AlertTitle>
-              <AlertDescription>
-                Select an episode to load replay-source status.
-              </AlertDescription>
-            </Alert>
-          ) : viewerSourceResponse.isLoading && !viewerSourceResponse.data ? (
-            <Skeleton className="h-24 rounded-lg" />
-          ) : viewerSourceResponse.error ? (
-            <div className="space-y-3">
-              <Alert variant="destructive">
-                <AlertTitle>Could not load replay source</AlertTitle>
-                <AlertDescription>
-                  {getErrorMessage(viewerSourceResponse.error)}
-                </AlertDescription>
-              </Alert>
-              <Button
-                onClick={() => void viewerSourceResponse.mutate()}
-                size="sm"
-                type="button"
-                variant="outline"
-              >
-                Retry loading source
-              </Button>
-            </div>
-          ) : prepareVisualization.error ? (
-            <div className="space-y-3">
-              <Alert variant="destructive">
-                <AlertTitle>Could not prepare replay source</AlertTitle>
-                <AlertDescription>
-                  {getErrorMessage(prepareVisualization.error)}
-                </AlertDescription>
-              </Alert>
-              <Button
-                disabled={prepareVisualization.isPreparing}
-                onClick={() => void onPrepareVisualization()}
-                size="sm"
-                type="button"
-              >
-                {prepareVisualization.isPreparing
-                  ? "Preparing..."
-                  : "Retry prepare replay"}
-              </Button>
-            </div>
-          ) : isViewerSourceReady ? (
-            <div className="space-y-3">
-              <div className="flex flex-wrap items-center gap-2">
-                <WorkflowStatusBadge status="succeeded" />
-                {viewerSourceResponse.data?.viewer_version ? (
-                  <Badge variant="outline">
-                    Viewer v{viewerSourceResponse.data.viewer_version}
-                  </Badge>
-                ) : null}
-                {viewerSourceResponse.data?.recording_version ? (
-                  <Badge variant="outline">
-                    Recording v{viewerSourceResponse.data.recording_version}
-                  </Badge>
-                ) : null}
-                {viewerSourceResponse.data?.source_kind ? (
-                  <Badge variant="outline">
-                    {viewerSourceResponse.data.source_kind === "grpc_url"
-                      ? "gRPC stream"
-                      : "RRD recording"}
-                  </Badge>
-                ) : null}
-              </div>
-
-              {viewerSourceResponse.data?.source_url ? (
-                <RerunViewer
-                  currentTimestampNs={effectiveTimestampNs}
-                  isPlaying={isPlaying}
-                  sourceKind={viewerSourceResponse.data.source_kind}
-                  sourceUrl={viewerSourceResponse.data.source_url}
-                  updatedAt={viewerSourceResponse.data.updated_at}
-                  viewerVersion={viewerSourceResponse.data.viewer_version}
-                />
-              ) : null}
-
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  disabled={prepareVisualization.isPreparing}
-                  onClick={() => void onPrepareVisualization()}
-                  size="sm"
-                  type="button"
-                  variant="outline"
-                >
-                  {prepareVisualization.isPreparing
-                    ? "Preparing..."
-                    : "Regenerate replay source"}
-                </Button>
-              </div>
-            </div>
-          ) : isPreparingViewerSource ? (
-            <div className="space-y-3">
-              <Alert>
-                <AlertTitle>Preparing replay source</AlertTitle>
-                <AlertDescription>
-                  Replay source generation is in progress. Timeline controls and
-                  lane payloads remain available while preparation runs.
-                </AlertDescription>
-              </Alert>
-
-              <div className="flex flex-wrap items-center gap-2">
-                <WorkflowStatusBadge
-                  status={
-                    preparationJobResponse.data?.status ??
-                    (prepareVisualization.isPreparing ? "running" : "queued")
-                  }
-                />
-                {effectiveViewerSourceJobId ? (
-                  <Badge variant="outline">
-                    Job {effectiveViewerSourceJobId}
-                  </Badge>
-                ) : null}
-                <Button asChild size="sm" type="button" variant="outline">
-                  <Link
-                    href={`/jobs/${effectiveViewerSourceJobId}?from=${encodeURIComponent(pathname + (searchParamsString ? `?${searchParamsString}` : ""))}`}
-                  >
-                    Open job
-                  </Link>
-                </Button>
-              </div>
-            </div>
-          ) : viewerSourceStatus === "failed" ? (
-            <div className="space-y-3">
-              <Alert variant="destructive">
-                <AlertTitle>Replay source preparation failed</AlertTitle>
-                <AlertDescription>
-                  {viewerSourceResponse.data?.error_message ??
-                    "Preparation job failed before a usable source was produced."}
-                </AlertDescription>
-              </Alert>
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  disabled={prepareVisualization.isPreparing}
-                  onClick={() => void onPrepareVisualization()}
-                  size="sm"
-                  type="button"
-                >
-                  {prepareVisualization.isPreparing
-                    ? "Preparing..."
-                    : "Retry prepare replay"}
-                </Button>
-                {effectiveViewerSourceJobId ? (
-                  <Button asChild size="sm" type="button" variant="outline">
-                    <Link
-                      href={`/jobs/${effectiveViewerSourceJobId}?from=${encodeURIComponent(pathname + (searchParamsString ? `?${searchParamsString}` : ""))}`}
-                    >
-                      Open job
-                    </Link>
-                  </Button>
-                ) : null}
-              </div>
-            </div>
-          ) : hasViewerVersionMismatch ? (
-            <div className="space-y-3">
-              <Alert variant="destructive">
-                <AlertTitle>Replay source version mismatch</AlertTitle>
-                <AlertDescription>
-                  {viewerSourceResponse.data?.error_message}
-                </AlertDescription>
-              </Alert>
-              <Button
-                disabled={prepareVisualization.isPreparing}
-                onClick={() => void onPrepareVisualization()}
-                size="sm"
-                type="button"
-              >
-                {prepareVisualization.isPreparing
-                  ? "Preparing..."
-                  : "Regenerate replay source"}
-              </Button>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              <Alert>
-                <AlertTitle>Replay source unavailable</AlertTitle>
-                <AlertDescription>
-                  Replay preparation starts automatically for this episode when
-                  you open the page.
-                </AlertDescription>
-              </Alert>
-            </div>
-          )}
         </CardContent>
       </Card>
 
