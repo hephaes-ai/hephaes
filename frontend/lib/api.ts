@@ -16,6 +16,28 @@ export type OutputRole = "dataset" | "manifest" | "sidecar" | string
 export type OutputActionType = "refresh_metadata" | "vlm_tagging" | string
 export type OutputActionStatus = "queued" | "running" | "succeeded" | "failed"
 export type ResampleMethod = "interpolate" | "downsample"
+export type DecodeFailurePolicy = "skip" | "warn" | "fail"
+export type ConversionRowStrategyKind = "trigger" | "per-message" | "resample"
+export type ConversionFeatureSourceKind = "path" | "constant" | "metadata" | "concat" | "stack"
+export type ConversionTransformKind =
+  | "cast"
+  | "clamp"
+  | "length"
+  | "multi_hot"
+  | "normalize"
+  | "one_hot"
+  | "scale"
+  | "image_color_convert"
+  | "image_crop"
+  | "image_encode"
+  | "image_resize"
+export type ConversionSpec = Record<string, unknown>
+
+export interface ConversionSpecDocument {
+  metadata: Record<string, unknown>
+  spec: ConversionSpec
+  spec_version: number
+}
 
 export interface HealthResponse {
   app_name: string
@@ -429,10 +451,256 @@ export interface ConversionResampleRequest {
 
 export interface ConversionCreateRequest {
   asset_ids: string[]
+  saved_config_id?: string | null
+  spec?: ConversionSpec | null
   mapping?: Record<string, string[]> | null
-  output: ConversionOutputRequest
+  output?: ConversionOutputRequest | null
   resample?: ConversionResampleRequest | null
-  write_manifest?: boolean
+  write_manifest?: boolean | null
+}
+
+export interface ConversionCapabilities {
+  spec_version: number
+  supports_spec_documents: boolean
+  supports_inspection: boolean
+  supports_draft_generation: boolean
+  supports_preview: boolean
+  supports_migration: boolean
+  row_strategies: ConversionRowStrategyKind[]
+  authoring_row_strategies: ConversionRowStrategyKind[]
+  planned_row_strategies: ConversionRowStrategyKind[]
+  feature_source_kinds: ConversionFeatureSourceKind[]
+  authoring_feature_source_kinds: ConversionFeatureSourceKind[]
+  planned_feature_source_kinds: ConversionFeatureSourceKind[]
+  feature_dtypes: string[]
+  sync_policies: string[]
+  missing_data_policies: string[]
+  decode_failure_policies: DecodeFailurePolicy[]
+  resample_strategies: ResampleMethod[]
+  output_formats: ConversionFormat[]
+  parquet_compressions: string[]
+  tfrecord_compressions: string[]
+  tfrecord_payload_encodings: string[]
+  tfrecord_null_encodings: string[]
+  transform_kinds: ConversionTransformKind[]
+}
+
+export interface ConversionAuthoringPersistenceCapabilities {
+  mode: "sqlite-json"
+  supports_saved_configs: boolean
+  supports_saved_config_revisions: boolean
+  supports_draft_revisions: boolean
+  supports_preview_snapshots: boolean
+  supports_migration_on_load: boolean
+  supports_execute_from_saved_config: boolean
+  spec_document_version: number
+}
+
+export interface ConversionAuthoringCapabilitiesResponse {
+  authoring_api_version: number
+  hephaes: ConversionCapabilities
+  persistence: ConversionAuthoringPersistenceCapabilities
+}
+
+export interface ConversionInspectionOptions {
+  topics: string[]
+  sample_n: number
+  max_depth: number
+  max_sequence_items: number
+  on_failure: DecodeFailurePolicy
+  topic_type_hints: Record<string, string>
+}
+
+export interface ConversionInspectionRequest extends ConversionInspectionOptions {
+  asset_id: string
+}
+
+export interface SampledMessage {
+  timestamp: number
+  payload: unknown
+}
+
+export interface FieldCandidate {
+  path: string
+  kind: "scalar" | "sequence" | "struct" | "bytes" | "image" | "unknown"
+  examples: unknown[]
+  nullable: boolean
+  candidate_dtypes: string[]
+  shape_hint: number[] | null
+  variable_length: boolean
+  image_like: boolean
+  confidence: number
+  warnings: string[]
+}
+
+export interface TopicInspectionResult {
+  topic: string
+  message_type: string | null
+  sampled_message_count: number
+  sample_timestamps: number[]
+  sample_payloads: SampledMessage[]
+  top_level_summary: Record<string, unknown>
+  field_candidates: Record<string, FieldCandidate>
+  warnings: string[]
+}
+
+export interface InspectionResult {
+  bag_path: string | null
+  ros_version: string | null
+  sample_n: number
+  topics: Record<string, TopicInspectionResult>
+  warnings: string[]
+}
+
+export interface ConversionInspectionResponse {
+  asset_id: string
+  request: ConversionInspectionRequest
+  inspection: InspectionResult
+}
+
+export interface DraftSpecRequest {
+  trigger_topic?: string | null
+  selected_topics: string[]
+  join_topics: string[]
+  schema_name: string
+  schema_version: number
+  output_format: ConversionFormat
+  output_compression: string
+  max_features_per_topic: number
+  label_feature?: string | null
+  include_preview: boolean
+  preview_rows: number
+}
+
+export interface PreviewRow {
+  timestamp_ns: number
+  field_data: Record<string, unknown>
+  presence_data: Record<string, unknown>
+}
+
+export interface PreviewResult {
+  rows: PreviewRow[]
+  checked_records: number
+  bad_records: number
+}
+
+export interface DraftSpecResult {
+  request: DraftSpecRequest
+  spec: ConversionSpec
+  selected_topics: string[]
+  trigger_topic: string | null
+  join_topics: string[]
+  warnings: string[]
+  assumptions: string[]
+  unresolved_fields: string[]
+  preview: PreviewResult | null
+}
+
+export interface ConversionDraftRequest extends ConversionInspectionOptions {
+  asset_id: string
+  draft_request: DraftSpecRequest
+}
+
+export interface ConversionDraftResponse {
+  asset_id: string
+  request: ConversionDraftRequest
+  inspection: InspectionResult
+  draft: DraftSpecResult
+  draft_revision_id: string | null
+}
+
+export interface ConversionPreviewRequest {
+  asset_id: string
+  spec: ConversionSpec
+  sample_n: number
+  topic_type_hints: Record<string, string>
+}
+
+export interface ConversionPreviewResponse {
+  asset_id: string
+  request: ConversionPreviewRequest
+  preview: PreviewResult
+}
+
+export interface SavedConversionConfigCreateRequest {
+  name: string
+  description?: string | null
+  metadata: Record<string, unknown>
+  spec: ConversionSpec
+}
+
+export interface SavedConversionConfigUpdateRequest {
+  name?: string | null
+  description?: string | null
+  metadata?: Record<string, unknown> | null
+  spec?: ConversionSpec | null
+}
+
+export interface SavedConversionConfigDuplicateRequest {
+  name?: string | null
+  description?: string | null
+  metadata?: Record<string, unknown> | null
+}
+
+export interface SavedConversionConfigRevisionResponse {
+  id: string
+  config_id: string
+  revision_number: number
+  change_kind: "create" | "update" | "duplicate" | "migration" | "import"
+  change_summary: string | null
+  spec_document_version: number
+  spec_document_json: ConversionSpecDocument
+  resolved_spec: ConversionSpec | null
+  created_at: string
+}
+
+export interface SavedConversionDraftRevisionResponse {
+  id: string
+  saved_config_id: string | null
+  revision_number: number
+  source_asset_id: string | null
+  status: "draft" | "saved" | "discarded"
+  inspection_request: ConversionInspectionRequest
+  inspection: InspectionResult
+  draft_request: DraftSpecRequest
+  draft_result: DraftSpecResult
+  preview: PreviewResult | null
+  created_at: string
+  updated_at: string
+}
+
+export interface SavedConversionConfigSummaryResponse {
+  id: string
+  name: string
+  description: string | null
+  metadata: Record<string, unknown>
+  spec_document_version: number
+  spec_schema_name: string | null
+  spec_schema_version: number | null
+  spec_row_strategy_kind: string | null
+  spec_output_format: string | null
+  spec_output_compression: string | null
+  spec_feature_count: number
+  revision_count: number
+  draft_count: number
+  migration_notes: string[]
+  invalid_reason: string | null
+  latest_preview_available: boolean
+  latest_preview_updated_at: string | null
+  created_at: string
+  updated_at: string
+  last_opened_at: string | null
+  status: "ready" | "needs_migration" | "invalid"
+}
+
+export interface SavedConversionConfigDetailResponse
+  extends SavedConversionConfigSummaryResponse {
+  spec_document_json: ConversionSpecDocument
+  resolved_spec: ConversionSpec | null
+  resolved_spec_document: ConversionSpecDocument | null
+  latest_preview: PreviewResult | null
+  revisions: SavedConversionConfigRevisionResponse[]
+  draft_revisions: SavedConversionDraftRevisionResponse[]
 }
 
 export interface JobSummary {
@@ -795,12 +1063,72 @@ export function createConversion(payload: ConversionCreateRequest) {
   })
 }
 
+export function getConversionAuthoringCapabilities() {
+  return request<ConversionAuthoringCapabilitiesResponse>("/conversions/capabilities")
+}
+
+export function inspectConversion(payload: ConversionInspectionRequest) {
+  return request<ConversionInspectionResponse>("/conversions/inspect", {
+    body: JSON.stringify(payload),
+    method: "POST",
+  })
+}
+
+export function draftConversion(payload: ConversionDraftRequest) {
+  return request<ConversionDraftResponse>("/conversions/draft", {
+    body: JSON.stringify(payload),
+    method: "POST",
+  })
+}
+
+export function previewConversion(payload: ConversionPreviewRequest) {
+  return request<ConversionPreviewResponse>("/conversions/preview", {
+    body: JSON.stringify(payload),
+    method: "POST",
+  })
+}
+
 export function listConversions() {
   return request<ConversionSummary[]>("/conversions")
 }
 
 export function getConversion(conversionId: string) {
   return request<ConversionDetail>(`/conversions/${conversionId}`)
+}
+
+export function listConversionConfigs() {
+  return request<SavedConversionConfigSummaryResponse[]>("/conversion-configs")
+}
+
+export function getConversionConfig(configId: string) {
+  return request<SavedConversionConfigDetailResponse>(`/conversion-configs/${configId}`)
+}
+
+export function createConversionConfig(payload: SavedConversionConfigCreateRequest) {
+  return request<SavedConversionConfigDetailResponse>("/conversion-configs", {
+    body: JSON.stringify(payload),
+    method: "POST",
+  })
+}
+
+export function updateConversionConfig(
+  configId: string,
+  payload: SavedConversionConfigUpdateRequest,
+) {
+  return request<SavedConversionConfigDetailResponse>(`/conversion-configs/${configId}`, {
+    body: JSON.stringify(payload),
+    method: "PATCH",
+  })
+}
+
+export function duplicateConversionConfig(
+  configId: string,
+  payload: SavedConversionConfigDuplicateRequest,
+) {
+  return request<SavedConversionConfigDetailResponse>(`/conversion-configs/${configId}/duplicate`, {
+    body: JSON.stringify(payload),
+    method: "POST",
+  })
 }
 
 export function listOutputs(query?: OutputsQuery | null) {

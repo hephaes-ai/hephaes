@@ -14,10 +14,14 @@ export function buildConversionHref({
   assetIds,
   conversionId,
   from,
+  savedConfigId,
+  sourceAssetId,
 }: {
   assetIds: string[];
   conversionId?: string | null;
   from?: string | null;
+  savedConfigId?: string | null;
+  sourceAssetId?: string | null;
 }) {
   const params = new URLSearchParams();
 
@@ -28,6 +32,14 @@ export function buildConversionHref({
 
   if (conversionId?.trim()) {
     params.set("conversion_id", conversionId.trim());
+  }
+
+  if (savedConfigId?.trim()) {
+    params.set("saved_config_id", savedConfigId.trim());
+  }
+
+  if (sourceAssetId?.trim()) {
+    params.set("source_asset_id", sourceAssetId.trim());
   }
 
   if (from?.trim()) {

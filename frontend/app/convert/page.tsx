@@ -1,11 +1,14 @@
 import { Suspense } from "react";
 
-import { ConversionPage, ConversionPageFallback } from "./conversion-page";
+import {
+  ConversionAuthoringWorkspace,
+  ConversionAuthoringWorkspaceFallback,
+} from "./conversion-authoring-workspace";
 
 export default function ConversionRoute() {
   return (
-    <Suspense fallback={<ConversionPageFallback />}>
-      <ConversionPage />
+    <Suspense fallback={<ConversionAuthoringWorkspaceFallback />}>
+      <ConversionAuthoringWorkspace />
     </Suspense>
   );
 }

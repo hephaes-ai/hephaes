@@ -5,6 +5,7 @@ import useSWR, { useSWRConfig } from "swr"
 
 import {
   createOutputAction,
+  getConversionAuthoringCapabilities,
   getDashboardBlockers,
   getDashboardSummary,
   getDashboardTrends,
@@ -17,7 +18,9 @@ import {
   getHealth,
   getJob,
   getOutputAction,
+  getConversionConfig,
   getOutput,
+  listConversionConfigs,
   listAssetEpisodes,
   listConversions,
   listAssets,
@@ -56,6 +59,7 @@ export const backendKeys = {
   assets: (query?: AssetListQuery | null) =>
     ["assets", serializeAssetListQuery(query)] as const,
   conversion: (conversionId: string) => ["conversion", conversionId] as const,
+  conversionAuthoringCapabilities: ["conversion-authoring", "capabilities"] as const,
   conversions: ["conversions"] as const,
   dashboardBlockers: ["dashboard", "blockers"] as const,
   dashboardSummary: ["dashboard", "summary"] as const,
@@ -72,6 +76,8 @@ export const backendKeys = {
   output: (outputId: string) => ["output", outputId] as const,
   outputs: (query?: OutputsQuery | null) =>
     ["outputs", serializeOutputsQuery(query)] as const,
+  savedConfig: (configId: string) => ["conversion-config", configId] as const,
+  savedConfigs: ["conversion-configs"] as const,
   samples: (assetId: string, episodeId: string, query: EpisodeSamplesQuery) =>
     [
       "samples",
@@ -126,6 +132,27 @@ export function useConversion(conversionId: string) {
   return useSWR(
     conversionId ? backendKeys.conversion(conversionId) : null,
     () => getConversion(conversionId)
+  )
+}
+
+export function useConversionAuthoringCapabilities() {
+  return useSWR(
+    backendKeys.conversionAuthoringCapabilities,
+    () => getConversionAuthoringCapabilities(),
+    {
+      dedupingInterval: 60_000,
+    }
+  )
+}
+
+export function useSavedConversionConfigs() {
+  return useSWR(backendKeys.savedConfigs, () => listConversionConfigs())
+}
+
+export function useSavedConversionConfig(configId: string) {
+  return useSWR(
+    configId ? backendKeys.savedConfig(configId) : null,
+    () => getConversionConfig(configId)
   )
 }
 
@@ -376,6 +403,21 @@ export function useBackendCache() {
     await mutate(backendKeys.conversions)
   }, [mutate])
 
+  const revalidateSavedConfigs = React.useCallback(async () => {
+    await mutate(backendKeys.savedConfigs)
+  }, [mutate])
+
+  const revalidateSavedConfigDetail = React.useCallback(
+    async (configId: string) => {
+      if (!configId) {
+        return
+      }
+
+      await mutate(backendKeys.savedConfig(configId))
+    },
+    [mutate]
+  )
+
   const revalidateOutputs = React.useCallback(async () => {
     await mutate(
       (key) => Array.isArray(key) && key[0] === "outputs",
@@ -537,6 +579,8 @@ export function useBackendCache() {
     revalidateOutputActionDetail,
     revalidateOutputActions,
     revalidateOutputs,
+    revalidateSavedConfigDetail,
+    revalidateSavedConfigs,
     revalidateTags,
   }
 }
