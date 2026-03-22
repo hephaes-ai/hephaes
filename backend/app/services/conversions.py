@@ -8,8 +8,14 @@ from uuid import uuid4
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from hephaes import Converter, build_mapping_template, build_mapping_template_from_json
+from hephaes import (
+    Converter,
+    build_legacy_conversion_spec,
+    build_mapping_template,
+    build_mapping_template_from_json,
+)
 from hephaes.models import (
+    ConversionSpec,
     MappingTemplate,
     ParquetOutputConfig,
     ResampleConfig,
@@ -102,6 +108,8 @@ def _resolve_mapping(assets: list[Asset], request: ConversionCreateRequest) -> M
     first_asset_topics = _topics_from_asset(assets[0])
 
     if request.mapping is None:
+        if request.spec is not None and request.spec.mapping is not None:
+            return request.spec.mapping
         return build_mapping_template(first_asset_topics)
 
     return build_mapping_template_from_json(
@@ -122,21 +130,53 @@ def _resolve_assets(session: Session, asset_ids: list[str]) -> list[Asset]:
     return assets
 
 
-def _build_conversion_config(
+def _resolve_conversion_spec(
     request: ConversionCreateRequest,
     *,
     mapping: MappingTemplate,
+) -> ConversionSpec:
+    if request.spec is not None:
+        if request.write_manifest is None:
+            return request.spec
+        return request.spec.model_copy(update={"write_manifest": request.write_manifest})
+
+    output = _resolve_output_config(request)
+    resample = (
+        ResampleConfig.model_validate(request.resample.model_dump())
+        if request.resample is not None
+        else None
+    )
+    write_manifest = request.write_manifest if request.write_manifest is not None else True
+    return build_legacy_conversion_spec(
+        mapping=mapping,
+        output=output,
+        resample=resample,
+        write_manifest=write_manifest,
+    )
+
+
+def _build_conversion_config(
+    *,
+    mapping: MappingTemplate,
+    mapping_mode: str,
+    spec: ConversionSpec,
 ) -> dict[str, object]:
     return {
         "mapping": mapping.model_dump(),
-        "mapping_mode": "custom" if request.mapping is not None else "auto",
-        "output": request.output.model_dump(),
-        "resample": request.resample.model_dump() if request.resample is not None else None,
-        "write_manifest": request.write_manifest,
+        "mapping_mode": mapping_mode,
+        "output": spec.to_output_config().model_dump(),
+        "resample": spec.resample.model_dump() if spec.resample is not None else None,
+        "write_manifest": spec.write_manifest,
+        "spec": spec.model_dump(by_alias=True),
     }
 
 
-def _resolve_output_config(request: ConversionCreateRequest) -> ParquetOutputConfig | TFRecordOutputConfig:
+def _resolve_output_config(
+    request: ConversionCreateRequest,
+) -> ParquetOutputConfig | TFRecordOutputConfig:
+    if request.output is None:
+        return ParquetOutputConfig()
+
     output_payload = request.output.model_dump()
     if request.output.format == "parquet":
         return ParquetOutputConfig.model_validate(output_payload)
@@ -168,7 +208,13 @@ class ConversionService:
     def run_conversion(self, request: ConversionCreateRequest) -> Conversion:
         assets = _resolve_assets(self.session, request.asset_ids)
         mapping = _resolve_mapping(assets, request)
-        conversion_config = _build_conversion_config(request, mapping=mapping)
+        conversion_spec = _resolve_conversion_spec(request, mapping=mapping)
+        mapping_mode = "spec" if request.spec is not None else ("custom" if request.mapping is not None else "auto")
+        conversion_config = _build_conversion_config(
+            mapping=mapping,
+            mapping_mode=mapping_mode,
+            spec=conversion_spec,
+        )
 
         conversion_id = str(uuid4())
         output_dir = self.settings.outputs_dir / "conversions" / conversion_id
@@ -202,13 +248,10 @@ class ConversionService:
                 file_paths=[asset.file_path for asset in assets],
                 mapping=mapping,
                 output_dir=output_dir,
-                output=_resolve_output_config(request),
-                resample=(
-                    ResampleConfig.model_validate(request.resample.model_dump())
-                    if request.resample is not None
-                    else None
-                ),
-                write_manifest=request.write_manifest,
+                spec=conversion_spec,
+                output=conversion_spec.to_output_config(),
+                resample=conversion_spec.resample,
+                write_manifest=conversion_spec.write_manifest,
             )
             output_files = [str(path) for path in converter.convert()]
             self.job_service.mark_job_succeeded(job.id, output_path=str(output_dir))

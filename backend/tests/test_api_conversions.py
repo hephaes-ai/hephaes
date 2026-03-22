@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 
 from app.services import conversions as conversion_service
 from app.services import indexing as indexing_service
+from hephaes.models import build_doom_ros_train_py_compatible
 from hephaes.models import BagMetadata, Topic
 
 
@@ -108,16 +109,17 @@ def test_create_conversion_success(
     body = response.json()
     assert body["status"] == "succeeded"
     assert body["asset_ids"] == [asset_id]
-    assert body["config"] == {
-        "mapping": {
-            "camera_front_image_raw": ["/camera/front/image_raw"],
-            "imu_data": ["/imu/data"],
-        },
-        "mapping_mode": "auto",
-        "output": {"format": "parquet", "compression": "snappy"},
-        "resample": {"freq_hz": 5.0, "method": "downsample"},
-        "write_manifest": True,
+    assert body["config"]["mapping"] == {
+        "camera_front_image_raw": ["/camera/front/image_raw"],
+        "imu_data": ["/imu/data"],
     }
+    assert body["config"]["mapping_mode"] == "auto"
+    assert body["config"]["output"] == {"format": "parquet", "compression": "snappy"}
+    assert body["config"]["resample"] == {"freq_hz": 5.0, "method": "downsample"}
+    assert body["config"]["write_manifest"] is True
+    assert body["config"]["spec"]["schema"] == {"name": "legacy_mapping", "version": 1}
+    assert body["config"]["spec"]["output"]["format"] == "parquet"
+    assert body["config"]["spec"]["output"]["compression"] == "snappy"
     assert body["output_path"] == str(backend_outputs_dir / "conversions" / body["id"])
     assert body["output_files"] == [str(Path(body["output_path"]) / "episode_0001.parquet")]
     assert body["error_message"] is None
@@ -128,6 +130,8 @@ def test_create_conversion_success(
     assert body["job"]["error_message"] is None
     assert captured["file_paths"] == [str(sample_asset_file)]
     assert Path(captured["output_dir"]) == backend_outputs_dir / "conversions" / body["id"]
+    assert captured["spec"].schema.name == "legacy_mapping"
+    assert captured["spec"].output.compression == "snappy"
 
     list_response = client.get("/conversions")
     assert list_response.status_code == 200
@@ -150,6 +154,49 @@ def test_create_conversion_success(
     assert detail_response.json() == body
 
 
+def test_create_conversion_with_spec_payload_uses_richer_conversion_spec(
+    client: TestClient,
+    monkeypatch,
+    sample_asset_file: Path,
+):
+    asset_id = index_registered_asset(client, monkeypatch, sample_asset_file)
+    captured: dict[str, object] = {}
+
+    class FakeConverter:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+        def convert(self) -> list[Path]:
+            output_dir = Path(captured["output_dir"])
+            output_dir.mkdir(parents=True, exist_ok=True)
+            spec = captured["spec"]
+            dataset_path = output_dir / f"episode_0001.{spec.output.format}"
+            dataset_path.write_bytes(b"spec-dataset")
+            return [dataset_path]
+
+    monkeypatch.setattr(conversion_service, "Converter", FakeConverter)
+
+    response = client.post(
+        "/conversions",
+        json={
+            "asset_ids": [asset_id],
+            "spec": build_doom_ros_train_py_compatible().model_dump(by_alias=True),
+        },
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["status"] == "succeeded"
+    assert body["config"]["mapping_mode"] == "spec"
+    assert body["config"]["spec"]["schema"] == {"name": "doom_ros_train_py_compatible", "version": 1}
+    assert body["config"]["spec"]["output"]["format"] == "tfrecord"
+    assert body["config"]["spec"]["output"]["shards"] == 8
+    assert body["output_files"] == [str(Path(body["output_path"]) / "episode_0001.tfrecord")]
+    assert captured["spec"].schema.name == "doom_ros_train_py_compatible"
+    assert captured["spec"].output.shards == 8
+    assert captured["write_manifest"] is True
+
+
 def test_create_conversion_rejects_unindexed_asset(
     client: TestClient,
     sample_asset_file: Path,
@@ -165,6 +212,25 @@ def test_create_conversion_rejects_unindexed_asset(
     assert response.json() == {
         "detail": f"asset must be indexed before conversion: {sample_asset_file.name}"
     }
+
+
+def test_create_conversion_rejects_invalid_spec_contract(
+    client: TestClient,
+    monkeypatch,
+    sample_asset_file: Path,
+):
+    asset_id = index_registered_asset(client, monkeypatch, sample_asset_file)
+    spec_payload = build_doom_ros_train_py_compatible().model_dump(by_alias=True)
+    spec_payload["output"]["compression"] = "snappy"
+
+    response = client.post(
+        "/conversions",
+        json={"asset_ids": [asset_id], "spec": spec_payload},
+    )
+
+    assert response.status_code == 422
+    detail = response.json()["detail"]
+    assert any("invalid tfrecord compression" in error["msg"] for error in detail)
 
 
 def test_create_conversion_failure_persists_failed_conversion_and_job(
