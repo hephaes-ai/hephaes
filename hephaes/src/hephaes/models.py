@@ -167,6 +167,99 @@ class JoinSpec(BaseModel):
         return normalized
 
 
+def _zero_scalar_for_dtype(dtype: FeatureDType) -> Any | None:
+    if dtype == "bytes":
+        return b""
+    if dtype == "bool":
+        return False
+    if dtype == "int64":
+        return 0
+    if dtype in {"float32", "float64"}:
+        return 0.0
+    return None
+
+
+def _zero_value_for_shape(shape: list[int], scalar: Any) -> Any:
+    if not shape:
+        return scalar
+
+    size = shape[0]
+    if size < 0:
+        return []
+
+    return [_zero_value_for_shape(shape[1:], scalar) for _ in range(size)]
+
+
+def _assign_default_path(container: dict[str, Any], field_path: str | None, value: Any) -> bool:
+    if field_path is None:
+        return False
+
+    segments = [segment for segment in field_path.split(".") if segment]
+    if not segments:
+        return False
+
+    current: dict[str, Any] = container
+    for segment in segments[:-1]:
+        next_value = current.get(segment)
+        if next_value is None:
+            next_value = {}
+            current[segment] = next_value
+        elif not isinstance(next_value, dict):
+            return False
+        current = next_value
+
+    last_segment = segments[-1]
+    existing = current.get(last_segment)
+    if existing is not None and existing != value and not isinstance(existing, dict):
+        return False
+    current[last_segment] = value
+    return True
+
+
+def _build_topic_zero_default(topic: str, features: dict[str, "FeatureSpec"]) -> Any | None:
+    topic_features = [
+        feature
+        for feature in features.values()
+        if feature.source.topic == topic and feature.missing == "zeros"
+    ]
+    if not topic_features:
+        return None
+
+    nested_payload: dict[str, Any] = {}
+    scalar_payload: Any | None = None
+    saw_scalar = False
+    saw_nested = False
+
+    for feature in topic_features:
+        scalar = _zero_scalar_for_dtype(feature.dtype)
+        if scalar is None:
+            continue
+
+        value = _zero_value_for_shape(feature.shape, scalar) if feature.shape is not None else scalar
+        field_path = feature.source.field_path
+
+        if field_path is None:
+            if saw_nested:
+                return None
+            if saw_scalar and scalar_payload != value:
+                return None
+            scalar_payload = value
+            saw_scalar = True
+            continue
+
+        if saw_scalar:
+            return None
+        if not _assign_default_path(nested_payload, field_path, value):
+            return None
+        saw_nested = True
+
+    if saw_scalar:
+        return scalar_payload
+    if nested_payload:
+        return nested_payload
+    return None
+
+
 class AssemblySpec(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -377,6 +470,19 @@ class ConversionSpec(BaseModel):
                 raise ValueError("label primary feature must be non-empty")
         return self
 
+    @model_validator(mode="after")
+    def _infer_join_defaults(self) -> "ConversionSpec":
+        if self.assembly is None or not self.features:
+            return self
+
+        for join in self.assembly.joins:
+            if join.default_value is not None:
+                continue
+            inferred_default = _build_topic_zero_default(join.topic, self.features)
+            if inferred_default is not None:
+                join.default_value = inferred_default
+        return self
+
     def to_output_config(self) -> OutputConfig:
         return self.output.to_output_config()
 
@@ -460,6 +566,7 @@ def build_doom_ros_train_py_compatible() -> ConversionSpec:
                     sync_policy="last-known-before",
                     staleness_ns=250_000_000,
                     required=True,
+                    default_value={"buttons": [0] * 15},
                 )
             ],
         ),

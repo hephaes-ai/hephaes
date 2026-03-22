@@ -21,6 +21,7 @@ class EpisodeContext:
 class RecordBatch:
     timestamps: list[int]
     field_data: dict[str, list[Any | None]]
+    presence_data: dict[str, list[int]] | None = None
 
     @property
     def row_count(self) -> int:

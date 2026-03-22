@@ -81,6 +81,7 @@ def test_conversion_spec_parses_design_example_shape():
     assert spec.assembly is not None
     assert spec.assembly.trigger_topic == "/doom_image"
     assert spec.assembly.joins[0].sync_policy == "last-known-before"
+    assert spec.assembly.joins[0].default_value == {"buttons": [0] * 15}
     assert spec.features["image"].transforms[0].kind == "image_color_convert"
     assert spec.features["image"].transforms[0].params == {"from": "bgra", "to": "rgb"}
     assert spec.features["buttons"].shape == [15]

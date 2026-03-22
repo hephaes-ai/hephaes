@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from bisect import bisect_left, bisect_right
 from dataclasses import dataclass
 from typing import Any
 
@@ -13,6 +14,7 @@ from .._converter_helpers import (
     _TopicSamples,
 )
 from ..models import MappingTemplate
+from ..models import DecodeFailurePolicy, JoinSpec
 from ..outputs.base import RecordBatch
 from ..reader import RosReader
 
@@ -21,6 +23,13 @@ from ..reader import RosReader
 class TopicPlan:
     topics_to_read: list[str]
     topic_to_field: dict[str, str]
+
+
+@dataclass(frozen=True)
+class TriggerAssemblyRecord:
+    timestamp_ns: int
+    values: dict[str, Any | None]
+    presence: dict[str, int]
 
 
 def resolve_mapping_for_bag(
@@ -50,6 +59,142 @@ def build_mapping_resolution(
     for topic_name, field_name in topic_to_field.items():
         resolved[field_name] = topic_name
     return resolved
+
+
+def _select_join_candidate(
+    messages: list[Any],
+    *,
+    trigger_timestamp: int,
+    join: JoinSpec,
+) -> Any | None:
+    if not messages:
+        return None
+
+    timestamps = [int(message.timestamp) for message in messages]
+
+    if join.sync_policy == "last-known-before":
+        index = bisect_right(timestamps, trigger_timestamp) - 1
+        if index < 0:
+            return None
+        candidate = messages[index]
+        if join.staleness_ns is not None and trigger_timestamp - int(candidate.timestamp) > join.staleness_ns:
+            return None
+        return candidate
+
+    left_index = bisect_left(timestamps, trigger_timestamp)
+    candidate_indexes: list[int] = []
+    if left_index < len(messages):
+        candidate_indexes.append(left_index)
+    if left_index > 0:
+        candidate_indexes.append(left_index - 1)
+
+    if not candidate_indexes:
+        return None
+
+    best_candidate: Any | None = None
+    best_distance: int | None = None
+    for index in candidate_indexes:
+        candidate = messages[index]
+        distance = abs(int(candidate.timestamp) - trigger_timestamp)
+        if join.tolerance_ns is not None and distance > join.tolerance_ns:
+            continue
+        if join.staleness_ns is not None and distance > join.staleness_ns:
+            continue
+        if best_distance is None or distance < best_distance or (
+            distance == best_distance and int(candidate.timestamp) < int(best_candidate.timestamp)
+        ):
+            best_candidate = candidate
+            best_distance = distance
+
+    if join.sync_policy == "exact-within-tolerance":
+        if best_candidate is None:
+            return None
+        if int(best_candidate.timestamp) != trigger_timestamp and join.tolerance_ns is None:
+            return None
+        return best_candidate
+
+    return best_candidate
+
+
+def assemble_trigger_records(
+    *,
+    reader: RosReader,
+    trigger_topic: str,
+    joins: list[JoinSpec],
+    on_failure: DecodeFailurePolicy = "warn",
+    topic_type_hints: dict[str, str] | None = None,
+) -> tuple[list[TriggerAssemblyRecord], int]:
+    topics = [trigger_topic]
+    for join in joins:
+        if join.topic not in topics:
+            topics.append(join.topic)
+
+    messages_by_topic: dict[str, list[Any]] = {topic: [] for topic in topics}
+    for message in reader.read_messages(
+        topics=topics,
+        on_failure=on_failure,
+        topic_type_hints=topic_type_hints,
+    ):
+        messages_by_topic.setdefault(message.topic, []).append(message)
+
+    for topic_messages in messages_by_topic.values():
+        topic_messages.sort(key=lambda message: int(message.timestamp))
+
+    trigger_messages = messages_by_topic.get(trigger_topic, [])
+    records: list[TriggerAssemblyRecord] = []
+    dropped_count = 0
+
+    for trigger_message in trigger_messages:
+        values: dict[str, Any | None] = {
+            trigger_topic: trigger_message.data,
+        }
+        presence: dict[str, int] = {
+            trigger_topic: 1,
+        }
+        drop_record = False
+
+        for join in joins:
+            candidate = _select_join_candidate(
+                messages_by_topic.get(join.topic, []),
+                trigger_timestamp=int(trigger_message.timestamp),
+                join=join,
+            )
+            if candidate is None:
+                presence[join.topic] = 0
+                if join.missing == "error":
+                    raise ValueError(
+                        f"missing required join topic '{join.topic}' for trigger at {trigger_message.timestamp}"
+                    )
+                if join.default_value is not None:
+                    value = join.default_value
+                elif join.missing == "zeros":
+                    value = 0
+                else:
+                    value = None
+
+                if value is None and join.required:
+                    drop_record = True
+                    continue
+
+                values[join.topic] = value
+                continue
+
+            presence[join.topic] = 1
+            values[join.topic] = candidate.data
+
+        if drop_record:
+            dropped_count += 1
+            continue
+
+        records.append(
+            TriggerAssemblyRecord(
+                timestamp_ns=int(trigger_message.timestamp),
+                values=values,
+                presence=presence,
+            )
+        )
+
+    return records, dropped_count
 
 
 def _flush_chunk(

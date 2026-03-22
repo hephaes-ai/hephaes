@@ -1,5 +1,7 @@
 from .assembly import (
     TopicPlan,
+    TriggerAssemblyRecord,
+    assemble_trigger_records,
     collect_interpolation_samples,
     convert_downsample,
     convert_interpolate,
@@ -18,6 +20,8 @@ from .features import FeatureBuilder, resolve_field_path, resolve_source_value
 
 __all__ = [
     "TopicPlan",
+    "TriggerAssemblyRecord",
+    "assemble_trigger_records",
     "collect_interpolation_samples",
     "convert_downsample",
     "convert_interpolate",
