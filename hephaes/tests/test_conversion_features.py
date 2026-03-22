@@ -8,7 +8,7 @@ import numpy as np
 from PIL import Image
 
 from hephaes.conversion import FeatureBuilder
-from hephaes.models import FeatureSpec, FieldSourceSpec
+from hephaes.models import ConstantSourceSpec, FeatureSpec, FieldSourceSpec
 
 
 def test_feature_builder_applies_cast_and_length_transforms():
@@ -62,3 +62,17 @@ def test_feature_builder_rejects_length_mismatch():
         assert "expected sequence length 3" in str(exc)
     else:  # pragma: no cover - the assertion above should always fail first
         raise AssertionError("expected a length validation error")
+
+
+def test_feature_builder_rejects_non_path_source_until_runtime_support_is_added():
+    feature = FeatureSpec(
+        source=ConstantSourceSpec(value=[1, 2, 3]),
+        dtype="json",
+    )
+
+    try:
+        FeatureBuilder().build({"buttons": [1, 2, 3]}, feature)
+    except NotImplementedError as exc:
+        assert "currently supports only path sources" in str(exc)
+    else:  # pragma: no cover - the assertion above should always fail first
+        raise AssertionError("expected a non-path source error")

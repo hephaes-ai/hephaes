@@ -1,453 +1,309 @@
-# MCAP To TFRecord Conversion Implementation Plan
+# Conversion Implementation Tasks
 
-## Overview
+## Purpose
 
-This document turns the converter design into a concrete implementation plan for the current `hephaes` codebase.
+This document is the phased implementation backlog for the remaining conversion work.
 
-The present implementation is already useful, but it still leaves the user with too much authoring work:
+It is derived from:
 
-- `hephaes/src/hephaes/reader.py` reads raw or decoded messages.
-- `hephaes/src/hephaes/converter.py` can execute either a legacy mapping flow or a schema-aware trigger flow.
-- `hephaes/src/hephaes/conversion/transforms.py` already supports a meaningful declarative transform chain.
-- `hephaes/demo/core_demo.ipynb` still teaches a preset-first workflow instead of a config-first workflow.
-- there is no inspection or spec-drafting layer that helps a user turn an arbitrary MCAP into an editable training contract.
-- there is no stable frontend and backend contract yet for saved reusable configs, preview flows, or authoring capabilities.
+- the product direction in [`converter-design.md`](./converter-design.md)
+- the actual implementation snapshot in [`converter-current-state.md`](./converter-current-state.md)
 
-The real product goal is broader than a Doom preset:
+This is intentionally more execution-oriented than the master plan. It focuses on what still needs to be built, in what order, and how we will know each phase is actually done.
 
-- inspect any MCAP
-- understand what fields and message shapes exist
-- draft a conversion spec as data
-- edit the draft without writing Python functions
-- preview the resulting contract
-- convert into the TFRecord layout a training setup expects
+## Planning Assumptions
 
-That means we need to finish two connected pieces:
+The current baseline already gives us:
 
-1. a generic runtime conversion contract
-2. an authoring layer that makes that contract discoverable and editable
-3. a stable business-logic surface that backend and frontend can build on without reimplementing converter rules
+- `ConversionSpec`, spec serialization, and migration helpers
+- explicit `row_strategy` and source-expression spec models
+- draft-origin metadata for inferred specs
+- capability metadata that distinguishes authoring surfaces from current runtime support
+- trigger-based schema-aware conversion
+- introspection, draft-spec generation, and preview helpers
+- validation, sharding, manifests, and reports
 
-The runtime path without the authoring layer is still too code-first for the intended use case.
+The main gaps are:
 
-Companion design doc:
+- schema-aware conversion is still trigger-centric at runtime
+- runtime feature-source evaluation is still limited to `path`
+- preview and validation are not yet the full contract-authoring gate
+- the config-first demo and reusable-config workflow are still incomplete
+- backend and frontend contract wiring still needs to be built around the `hephaes` business-logic surface
 
-- [`converter-introspection-and-draft-spec.md`](./converter-introspection-and-draft-spec.md)
+## Phase 1: Normalize The Spec Model Around The Missing Runtime Concepts
 
-## Implementation Strategy
+Status: complete
 
-The safest path is to keep the current runtime working while reshaping the user-facing workflow around declarative authoring.
-
-That means:
-
-- keep legacy `mapping`, `resample`, `output`, and `write_manifest` inputs working
-- keep schema-aware conversion data-driven
-- generalize the schema-aware path beyond trigger-only cases
-- add inspection, draft-spec generation, and authoring preview as first-class stages
-- make `hephaes` the single source of truth for inspection, draft generation, preview, validation, and spec migration logic
-- expose stable capability and schema metadata so frontend forms do not hard-code converter behavior
-- version saved spec payloads and add migration helpers so reusable configs survive future schema changes
-- treat built-in templates as optional examples, not the primary workflow
-
-## Tasks
-
-This is the execution checklist for the plan above. The detailed phase sections that follow provide the supporting rationale and implementation notes.
-
-### Phase 1: Strengthen The Schema-Aware Config Model
-
-- [ ] Add richer config models for input discovery, decoding, row construction, feature mapping, transforms, labels, splitting, output, and validation.
-- [ ] Preserve the current `mapping`, `resample`, `output`, and `write_manifest` inputs as compatibility fields.
-- [ ] Add JSON and YAML load-dump helpers so the main user-facing path can be config-first.
-- [ ] Add stable library entrypoints for inspect, draft, preview, validate, serialize, and migrate operations so backend services can delegate business logic to `hephaes`.
-- [ ] Version the saved spec format and add migration helpers for future schema changes.
-- [ ] Keep built-in templates available, but frame them as starter specs instead of required Python helpers.
-- Testing / debug: add unit tests for config validation, legacy translation, and config serialization, then run a dry conversion and inspect the manifest for schema name and version fields.
-
-### Phase 2: Split The Pipeline Into Explicit Runtime And Authoring Stages
-
-- [ ] Keep `RosReader` focused on raw log access, topic iteration, and metadata extraction.
-- [ ] Keep discovery and decoding as explicit runtime stages.
-- [ ] Add explicit authoring stages for inspection, draft-spec generation, and preview.
-- [ ] Keep writing and reporting downstream of validated feature payloads only.
-- Testing / debug: add stage-level tests that compare requested topics, decoded payloads, inspected payload trees, and final feature outputs for the same fixture.
-
-### Phase 3: Generalize Record Construction Beyond Trigger-Only Specs
-
-- [ ] Support declarative row strategies such as `trigger`, `per-message`, and resampled timelines.
-- [ ] Keep trigger joins for `nearest`, `last-known-before`, and `exact-within-tolerance`.
-- [ ] Add per-topic tolerance, staleness limits, required flags, optional flags, and missing-data behavior.
-- [ ] Ensure schema-aware conversion does not silently fall back to the legacy mapping path just because the user did not pick a trigger strategy.
-- Testing / debug: build synthetic timeline tests for each row strategy and sync policy, then debug assembled rows by verifying timestamps, joined values, and presence flags.
-
-### Phase 4: Generalize Feature Sources, Transforms, And Encoding
-
-- [ ] Define explicit features with source expressions instead of only a single topic plus field path.
-- [ ] Add source kinds such as `path`, `constant`, `metadata`, `concat`, and `stack`.
-- [ ] Keep image transforms for channel conversion, resize, crop, normalization, and encoding format selection.
-- [ ] Keep numeric transforms, sequence padding and truncation, label derivation, and class mapping support declarative.
-- Testing / debug: add round-trip tests for PNG image bytes, vector assembly, numeric casts, source composition, and shape validation, then debug a Doom-shaped sample without using a custom Python builder.
-
-### Phase 5: Add Validation, Preflight, And Authoring Preview
-
-- [ ] Validate dtype and shape before writing any record.
-- [ ] Add schema compatibility checks, sample-N preflight validation, and fail-fast handling for required feature mismatches.
-- [ ] Add a bad-record budget, missing-topic rates, label summaries, and dry-run mode.
-- [ ] Add preview support for assembled rows and extracted feature values before the full write path runs.
-- Testing / debug: add failure-path tests for missing required features and invalid shapes, then run preflight-only mode and confirm it stops before shard writing when a contract is broken.
-
-### Phase 6: Add Sharding, Splitting, And Deterministic Output
-
-- [ ] Add shard counts, file naming templates, GZIP or uncompressed output, and deterministic ordering.
-- [ ] Support train, val, and test splits with time-based or random strategies and a fixed seed.
-- [ ] Keep shard and split outputs stable across reruns so results are easy to compare.
-- Testing / debug: add tests that verify shard naming, split assignment stability, and repeated-run determinism, then rerun the same fixture twice and diff the emitted outputs.
-
-### Phase 7: Update The Manifest And Conversion Report
-
-- [ ] Add schema name and version.
-- [ ] Add resolved feature definitions.
-- [ ] Add per-feature missing rates.
-- [ ] Add record counts and dropped counts.
-- [ ] Add split counts.
-- [ ] Add validation summary.
-- [ ] Add row-strategy and draft-origin metadata where relevant.
-- [ ] Keep the existing source metadata and temporal metadata.
-- Testing / debug: add checks for manifest schema fields, summary counts, preview metadata, and draft-origin metadata, then verify the report matches the emitted shards.
-
-### Phase 8: Update The Backend, Frontend, And Authoring Contract
-
-- [ ] Extend `backend/app/schemas/conversions.py` to accept the richer converter config.
-- [ ] Translate legacy backend requests into the new converter spec when possible.
-- [ ] Add backend request and response shapes for inspection, draft-spec generation, and authoring preview.
-- [ ] Add backend-owned resources for saved reusable configs, drafts, and starter templates so users can reuse and share authoring work.
-- [ ] Add capability metadata endpoints so the frontend can render supported row strategies, source kinds, transforms, and dtypes without duplicating library enums.
-- [ ] Keep frontend authoring flows thin by calling backend APIs that delegate inference, preview, validation, and migration logic to `hephaes`.
-- [ ] Align backend validation errors with library validation errors so the user sees one consistent contract.
-- Testing / debug: add API tests for both legacy and new payload shapes, plus failure cases for invalid schema contracts, draft-spec requests, saved-config persistence, and spec migration, then trace one request from API payload to `Converter` arguments.
-
-### Phase 9: Add The Introspection And Draft-Spec Layer
-
-- [ ] Sample decoded payloads per topic without requiring a full conversion run.
-- [ ] Enumerate field paths and nested structures from normalized payloads.
-- [ ] Infer leaf kinds, likely dtypes, shape hints, nullability, and image-like payloads.
-- [ ] Generate editable draft specs for a chosen row strategy and selected topics.
-- [ ] Emit assumptions, warnings, and confidence hints instead of pretending inference is perfect.
-- Testing / debug: add unit tests for field-path enumeration and inference heuristics, then use one unfamiliar MCAP fixture to draft a spec and confirm that only config edits are needed to finish the conversion.
-
-### Phase 10: Rework Templates, Notebook, And Docs Around Config-First Authoring
-
-- [ ] Keep `doom_ros_train_py_compatible` as a worked example, not as the primary product surface.
-- [ ] Keep at least one generic starter template for simple single-trigger sensor logs.
-- [ ] Rewrite `core_demo.ipynb` around inspect, draft, edit, preview, and convert.
-- [ ] Align the frontend conversion route and reusable-config surfaces with the backend-owned authoring contract instead of notebook-only flows.
-- [ ] Document how saved configs, draft revisions, import and export, and migration should work across library, backend, and frontend.
-- [ ] Document how to override a drafted or built-in spec without defining custom Python functions.
-- Testing / debug: add one end-to-end smoke test that starts from inspection, drafts a spec, edits it to a Doom-compatible contract, and converts successfully.
-
-## Phase 1: Strengthen The Schema-Aware Config Model
-
-The first implementation step is to define a config object that is expressive enough for arbitrary training contracts and ergonomic enough to be authored as data.
-
-Recommended model families:
-
-- `ConversionSpec`
-- `InputDiscoverySpec`
-- `DecodingSpec`
-- `RowStrategySpec`
-- `AssemblySpec`
-- `FeatureSpec`
-- `FeatureSourceSpec`
-- `TransformSpec`
-- `LabelSpec`
-- `SplitSpec`
-- `ValidationSpec`
-- `OutputSpec`
+Goal:
+Turn the current spec into the final contract shape we actually need, without breaking existing callers.
 
 ### Tasks
 
-- Add schema models for row strategies instead of coupling schema-aware conversion to trigger assembly only.
-- Add schema models for feature sources that can reference paths, constants, metadata, and composed values.
-- Add schema models for dtype, shape, required, and missing-data policy.
-- Add schema models for transforms, label derivation, and preview settings.
-- Keep the current `MappingTemplate` and `ResampleConfig` as compatibility inputs.
-- Add `ConversionSpec` JSON and YAML helpers so users can save and edit specs without writing Python builder functions.
-- Add migration helpers so persisted specs can be upgraded when the schema evolves.
+- Add an explicit row-strategy model instead of using `assembly` as the only schema-aware entrypoint.
+- Define a feature-source union that can represent `path`, `constant`, `metadata`, `concat`, and `stack`.
+- Add draft-origin metadata so inferred specs can carry assumptions, warnings, and provenance into preview and reporting.
+- Keep `mapping`, `resample`, `output`, and `write_manifest` compatibility paths working through `ConversionSpec.from_legacy()`.
+- Extend capability metadata so it advertises only what the runtime actually supports at each step.
+- Extend spec I/O and migration helpers for the richer row-strategy and feature-source payloads.
 
-### Compatibility Rule
+### Likely Files
 
-The old `mapping` and `resample` inputs should map onto the new spec when the user does not need the richer schema.
+- `hephaes/src/hephaes/models.py`
+- `hephaes/src/hephaes/conversion/spec_io.py`
+- `hephaes/src/hephaes/conversion/capabilities.py`
+- `hephaes/src/hephaes/__init__.py`
 
-That preserves the current backend and Python API while opening the door to more specific training contracts.
+### Testing / Debug
 
-## Phase 2: Split The Pipeline Into Explicit Runtime And Authoring Stages
+- Add model-validation tests for each new row-strategy and feature-source variant.
+- Add migration tests from the current document format into the richer spec format.
+- Add legacy-translation tests proving old inputs still load into the new spec shape.
 
-The converter should stop treating authoring and execution as the same job.
+### Exit Criteria
 
-Recommended stage objects or modules:
+- A saved spec can describe the row layout and feature sources without custom Python.
+- Existing legacy callers still load and run.
 
-- discovery
-- decoding
-- inspection
-- row construction
-- feature assembly
-- transform and encoding
-- preview
-- validation
-- writing
-- reporting
+### Completed
 
-### Tasks
+- Added explicit `row_strategy` support for `trigger`, `per-message`, and `resample` while preserving `assembly` compatibility for trigger-based specs.
+- Added source-expression models for `path`, `constant`, `metadata`, `concat`, and `stack`.
+- Added `draft_origin` metadata so inferred specs carry provenance, assumptions, and warnings.
+- Bumped spec document handling to the richer normalized shape and added migration coverage for row strategy and source kind normalization.
+- Split capability metadata into authoring-vs-runtime support so downstream clients can avoid assuming unimplemented runtime paths.
+- Added runtime guards so non-path source expressions fail explicitly instead of silently misbehaving before phase 3 lands.
 
-- Extract input discovery into its own helper that expands paths, globs, recursion, and topic filters.
-- Extract message decoding into a dedicated decoder that can handle ROS2 schema detection and manual type hints.
-- Add an inspection module that samples decoded payloads and produces field-level summaries.
-- Extract row construction into a strategy layer that supports trigger, per-message, and resampled layouts.
-- Keep TFRecord writing focused on serializing already-validated features.
-- Keep the library entrypoints stable so backend services can call them as a business-logic package instead of recreating inference rules.
+## Phase 2: Build A Shared Row-Construction Engine
 
-### Current Code Mapping
+Status: not started
 
-The current code already suggests a natural split:
-
-- `hephaes/src/hephaes/reader.py` can remain the source-access layer.
-- `hephaes/src/hephaes/converter.py` can become the top-level coordinator.
-- `hephaes/src/hephaes/outputs/tfrecord_writer.py` can become a pure output sink.
-- new inspection and draft-spec modules should sit alongside existing conversion helpers instead of being hidden in the notebook or backend only.
-
-## Phase 3: Generalize Record Construction Beyond Trigger-Only Specs
-
-Trigger-based assembly is still important, but it should not be the only schema-aware path.
+Goal:
+Make row construction a first-class stage that preview, validation, and final conversion all share.
 
 ### Tasks
 
-- Add a row-strategy config with explicit modes such as `trigger`, `per-message`, and `resample`.
-- Allow join topics to resolve relative to each trigger timestamp when trigger mode is used.
-- Support `nearest`, `last-known-before`, and `exact-within-tolerance`.
-- Add per-topic tolerance and staleness limits.
-- Add required versus optional handling for each joined source.
-- Emit presence flags when a joined feature is missing.
+- Refactor trigger assembly into a row-construction layer with strategy implementations for `trigger`, `per-message`, and `resample`.
+- Keep trigger joins for `nearest`, `last-known-before`, and `exact-within-tolerance`.
+- Support tolerance, staleness, required/optional handling, and missing-data policy at the row-construction level.
+- Route `Converter.convert()` through the row-strategy layer so schema-aware conversion does not silently depend on legacy mapping fallback.
+- Update preview and validation to consume row-construction output instead of duplicating partial assembly logic.
+- Keep deterministic ordering guarantees across all row strategies.
 
-### Why This Matters
+### Likely Files
 
-If the user can only use the richer feature contract when they define a trigger topic, then the new schema layer is still narrower than the intended product surface.
+- `hephaes/src/hephaes/conversion/assembly.py`
+- `hephaes/src/hephaes/converter.py`
+- `hephaes/src/hephaes/conversion/preview.py`
+- `hephaes/src/hephaes/conversion/validation.py`
 
-The same feature contract should work no matter how rows are created.
+### Testing / Debug
 
-## Phase 4: Generalize Feature Sources, Transforms, And Encoding
+- Add timeline fixtures that exercise all row strategies.
+- Add sync-policy tests for exact match, nearest match, stale joins, and required-join failures.
+- Add repeated-run tests to confirm row order and presence flags are stable.
 
-The converter already has a meaningful transform pipeline, but the feature source model is still too narrow.
+### Exit Criteria
 
-### Tasks
+- A schema-aware spec can build rows without being trigger-only.
+- Preview, validation, and conversion all operate on the same row model.
 
-- Support source expressions that can read a path, inject a constant, reference metadata, or compose values from multiple sources.
-- Keep source paths explicit enough to address nested fields such as `buttons`, `data`, or `header.stamp.sec`.
-- Add image transforms for channel conversion, resize, crop, normalization, and image encoding.
-- Add numeric transforms for clamp, scale, cast, thresholding, one-hot, and multi-hot encoding.
-- Add sequence support for pad, truncate, and ragged handling.
-- Add explicit dtype and shape validation before writing.
+## Phase 3: Implement Source-Expression Evaluation
 
-### TFRecord Writer Rule
+Status: not started
 
-`hephaes/src/hephaes/outputs/tfrecord_writer.py` should not guess the meaning of arbitrary nested payloads.
-
-Instead, it should receive a validated feature payload that already knows:
-
-- the final feature name
-- the feature dtype
-- the feature shape rules
-- whether the feature is required or optional
-- whether the value was present or synthesized
-
-## Phase 5: Add Validation, Preflight, And Authoring Preview
-
-The user needs guardrails before committing to a long conversion run.
+Goal:
+Remove the need for custom Python builder functions by letting features be composed declaratively.
 
 ### Tasks
 
-- Add schema compatibility check mode.
-- Add sample-N preflight validation.
-- Add fail-fast behavior for required feature mismatches.
-- Add a bad-record budget.
-- Add label distribution reporting.
-- Add missing-topic and missing-feature rate reporting.
-- Add preview output for assembled rows and extracted features before shard writing.
+- Replace the current path-only runtime guard with real source-expression evaluation.
+- Implement evaluators for `path`, `constant`, `metadata`, `concat`, and `stack`.
+- Allow features and labels to consume the richer source-expression model.
+- Keep existing path-based features working as the simplest source-expression case.
+- Ensure transform application and shape validation happen after source resolution, not before.
+- Define how missing values propagate through composed sources.
 
-### Suggested Preflight Flow
+### Likely Files
 
-1. Resolve inputs and topics.
-2. Decode a small sample.
-3. Inspect the payload shape.
-4. Assemble a small number of rows.
-5. Validate feature shapes and dtypes.
-6. Preview extracted values.
-7. Stop before full writing if any required rule fails.
+- `hephaes/src/hephaes/models.py`
+- `hephaes/src/hephaes/conversion/features.py`
+- `hephaes/src/hephaes/conversion/draft_spec.py`
+- `hephaes/src/hephaes/conversion/validation.py`
 
-## Phase 6: Add Sharding, Splitting, And Deterministic Output
+### Testing / Debug
 
-The output should be easy to consume from training code and easy to reproduce.
+- Add unit tests for each source kind.
+- Add composition tests for mixed numeric and sequence payloads.
+- Add negative tests for invalid concatenation, incompatible shapes, and missing metadata.
 
-### Tasks
+### Exit Criteria
 
-- Add sharding support for TFRecord output.
-- Support GZIP and uncompressed output.
-- Add deterministic ordering and seed-based randomization when needed.
-- Add file naming templates.
-- Add train, val, and test split handling.
+- A user can define Doom-compatible and non-Doom-compatible contracts without writing a custom builder function.
+- Feature extraction works for both simple path sources and composed sources.
 
-### Naming Recommendation
+## Phase 4: Tighten Preflight Validation And Authoring Preview
 
-Use a naming convention that works well with common training pipelines, such as:
+Status: partial
 
-- `train-00000-of-00008.tfrecord`
-- `val-00000-of-00002.tfrecord`
-- `test-00000-of-00002.tfrecord`
-
-## Phase 7: Update The Manifest And Conversion Report
-
-The manifest should become a schema and audit record, not just a pointer to files.
+Goal:
+Make preview and validation the reliable gate before long-running conversion.
 
 ### Tasks
 
-- Add schema name and version.
-- Add resolved feature definitions.
-- Add per-feature missing rates.
-- Add record counts and dropped counts.
-- Add split counts.
-- Add validation summary.
-- Add row-strategy metadata.
-- Add draft-origin metadata when the spec came from a generated draft.
-- Keep the existing source metadata and temporal metadata.
+- Add a preflight mode that resolves inputs, builds sample rows, validates features, and stops before shard writing.
+- Add explicit schema compatibility checks for dtype, shape, required features, and label contract.
+- Add richer preview output for assembled rows, extracted feature values, presence behavior, and missing-data behavior.
+- Add missing-topic and missing-feature rate summaries to preview and validation results.
+- Add label summaries where label configuration is present.
+- Keep fail-fast and bad-record-budget behavior aligned between preflight and full conversion.
 
-### Suggested Report Outputs
+### Likely Files
 
-- sidecar manifest JSON
-- human-readable conversion report
-- sample preview output when preview mode is used
-- draft assumptions and warnings when the run started from an inferred spec
+- `hephaes/src/hephaes/conversion/preview.py`
+- `hephaes/src/hephaes/conversion/validation.py`
+- `hephaes/src/hephaes/converter.py`
 
-## Phase 8: Update The Backend, Frontend, And Authoring Contract
+### Testing / Debug
 
-The backend currently accepts richer conversion specs, but it still does not help the user create them, save them, or expose them cleanly to the frontend.
+- Add preflight-only tests that confirm no shards are written on failure.
+- Add failure-path tests for invalid shapes, invalid dtypes, and required-feature mismatches.
+- Add preview regression tests that verify warnings and missing-data summaries.
 
-### Tasks
+### Exit Criteria
 
-- Extend `backend/app/schemas/conversions.py` with richer config fields.
-- Update `backend/app/services/conversions.py` to build the new conversion spec.
-- Preserve the current request shape where possible by translating legacy fields into the new config model.
-- Add backend surfaces for inspection, draft-spec generation, and preview.
-- Add backend resources for saved reusable configs and draft revisions.
-- Add capability metadata endpoints so the frontend can render supported options from backend-owned contracts.
-- Keep library-backed validation and migration in `hephaes` so frontend and backend stay aligned.
-- Keep the backend validation aligned with the library validation so users get consistent errors.
+- Preview is useful as an authoring review step, not just a thin sample dump.
+- Preflight catches contract problems before the write path begins.
 
-## Phase 9: Add The Introspection And Draft-Spec Layer
+## Phase 5: Align Reporting And Runtime Metadata With The Richer Contract
 
-This is the missing bridge between "any MCAP" and "editable training contract."
+Status: partial
+
+Goal:
+Make manifests and reports reflect the actual authored contract and conversion path.
 
 ### Tasks
 
-- Add a topic inspection flow that samples decoded messages and normalizes payloads.
-- Enumerate nested field paths and summarize candidate leaves.
-- Infer candidate dtypes, shape hints, nullability, and image-like payload signatures.
-- Draft row strategies from user input such as trigger topic, per-message topic, or resample target.
-- Draft feature definitions that the user can edit instead of writing from scratch.
-- Emit warnings and confidence hints when the inference is uncertain.
+- Add row-strategy metadata to manifests and reports.
+- Add richer source-definition metadata for features and labels.
+- Add draft-origin metadata when a run starts from an inferred draft.
+- Add preview summary metadata where preview or preflight is used.
+- Keep split counts, shard naming, and validation summaries aligned with the richer runtime contract.
+- Make sure report content stays deterministic across reruns.
 
-### Companion Doc
+### Likely Files
 
-Implementation details for this layer live in:
+- `hephaes/src/hephaes/conversion/report.py`
+- `hephaes/src/hephaes/manifest.py`
+- `hephaes/src/hephaes/converter.py`
 
-- [`converter-introspection-and-draft-spec.md`](./converter-introspection-and-draft-spec.md)
+### Testing / Debug
 
-## Phase 10: Rework Templates, Notebook, And Docs Around Config-First Authoring
+- Add manifest snapshot tests for schema, row strategy, and draft-origin fields.
+- Add regression tests for deterministic shard naming and split assignment.
+- Re-run the same fixture twice and compare output metadata.
 
-Built-in templates still help, but they should no longer define the core product story.
+### Exit Criteria
+
+- A conversion artifact tells the full story of how rows were constructed and features were produced.
+
+## Phase 6: Rewrite The Authoring Demo Around The Real Workflow
+
+Status: partial
+
+Goal:
+Make the demo and docs teach inspect -> draft -> edit -> preview -> convert instead of preset-first usage.
 
 ### Tasks
 
-- Keep `doom_ros_train_py_compatible` as a worked example of the generic spec system.
-- Keep at least one generic starter template for simple single-trigger sensor logs.
-- Rewrite `core_demo.ipynb` to demonstrate inspect, draft, edit, preview, and convert.
-- Rework frontend conversion flows so reusable configs, draft previews, and saved templates all use backend-owned APIs.
-- Document how to override a drafted or built-in spec with custom transforms, labels, or output rules.
+- Rewrite `hephaes/demo/core_demo.ipynb` around the config-first authoring loop.
+- Keep Doom as one worked example of editing a generic draft into a concrete contract.
+- Show how to override a draft declaratively without defining a custom Python function.
+- Add examples for saving, loading, and migrating spec documents with the public library entrypoints.
 
-## File-Level Plan
+### Likely Files
 
-| File | Planned change |
-| --- | --- |
-| `hephaes/src/hephaes/models.py` | Add richer schema-aware config models, feature-source unions, and draft metadata |
-| `hephaes/src/hephaes/converter.py` | Convert from generic orchestration to stage-based orchestration with preview support |
-| `hephaes/src/hephaes/__init__.py` | Export stable authoring entrypoints for backend and notebook consumers |
-| `hephaes/src/hephaes/reader.py` | Keep raw message access and decoded sample access focused and predictable |
-| `hephaes/src/hephaes/conversion/introspection.py` | Add payload inspection, field-path enumeration, and inference helpers |
-| `hephaes/src/hephaes/conversion/draft_spec.py` | Turn inspection results into editable conversion-spec drafts |
-| `hephaes/src/hephaes/conversion/capabilities.py` | Publish supported row strategies, source kinds, transforms, dtypes, and schema versions |
-| `hephaes/src/hephaes/conversion/features.py` | Support richer feature-source evaluation and shape validation |
-| `hephaes/src/hephaes/outputs/tfrecord_writer.py` | Write validated feature contracts instead of flattening arbitrary payloads |
-| `hephaes/src/hephaes/manifest.py` | Record schema, split, validation, preview, and draft-origin metadata |
-| `backend/app/schemas/conversions.py` | Expand the API request and response contract |
-| `backend/app/services/conversions.py` | Translate request payloads into the richer converter spec and authoring flows |
-| `backend/app/db/models.py` | Persist reusable configs, draft revisions, and template metadata if the backend owns them |
-| `backend/app/api/` | Add inspection, draft-spec, preview, capability, and reusable-config endpoints |
-| `backend/app/schemas/` | Add saved-config, draft-revision, preview, and capability response shapes |
-| `frontend/lib/api.ts` | Add typed client helpers for inspection, draft, preview, capability, and saved-config flows |
-| `frontend/app/convert/` | Rework the conversion route around draft editing, preview, and saved config reuse |
-| `frontend/components/conversion-dialog.tsx` | Either retire or reduce to shared form pieces after the route becomes the main authoring surface |
-| `hephaes/demo/core_demo.ipynb` | Teach config-first authoring instead of preset-first authoring |
-| `backend/tests/` | Add draft-spec tests, validation tests, preview tests, saved-config tests, and conversion tests |
-| `frontend/design/` | Update the conversion route plan to reflect backend-owned authoring contracts and reusable config flows |
+- `hephaes/demo/core_demo.ipynb`
+- `hephaes/design/converter-design.md`
+- `hephaes/design/converter-current-state.md`
 
-## Test Plan
+### Testing / Debug
 
-### Unit Tests
+- Add one smoke test or notebook-adjacent scripted check that runs the documented authoring flow.
+- Verify the demo still works with the current public API after each spec-model change.
 
-- config parsing and validation
-- feature-source resolution
-- sync policy behavior
-- transform behavior
-- missing-data policy behavior
-- field-path enumeration
-- type and shape inference heuristics
-- draft-spec generation
-- capability metadata and migration helpers
+### Exit Criteria
 
-### Integration Tests
+- The recommended usage pattern is clearly config-first.
+- A new teammate could follow the demo without discovering an old preset-first mental model.
 
-- inspection output for an unfamiliar MCAP fixture
-- draft-spec generation from topic samples
-- saved reusable config round-trip through backend APIs
-- Doom-compatible conversion using an edited draft instead of a custom builder function
-- TFRecord output round-trip through `stream_tfrecord_rows`
-- manifest contents and stats
-- split and shard naming
+## Phase 7: Add Backend Authoring And Reusable-Config Contracts
 
-### Negative Tests
+Status: not started
 
-- missing required feature
-- invalid dtype
-- shape mismatch
-- decode failure with each fallback mode
-- bad-record-budget exhaustion
-- draft-spec request with insufficient sampling information
-- stale saved spec requiring migration
-- incorrect image-like inference falling back to a warning instead of a silent bad draft
+Goal:
+Let backend APIs expose inspection, drafting, preview, and reusable-config persistence without rebuilding converter semantics.
 
-## Acceptance Criteria
+### Tasks
 
-- A user can inspect an unfamiliar MCAP and get a useful field-level summary.
-- A user can draft a conversion spec as data without defining a custom Python function.
-- A user can save, reload, and reuse a conversion config through backend and frontend surfaces without duplicating converter business logic.
-- The drafted spec can be edited into a Doom-compatible training contract using declarative config only.
-- The converter can still handle generic MCAP logs and legacy mapping configs.
-- Validation fails before full conversion when the output contract is wrong.
-- The manifest and report show enough information to audit a conversion run later.
-- Backend and library config shapes stay aligned.
+- Define backend request and response schemas for inspection, draft generation, preview, capabilities, saved configs, and draft revisions.
+- Add backend endpoints and services that call `hephaes` entrypoints for inspection, draft, preview, validation, serialization, and migration.
+- Add persistence for reusable configs, draft revisions, and starter templates.
+- Keep legacy conversion requests working by translating them into the richer spec model where possible.
+- Align backend validation errors with `hephaes` validation language so the contract feels consistent.
 
-## Open Implementation Risks
+### Cross-Reference
 
-- Auto-detecting ROS2 schemas may depend on the exact message definition availability in the bag.
-- Image-like inference can be helpful, but it must stay transparent about uncertainty.
-- Trigger-based assembly can use a lot of memory if the implementation buffers too much per topic.
-- Draft generation heuristics can accidentally overfit to the sample window if sampling is too shallow.
-- Saved config payloads can drift from the live schema unless versioning and migration are handled centrally in `hephaes`.
-- Split logic must remain deterministic so runs are reproducible.
+- `backend/design/conversion-authoring-and-reusable-configs.md`
+
+### Testing / Debug
+
+- Add API tests for legacy and new payloads.
+- Add persistence tests for saved-config create, load, update, duplicate, and migration.
+- Trace one end-to-end request from API payload to `Converter` invocation.
+
+### Exit Criteria
+
+- The backend can create, preview, save, reopen, and execute reusable conversion configs through library-backed logic.
+
+## Phase 8: Add Frontend Authoring Flows On Top Of The Backend Contract
+
+Status: not started
+
+Goal:
+Expose the reusable-config authoring workflow in the UI without hard-coding converter semantics in TypeScript.
+
+### Tasks
+
+- Add typed frontend API helpers for capabilities, inspection, draft generation, preview, saved configs, and execution.
+- Build the conversion route around authoring states: inspect, draft, edit, preview, save, and submit.
+- Add saved-config browsing, reopening, duplicate, rename, and update flows.
+- Keep frontend validation focused on UX-only checks while semantic validation stays backend and `hephaes` backed.
+- Surface capability-driven forms so row strategies, source kinds, transforms, and dtypes are not hard-coded in frontend code.
+
+### Cross-Reference
+
+- `frontend/design/conversion-authoring-and-reusable-configs.md`
+
+### Testing / Debug
+
+- Add contract tests for typed API consumption.
+- Add workflow tests for preview-before-submit and saved-config reuse.
+- Verify the UI can reopen an older saved config and show any migration messaging from the backend.
+
+### Exit Criteria
+
+- A user can author and reuse configs through the frontend without writing Python or editing raw JSON by hand.
+
+## Suggested Delivery Order
+
+1. Phase 1
+2. Phase 2
+3. Phase 3
+4. Phase 4
+5. Phase 5
+6. Phase 6
+7. Phase 7
+8. Phase 8
+
+This order keeps the library contract ahead of backend/frontend adoption and reduces the risk of shipping API shapes that have to be redesigned once the runtime becomes truly generic.

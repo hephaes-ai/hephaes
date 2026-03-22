@@ -38,15 +38,25 @@ def _supported_transform_kinds() -> list[str]:
 class ConversionCapabilities(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    spec_version: int = Field(default=1, ge=1)
+    spec_version: int = Field(default=2, ge=1)
     supports_spec_documents: bool = True
     supports_inspection: bool = True
     supports_draft_generation: bool = True
     supports_preview: bool = True
     supports_migration: bool = True
-    row_strategies: list[RowStrategyKind] = Field(default_factory=lambda: ["trigger", "per-message", "resample"])
-    feature_source_kinds: list[FeatureSourceKind] = Field(
+    row_strategies: list[RowStrategyKind] = Field(default_factory=lambda: ["trigger"])
+    authoring_row_strategies: list[RowStrategyKind] = Field(
+        default_factory=lambda: ["trigger", "per-message", "resample"]
+    )
+    planned_row_strategies: list[RowStrategyKind] = Field(
+        default_factory=lambda: ["per-message", "resample"]
+    )
+    feature_source_kinds: list[FeatureSourceKind] = Field(default_factory=lambda: ["path"])
+    authoring_feature_source_kinds: list[FeatureSourceKind] = Field(
         default_factory=lambda: ["path", "constant", "metadata", "concat", "stack"]
+    )
+    planned_feature_source_kinds: list[FeatureSourceKind] = Field(
+        default_factory=lambda: ["constant", "metadata", "concat", "stack"]
     )
     feature_dtypes: list[FeatureDType] = Field(
         default_factory=lambda: ["bytes", "int64", "float32", "float64", "bool", "json"]

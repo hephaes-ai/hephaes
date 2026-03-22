@@ -14,6 +14,9 @@ StorageFormat = Literal["bag", "mcap", "unknown"]
 TFRecordCompression = Literal["none", "gzip"]
 TFRecordNullEncoding = Literal["presence_flag"]
 TFRecordPayloadEncoding = Literal["typed_features"]
+FeatureSourceKind = Literal["path", "constant", "metadata", "concat", "stack"]
+RowStrategyKind = Literal["trigger", "per-message", "resample"]
+DraftOriginKind = Literal["manual", "inspection", "template", "legacy"]
 
 
 class Message(BaseModel):
@@ -53,6 +56,7 @@ class SchemaSpec(BaseModel):
 class FieldSourceSpec(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    kind: Literal["path"] = "path"
     topic: str = Field(min_length=1)
     field_path: str | None = None
 
@@ -67,6 +71,108 @@ class FieldSourceSpec(BaseModel):
         if not normalized:
             return None
         return normalized
+
+    def input_topics(self) -> list[str]:
+        return [self.topic]
+
+
+class ConstantSourceSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["constant"] = "constant"
+    value: Any
+    description: str | None = None
+
+    @field_validator("description", mode="before")
+    @classmethod
+    def _normalize_description(cls, value: object) -> object:
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            return value
+        normalized = value.strip()
+        if not normalized:
+            return None
+        return normalized
+
+    def input_topics(self) -> list[str]:
+        return []
+
+
+class MetadataSourceSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["metadata"] = "metadata"
+    key: str = Field(min_length=1)
+    default_value: Any | None = None
+
+    @field_validator("key", mode="before")
+    @classmethod
+    def _normalize_key(cls, value: object) -> object:
+        if not isinstance(value, str):
+            return value
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("key must be non-empty")
+        return normalized
+
+    def input_topics(self) -> list[str]:
+        return []
+
+
+def _unique_topic_list(topics: list[str]) -> list[str]:
+    return list(dict.fromkeys(topics))
+
+
+class ConcatSourceSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["concat"] = "concat"
+    sources: list["FeatureSourceSpec"] = Field(default_factory=list, min_length=1)
+    axis: int = 0
+
+    @field_validator("sources", mode="before")
+    @classmethod
+    def _normalize_sources(cls, value: object) -> object:
+        if not isinstance(value, list):
+            return value
+        return [_normalize_source_payload(item) for item in value]
+
+    def input_topics(self) -> list[str]:
+        topics: list[str] = []
+        for source in self.sources:
+            topics.extend(source.input_topics())
+        return _unique_topic_list(topics)
+
+
+class StackSourceSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["stack"] = "stack"
+    sources: list["FeatureSourceSpec"] = Field(default_factory=list, min_length=1)
+    axis: int = 0
+
+    @field_validator("sources", mode="before")
+    @classmethod
+    def _normalize_sources(cls, value: object) -> object:
+        if not isinstance(value, list):
+            return value
+        return [_normalize_source_payload(item) for item in value]
+
+    def input_topics(self) -> list[str]:
+        topics: list[str] = []
+        for source in self.sources:
+            topics.extend(source.input_topics())
+        return _unique_topic_list(topics)
+
+
+FeatureSourceSpec: TypeAlias = Annotated[
+    FieldSourceSpec | ConstantSourceSpec | MetadataSourceSpec | ConcatSourceSpec | StackSourceSpec,
+    Field(discriminator="kind"),
+]
+
+ConcatSourceSpec.model_rebuild()
+StackSourceSpec.model_rebuild()
 
 
 class InputDiscoverySpec(BaseModel):
@@ -221,7 +327,9 @@ def _build_topic_zero_default(topic: str, features: dict[str, "FeatureSpec"]) ->
     topic_features = [
         feature
         for feature in features.values()
-        if feature.source.topic == topic and feature.missing == "zeros"
+        if isinstance(feature.source, FieldSourceSpec)
+        and feature.source.topic == topic
+        and feature.missing == "zeros"
     ]
     if not topic_features:
         return None
@@ -264,6 +372,7 @@ def _build_topic_zero_default(topic: str, features: dict[str, "FeatureSpec"]) ->
 class AssemblySpec(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    kind: Literal["trigger"] = "trigger"
     trigger_topic: str | None = None
     joins: list[JoinSpec] = Field(default_factory=list)
 
@@ -284,6 +393,114 @@ class AssemblySpec(BaseModel):
         if self.joins and not self.trigger_topic:
             raise ValueError("trigger_topic must be set when joins are configured")
         return self
+
+    def input_topics(self) -> list[str]:
+        topics = [self.trigger_topic] if self.trigger_topic is not None else []
+        topics.extend(join.topic for join in self.joins)
+        return _unique_topic_list(topics)
+
+
+class PerMessageRowStrategySpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["per-message"] = "per-message"
+    topic: str = Field(min_length=1)
+
+    @field_validator("topic", mode="before")
+    @classmethod
+    def _normalize_topic(cls, value: object) -> object:
+        if not isinstance(value, str):
+            return value
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("topic must be non-empty")
+        return normalized
+
+    def input_topics(self) -> list[str]:
+        return [self.topic]
+
+
+class ResampleRowStrategySpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["resample"] = "resample"
+    freq_hz: float = Field(gt=0)
+    method: ResampleStrategy
+    topics: list[str] = Field(default_factory=list)
+    anchor_topic: str | None = None
+
+    @field_validator("topics")
+    @classmethod
+    def _normalize_topics(cls, value: object) -> object:
+        if not isinstance(value, list):
+            return value
+        normalized: list[str] = []
+        for item in value:
+            if not isinstance(item, str):
+                raise TypeError("topics must contain strings")
+            stripped = item.strip()
+            if not stripped:
+                raise ValueError("topics must contain non-empty values")
+            normalized.append(stripped)
+        return _unique_topic_list(normalized)
+
+    @field_validator("anchor_topic", mode="before")
+    @classmethod
+    def _normalize_anchor_topic(cls, value: object) -> object:
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            return value
+        normalized = value.strip()
+        if not normalized:
+            return None
+        return normalized
+
+    @model_validator(mode="after")
+    def _validate_anchor_topic(self) -> "ResampleRowStrategySpec":
+        if self.anchor_topic is not None and self.topics and self.anchor_topic not in self.topics:
+            raise ValueError("anchor_topic must be included in topics when topics are provided")
+        return self
+
+    def input_topics(self) -> list[str]:
+        topics = list(self.topics)
+        if self.anchor_topic is not None:
+            topics.append(self.anchor_topic)
+        return _unique_topic_list(topics)
+
+
+RowStrategySpec: TypeAlias = Annotated[
+    AssemblySpec | PerMessageRowStrategySpec | ResampleRowStrategySpec,
+    Field(discriminator="kind"),
+]
+
+
+def _normalize_source_payload(value: object) -> object:
+    if not isinstance(value, dict):
+        return value
+    if "kind" in value:
+        return value
+    if "topic" in value or "field_path" in value:
+        return {"kind": "path", **value}
+    if "key" in value:
+        return {"kind": "metadata", **value}
+    if "value" in value and "sources" not in value:
+        return {"kind": "constant", **value}
+    return value
+
+
+def _normalize_row_strategy_payload(value: object) -> object:
+    if not isinstance(value, dict):
+        return value
+    if "kind" in value:
+        return value
+    if "trigger_topic" in value or "joins" in value:
+        return {"kind": "trigger", **value}
+    if "freq_hz" in value or "method" in value:
+        return {"kind": "resample", **value}
+    if "topic" in value:
+        return {"kind": "per-message", **value}
+    return value
 
 
 class TransformSpec(BaseModel):
@@ -314,7 +531,7 @@ class TransformSpec(BaseModel):
 class FeatureSpec(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    source: FieldSourceSpec
+    source: FeatureSourceSpec
     dtype: FeatureDType = "json"
     shape: list[int] | None = None
     required: bool = False
@@ -335,15 +552,27 @@ class FeatureSpec(BaseModel):
                 raise ValueError("shape dimensions must be >= -1")
         return value
 
+    @field_validator("source", mode="before")
+    @classmethod
+    def _normalize_source(cls, value: object) -> object:
+        return _normalize_source_payload(value)
+
 
 class LabelSpec(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     primary: str | None = None
-    source: FieldSourceSpec | None = None
+    source: FeatureSourceSpec | None = None
     class_map: dict[str, int] = Field(default_factory=dict)
     multi_label: bool = False
     transforms: list[TransformSpec] = Field(default_factory=list)
+
+    @field_validator("source", mode="before")
+    @classmethod
+    def _normalize_source(cls, value: object) -> object:
+        if value is None:
+            return None
+        return _normalize_source_payload(value)
 
 
 class SplitSpec(BaseModel):
@@ -389,6 +618,31 @@ class ValidationSpec(BaseModel):
             stripped = item.strip()
             if not stripped:
                 raise ValueError("expected_features values must be non-empty")
+            normalized.append(stripped)
+        return normalized
+
+
+class DraftOriginSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: DraftOriginKind = "manual"
+    source_topics: list[str] = Field(default_factory=list)
+    provenance: dict[str, Any] = Field(default_factory=dict)
+    assumptions: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+    @field_validator("source_topics", "assumptions", "warnings")
+    @classmethod
+    def _normalize_string_list(cls, value: object) -> object:
+        if not isinstance(value, list):
+            return value
+        normalized: list[str] = []
+        for item in value:
+            if not isinstance(item, str):
+                raise TypeError("values must be strings")
+            stripped = item.strip()
+            if not stripped:
+                raise ValueError("values must be non-empty")
             normalized.append(stripped)
         return normalized
 
@@ -447,9 +701,11 @@ class ConversionSpec(BaseModel):
     )
     input: InputDiscoverySpec = Field(default_factory=InputDiscoverySpec)
     decoding: DecodingSpec = Field(default_factory=DecodingSpec)
+    row_strategy: RowStrategySpec | None = None
     assembly: AssemblySpec | None = None
     features: dict[str, FeatureSpec] = Field(default_factory=dict)
     labels: LabelSpec | None = None
+    draft_origin: DraftOriginSpec | None = None
     split: SplitSpec | None = None
     validation: ValidationSpec = Field(default_factory=ValidationSpec)
     output: OutputSpec = Field(default_factory=OutputSpec)
@@ -460,6 +716,31 @@ class ConversionSpec(BaseModel):
     @property
     def schema(self) -> SchemaSpec:
         return self.schema_spec
+
+    @field_validator("row_strategy", mode="before")
+    @classmethod
+    def _normalize_row_strategy(cls, value: object) -> object:
+        if value is None:
+            return None
+        return _normalize_row_strategy_payload(value)
+
+    @model_validator(mode="after")
+    def _synchronize_row_strategy(self) -> "ConversionSpec":
+        if self.row_strategy is None:
+            if self.assembly is not None:
+                self.row_strategy = AssemblySpec.model_validate(self.assembly.model_dump())
+            return self
+
+        if isinstance(self.row_strategy, AssemblySpec):
+            if self.assembly is None:
+                self.assembly = AssemblySpec.model_validate(self.row_strategy.model_dump())
+            elif self.assembly.model_dump() != self.row_strategy.model_dump():
+                raise ValueError("assembly and row_strategy must match when both are provided")
+            return self
+
+        if self.assembly is not None:
+            raise ValueError("assembly can only be used with trigger row_strategy")
+        return self
 
     @model_validator(mode="after")
     def _validate_feature_names(self) -> "ConversionSpec":
@@ -484,6 +765,12 @@ class ConversionSpec(BaseModel):
                 join.default_value = inferred_default
         return self
 
+    @model_validator(mode="after")
+    def _refresh_trigger_row_strategy(self) -> "ConversionSpec":
+        if self.assembly is not None and isinstance(self.row_strategy, AssemblySpec):
+            self.row_strategy = AssemblySpec.model_validate(self.assembly.model_dump())
+        return self
+
     def to_output_config(self) -> OutputConfig:
         return self.output.to_output_config()
 
@@ -491,9 +778,10 @@ class ConversionSpec(BaseModel):
     def uses_schema_aware_path(self) -> bool:
         return bool(
             self.features
-            or self.assembly is not None
+            or self.row_strategy is not None
             or self.decoding.topics
             or self.labels is not None
+            or self.draft_origin is not None
             or self.split is not None
             or self.validation.preview
             or self.output.shards > 1
@@ -796,8 +1084,16 @@ __all__ = [
     "TFRecordCompression",
     "TFRecordNullEncoding",
     "TFRecordPayloadEncoding",
+    "FeatureSourceKind",
+    "RowStrategyKind",
+    "DraftOriginKind",
     "SchemaSpec",
     "FieldSourceSpec",
+    "ConstantSourceSpec",
+    "MetadataSourceSpec",
+    "ConcatSourceSpec",
+    "StackSourceSpec",
+    "FeatureSourceSpec",
     "InputDiscoverySpec",
     "DecodeFailurePolicy",
     "TopicDecodeSpec",
@@ -807,11 +1103,15 @@ __all__ = [
     "FeatureDType",
     "JoinSpec",
     "AssemblySpec",
+    "PerMessageRowStrategySpec",
+    "ResampleRowStrategySpec",
+    "RowStrategySpec",
     "TransformSpec",
     "FeatureSpec",
     "LabelSpec",
     "SplitSpec",
     "ValidationSpec",
+    "DraftOriginSpec",
     "OutputSpec",
     "ConversionSpec",
     "build_legacy_conversion_spec",

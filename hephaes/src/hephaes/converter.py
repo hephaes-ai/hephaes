@@ -31,7 +31,7 @@ from .conversion.layout import (
     partition_records_for_split,
     render_output_filename,
 )
-from .conversion.features import FeatureBuilder
+from .conversion.features import FeatureBuilder, runtime_source_topic
 from .conversion.validation import validate_trigger_records
 from .conversion.report import write_conversion_report
 from .manifest import build_episode_manifest, write_episode_manifest
@@ -429,13 +429,14 @@ def _build_trigger_output_records(
         row_presence: dict[str, int] = {}
 
         for feature_name, feature in spec.features.items():
-            topic_presence = record.presence.get(feature.source.topic, 0)
+            source_topic = runtime_source_topic(feature.source)
+            topic_presence = record.presence.get(source_topic, 0)
             if topic_presence == 0:
                 row_values[feature_name] = None
                 row_presence[feature_name] = 0
                 continue
 
-            source_payload = record.values.get(feature.source.topic)
+            source_payload = record.values.get(source_topic)
             if source_payload is None:
                 row_values[feature_name] = None
                 row_presence[feature_name] = 0
@@ -558,17 +559,17 @@ def _convert_trigger_based_source(
                     mapping_resolved = _build_mapping_resolution(
                         field_names=field_names,
                         topic_to_field={
-                            feature_name: feature.source.topic
+                            feature_name: runtime_source_topic(feature.source)
                             for feature_name, feature in spec.features.items()
                         },
                     )
                 else:
                     mapping_requested = {
-                        feature_name: [feature.source.topic]
+                        feature_name: [runtime_source_topic(feature.source)]
                         for feature_name, feature in spec.features.items()
                     }
                     mapping_resolved = {
-                        feature_name: feature.source.topic
+                        feature_name: runtime_source_topic(feature.source)
                         for feature_name, feature in spec.features.items()
                     }
 

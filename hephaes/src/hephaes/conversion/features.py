@@ -6,7 +6,7 @@ from typing import Any
 import numpy as np
 
 from .transforms import apply_transform_chain
-from ..models import FieldSourceSpec, FeatureSpec
+from ..models import FeatureSourceSpec, FieldSourceSpec, FeatureSpec
 
 
 def resolve_field_path(payload: Any, field_path: str | None) -> Any:
@@ -34,7 +34,19 @@ def resolve_field_path(payload: Any, field_path: str | None) -> Any:
     return current
 
 
-def resolve_source_value(payload: Any, source: FieldSourceSpec) -> Any:
+def runtime_source_topic(source: FeatureSourceSpec) -> str:
+    if not isinstance(source, FieldSourceSpec):
+        raise NotImplementedError(
+            f"runtime feature extraction currently supports only path sources; got '{source.kind}'"
+        )
+    return source.topic
+
+
+def resolve_source_value(payload: Any, source: FeatureSourceSpec) -> Any:
+    if not isinstance(source, FieldSourceSpec):
+        raise NotImplementedError(
+            f"runtime feature extraction currently supports only path sources; got '{source.kind}'"
+        )
     return resolve_field_path(payload, source.field_path)
 
 

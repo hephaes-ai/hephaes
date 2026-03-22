@@ -108,11 +108,17 @@ def test_draft_generation_can_return_preview_and_label_metadata():
     assert draft.trigger_topic == "/doom_image"
     assert draft.join_topics == ["/joy"]
     assert draft.spec.assembly is not None
+    assert draft.spec.row_strategy is not None
     assert set(draft.spec.features) == {"image", "buttons"}
+    assert draft.spec.input.include_topics == ["/doom_image", "/joy"]
     assert draft.spec.labels is not None
     assert draft.spec.labels.primary == "buttons"
     assert draft.spec.labels.source is not None
     assert draft.spec.labels.source.topic == "/joy"
+    assert draft.spec.draft_origin is not None
+    assert draft.spec.draft_origin.kind == "inspection"
+    assert draft.spec.draft_origin.source_topics == ["/doom_image", "/joy"]
+    assert draft.spec.draft_origin.provenance["trigger_topic"] == "/doom_image"
     assert draft.preview_ready is True
     assert draft.preview is not None
     assert len(draft.preview.rows) == 2

@@ -47,7 +47,7 @@ def test_conversion_spec_document_loads_raw_spec_payload():
 
     assert isinstance(document, ConversionSpecDocument)
     assert document.spec == spec
-    assert document.spec_version == 1
+    assert document.spec_version == 2
 
 
 def test_conversion_spec_payload_migration_normalizes_schema_aliases():
@@ -66,10 +66,26 @@ def test_conversion_spec_payload_migration_normalizes_schema_aliases():
     assert "schema_version" not in migrated
 
 
+def test_conversion_spec_payload_migration_adds_row_strategy_and_source_kinds():
+    payload = {
+        "schema": {"name": "example", "version": 1},
+        "assembly": {"trigger_topic": "/camera", "joins": [{"topic": "/joy"}]},
+        "features": {
+            "image": {"source": {"topic": "/camera", "field_path": "data"}, "dtype": "bytes"}
+        },
+        "output": {"format": "tfrecord"},
+    }
+
+    migrated = migrate_conversion_spec_payload(payload, source_version=1)
+
+    assert migrated["row_strategy"]["kind"] == "trigger"
+    assert migrated["row_strategy"]["trigger_topic"] == "/camera"
+    assert migrated["features"]["image"]["source"]["kind"] == "path"
+
+
 def test_conversion_spec_document_migration_noops_on_current_version():
     document = build_conversion_spec_document(build_doom_ros_train_py_compatible())
 
     migrated = migrate_conversion_spec_document(document)
 
     assert migrated == document
-

@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from .._converter_helpers import _json_default
 from ..models import ConversionSpec
 
-CONVERSION_SPEC_DOCUMENT_VERSION = 1
+CONVERSION_SPEC_DOCUMENT_VERSION = 2
 
 
 class ConversionSpecDocument(BaseModel):
@@ -61,6 +61,42 @@ def _load_payload_from_text(text: str) -> Any:
         return loaded
 
 
+def _migrate_source_payload(payload: Any) -> Any:
+    if not isinstance(payload, dict):
+        return payload
+
+    normalized = deepcopy(payload)
+    if "kind" not in normalized:
+        if "topic" in normalized or "field_path" in normalized:
+            normalized["kind"] = "path"
+        elif "key" in normalized:
+            normalized["kind"] = "metadata"
+        elif "value" in normalized and "sources" not in normalized:
+            normalized["kind"] = "constant"
+
+    if "sources" in normalized and isinstance(normalized["sources"], list):
+        normalized["sources"] = [
+            _migrate_source_payload(item) for item in normalized["sources"]
+        ]
+    return normalized
+
+
+def _migrate_row_strategy_payload(payload: Any) -> Any:
+    if not isinstance(payload, dict):
+        return payload
+
+    normalized = deepcopy(payload)
+    if "kind" in normalized:
+        return normalized
+    if "trigger_topic" in normalized or "joins" in normalized:
+        normalized["kind"] = "trigger"
+    elif "freq_hz" in normalized or "method" in normalized:
+        normalized["kind"] = "resample"
+    elif "topic" in normalized:
+        normalized["kind"] = "per-message"
+    return normalized
+
+
 def migrate_conversion_spec_payload(
     payload: dict[str, Any],
     *,
@@ -89,6 +125,22 @@ def migrate_conversion_spec_payload(
 
     if "spec_version" in normalized and "spec" not in normalized:
         normalized.pop("spec_version", None)
+
+    if "assembly" in normalized and "row_strategy" not in normalized:
+        normalized["row_strategy"] = _migrate_row_strategy_payload(normalized["assembly"])
+
+    if "row_strategy" in normalized:
+        normalized["row_strategy"] = _migrate_row_strategy_payload(normalized["row_strategy"])
+
+    features = normalized.get("features")
+    if isinstance(features, dict):
+        for feature_payload in features.values():
+            if isinstance(feature_payload, dict) and "source" in feature_payload:
+                feature_payload["source"] = _migrate_source_payload(feature_payload["source"])
+
+    labels = normalized.get("labels")
+    if isinstance(labels, dict) and "source" in labels:
+        labels["source"] = _migrate_source_payload(labels["source"])
 
     if target_version != CONVERSION_SPEC_DOCUMENT_VERSION:
         raise ValueError(

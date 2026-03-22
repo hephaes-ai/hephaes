@@ -5,7 +5,7 @@ from typing import Any
 
 from ..models import ConversionSpec
 from .assembly import TriggerAssemblyRecord
-from .features import FeatureBuilder
+from .features import FeatureBuilder, runtime_source_topic
 
 
 @dataclass(frozen=True)
@@ -43,7 +43,7 @@ def validate_trigger_records(
     for record in sampled_records:
         record_bad = False
         for feature_name, feature in spec.features.items():
-            source_topic = feature.source.topic
+            source_topic = runtime_source_topic(feature.source)
             source_payload = record.values.get(source_topic)
             source_present = record.presence.get(source_topic, 0)
 

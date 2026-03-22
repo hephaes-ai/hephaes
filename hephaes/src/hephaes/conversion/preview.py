@@ -5,7 +5,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from .assembly import assemble_trigger_records
-from .features import FeatureBuilder
+from .features import FeatureBuilder, runtime_source_topic
 from ..models import ConversionSpec
 
 
@@ -65,13 +65,14 @@ def preview_conversion_spec(
         row_values: dict[str, Any | None] = {}
         row_presence: dict[str, int] = {}
         for feature_name, feature in spec.features.items():
-            topic_presence = record.presence.get(feature.source.topic, 0)
+            source_topic = runtime_source_topic(feature.source)
+            topic_presence = record.presence.get(source_topic, 0)
             if topic_presence == 0:
                 row_values[feature_name] = None
                 row_presence[feature_name] = 0
                 continue
 
-            source_payload = record.values.get(feature.source.topic)
+            source_payload = record.values.get(source_topic)
             if source_payload is None:
                 row_values[feature_name] = None
                 row_presence[feature_name] = 0
@@ -83,7 +84,7 @@ def preview_conversion_spec(
                 row_values[feature_name] = None
                 row_presence[feature_name] = 0
                 warnings.append(
-                    f"failed to build preview feature '{feature_name}' from topic '{feature.source.topic}': {exc}"
+                    f"failed to build preview feature '{feature_name}' from topic '{source_topic}': {exc}"
                 )
                 continue
 

@@ -42,6 +42,18 @@ class TestPublicExports:
         from hephaes import MappingTemplate
         assert MappingTemplate is not None
 
+    def test_feature_source_spec_exported(self):
+        from hephaes import FeatureSourceSpec
+        assert FeatureSourceSpec is not None
+
+    def test_row_strategy_spec_exported(self):
+        from hephaes import RowStrategySpec
+        assert RowStrategySpec is not None
+
+    def test_draft_origin_spec_exported(self):
+        from hephaes import DraftOriginSpec
+        assert DraftOriginSpec is not None
+
     def test_resample_config_exported(self):
         from hephaes import ResampleConfig
         assert ResampleConfig is not None
@@ -119,13 +131,16 @@ class TestPublicExports:
             "ConversionSpecDocument",
             "DraftSpecRequest",
             "DraftSpecResult",
+            "DraftOriginSpec",
             "MappingTemplate",
             "ParquetOutputConfig",
             "ResampleConfig",
             "FieldCandidate",
+            "FeatureSourceSpec",
             "TFRecordOutputConfig",
             "InspectionRequest",
             "InspectionResult",
+            "RowStrategySpec",
             "WideParquetWriter",
             "Profiler",
             "ROS1Reader",

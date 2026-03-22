@@ -3,9 +3,15 @@
 from __future__ import annotations
 
 from hephaes import (
+    ConcatSourceSpec,
     ConversionSpec,
+    DraftOriginSpec,
     MappingTemplate,
+    MetadataSourceSpec,
+    PerMessageRowStrategySpec,
     ResampleConfig,
+    RowStrategySpec,
+    StackSourceSpec,
     TFRecordOutputConfig,
     build_doom_ros_train_py_compatible,
     build_legacy_conversion_spec,
@@ -80,6 +86,8 @@ def test_conversion_spec_parses_design_example_shape():
     assert spec.input.include_topics == ["/doom_image", "/joy"]
     assert spec.decoding.topics["/doom_image"].type_hint == "custom_msgs/msg/RawImageBGRA"
     assert spec.assembly is not None
+    assert spec.row_strategy is not None
+    assert spec.row_strategy.kind == "trigger"
     assert spec.assembly.trigger_topic == "/doom_image"
     assert spec.assembly.joins[0].sync_policy == "last-known-before"
     assert spec.assembly.joins[0].default_value == {"buttons": [0] * 15}
@@ -113,6 +121,7 @@ def test_legacy_conversion_spec_keeps_compatibility_fields():
     assert spec.write_manifest is False
     assert spec.to_output_config().compression == "gzip"
     assert spec.uses_schema_aware_path is False
+    assert spec.row_strategy is None
 
 
 def test_doom_preset_exposes_training_contract():
@@ -120,6 +129,7 @@ def test_doom_preset_exposes_training_contract():
 
     assert spec.schema.name == "doom_ros_train_py_compatible"
     assert spec.assembly is not None
+    assert spec.row_strategy is not None
     assert spec.assembly.trigger_topic == "/doom_image"
     assert spec.features["image"].source.topic == "/doom_image"
     assert spec.features["buttons"].shape == [15]
@@ -129,6 +139,77 @@ def test_doom_preset_exposes_training_contract():
     assert spec.output.compression == "gzip"
     assert spec.validation.bad_record_budget == 0
     assert spec.uses_schema_aware_path is True
+
+
+def test_conversion_spec_accepts_explicit_row_strategy_without_assembly():
+    spec = ConversionSpec.model_validate(
+        {
+            "schema": {"name": "per_message_demo", "version": 1},
+            "row_strategy": {"kind": "per-message", "topic": "/joy"},
+            "features": {
+                "buttons": {
+                    "source": {"kind": "path", "topic": "/joy", "field_path": "buttons"},
+                    "dtype": "json",
+                }
+            },
+            "output": {"format": "tfrecord"},
+        }
+    )
+
+    assert isinstance(spec.row_strategy, PerMessageRowStrategySpec)
+    assert spec.row_strategy.topic == "/joy"
+    assert spec.assembly is None
+    assert spec.uses_schema_aware_path is True
+
+
+def test_feature_sources_accept_composed_variants():
+    spec = ConversionSpec.model_validate(
+        {
+            "schema": {"name": "composed_sources", "version": 1},
+            "row_strategy": {"kind": "trigger", "trigger_topic": "/camera"},
+            "features": {
+                "metadata_tag": {
+                    "source": {"kind": "metadata", "key": "episode_id"},
+                    "dtype": "json",
+                },
+                "stacked": {
+                    "source": {
+                        "kind": "stack",
+                        "sources": [
+                            {"topic": "/camera", "field_path": "left"},
+                            {"kind": "constant", "value": [0, 0, 0]},
+                        ],
+                    },
+                    "dtype": "json",
+                },
+                "concatenated": {
+                    "source": {
+                        "kind": "concat",
+                        "sources": [
+                            {"topic": "/camera", "field_path": "vector_a"},
+                            {"topic": "/camera", "field_path": "vector_b"},
+                        ],
+                    },
+                    "dtype": "json",
+                },
+            },
+            "draft_origin": {
+                "kind": "inspection",
+                "source_topics": ["/camera"],
+                "assumptions": ["sampled from one topic"],
+            },
+            "output": {"format": "tfrecord"},
+        }
+    )
+
+    assert isinstance(spec.features["metadata_tag"].source, MetadataSourceSpec)
+    assert isinstance(spec.features["stacked"].source, StackSourceSpec)
+    assert isinstance(spec.features["concatenated"].source, ConcatSourceSpec)
+    assert isinstance(spec.draft_origin, DraftOriginSpec)
+
+
+def test_row_strategy_type_alias_is_runtime_visible():
+    assert RowStrategySpec is not None
 
 
 def test_single_trigger_template_provides_runnable_starter():

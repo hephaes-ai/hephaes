@@ -11,8 +11,10 @@ from ..models import (
     AssemblySpec,
     ConversionSpec,
     DecodingSpec,
+    DraftOriginSpec,
     FieldSourceSpec,
     FeatureSpec,
+    InputDiscoverySpec,
     LabelSpec,
     JoinSpec,
     OutputSpec,
@@ -296,6 +298,7 @@ def build_draft_conversion_spec(
 
     spec = ConversionSpec(
         schema_spec=SchemaSpec(name=draft_request.schema_name, version=draft_request.schema_version),
+        input=InputDiscoverySpec(include_topics=selected_topics),
         decoding=DecodingSpec(topics=decoding_topics, on_decode_failure="warn"),
         assembly=assembly,
         features=features,
@@ -336,6 +339,19 @@ def build_draft_conversion_spec(
         warnings.append("trigger topic was inferred from inspection")
     if join_topics:
         assumptions.append(f"joined {len(join_topics)} non-trigger topic(s) into each record")
+
+    spec.draft_origin = DraftOriginSpec(
+        kind="inspection",
+        source_topics=selected_topics,
+        provenance={
+            "trigger_topic": trigger_topic,
+            "join_topics": join_topics,
+            "selected_topics": selected_topics,
+            "max_features_per_topic": draft_request.max_features_per_topic,
+        },
+        assumptions=assumptions,
+        warnings=warnings,
+    )
 
     return DraftSpecResult(
         request=draft_request,
