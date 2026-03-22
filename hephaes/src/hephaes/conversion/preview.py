@@ -5,7 +5,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from .assembly import construct_rows
-from .features import FeatureBuilder, runtime_source_topic
+from .features import FeatureBuilder, FeatureEvaluationContext
 from ..models import ConversionSpec
 
 
@@ -52,27 +52,23 @@ def preview_conversion_spec(
     for record in row_result.records[:sample_n]:
         row_values: dict[str, Any | None] = {}
         row_presence: dict[str, int] = {}
+        context = FeatureEvaluationContext.from_row(
+            timestamp_ns=int(record.timestamp_ns),
+            values=record.values,
+            presence=record.presence,
+        )
         for feature_name, feature in spec.features.items():
-            source_topic = runtime_source_topic(feature.source)
-            topic_presence = record.presence.get(source_topic, 0)
-            if topic_presence == 0:
-                row_values[feature_name] = None
-                row_presence[feature_name] = 0
-                continue
-
-            source_payload = record.values.get(source_topic)
-            if source_payload is None:
-                row_values[feature_name] = None
-                row_presence[feature_name] = 0
-                continue
-
             try:
-                extracted_value = feature_builder.build(source_payload, feature)
+                extracted_value = feature_builder.build(context, feature)
+            except KeyError:
+                row_values[feature_name] = None
+                row_presence[feature_name] = 0
+                continue
             except Exception as exc:
                 row_values[feature_name] = None
                 row_presence[feature_name] = 0
                 warnings.append(
-                    f"failed to build preview feature '{feature_name}' from topic '{source_topic}': {exc}"
+                    f"failed to build preview feature '{feature_name}' from source '{feature.source.kind}': {exc}"
                 )
                 continue
 

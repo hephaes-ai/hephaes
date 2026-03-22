@@ -25,8 +25,8 @@ The current baseline already gives us:
 
 The main gaps are:
 
-- runtime feature-source evaluation is still limited to `path`
 - preview and validation are not yet the full contract-authoring gate
+- reporting and manifest metadata still lag behind the richer source-expression contract
 - the config-first demo and reusable-config workflow are still incomplete
 - backend and frontend contract wiring still needs to be built around the `hephaes` business-logic surface
 
@@ -117,7 +117,7 @@ Make row construction a first-class stage that preview, validation, and final co
 
 ## Phase 3: Implement Source-Expression Evaluation
 
-Status: not started
+Status: complete
 
 Goal:
 Remove the need for custom Python builder functions by letting features be composed declaratively.
@@ -148,6 +148,14 @@ Remove the need for custom Python builder functions by letting features be compo
 
 - A user can define Doom-compatible and non-Doom-compatible contracts without writing a custom builder function.
 - Feature extraction works for both simple path sources and composed sources.
+
+### Completed
+
+- Replaced the phase-1 path-only runtime guard with real source-expression evaluation.
+- Added runtime evaluators for `path`, `constant`, `metadata`, `concat`, and `stack`.
+- Shifted feature extraction to evaluate against full row context so metadata and multi-topic composition work at runtime.
+- Updated preview, validation, and schema-aware conversion to use the shared source-expression evaluator.
+- Added regression coverage for feature-builder composition and end-to-end converter execution with declarative composed sources.
 
 ## Phase 4: Tighten Preflight Validation And Authoring Preview
 

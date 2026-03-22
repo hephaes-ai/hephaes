@@ -41,6 +41,7 @@ from .conversion.introspection import (
     inspect_reader,
 )
 from .conversion.assembly import ConstructedRowRecord, RowConstructionResult, construct_rows
+from .conversion.features import FeatureEvaluationContext, source_input_topics
 from .conversion.preview import PreviewResult, PreviewRow, preview_conversion_spec
 from .conversion.spec_io import (
     CONVERSION_SPEC_DOCUMENT_VERSION,
@@ -98,6 +99,7 @@ __all__ = [
     "DraftSpecRequest",
     "DraftSpecResult",
     "ConstructedRowRecord",
+    "FeatureEvaluationContext",
     "AssemblySpec",
     "ConcatSourceSpec",
     "ConstantSourceSpec",
@@ -147,6 +149,7 @@ __all__ = [
     "build_draft_conversion_spec",
     "build_doom_ros_train_py_compatible",
     "build_legacy_conversion_spec",
+    "construct_rows",
     "dump_conversion_spec",
     "dump_conversion_spec_document",
     "inspect_bag",
@@ -156,6 +159,7 @@ __all__ = [
     "migrate_conversion_spec_document",
     "migrate_conversion_spec_payload",
     "preview_conversion_spec",
+    "source_input_topics",
     "build_single_trigger_sensor_log_template",
     "stream_wide_parquet_rows",
     "stream_tfrecord_rows",
@@ -174,4 +178,3 @@ def __getattr__(name: str):
 
         return stream_tfrecord_rows
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-    "construct_rows",

@@ -1,12 +1,50 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
 
 from .transforms import apply_transform_chain
-from ..models import FeatureSourceSpec, FieldSourceSpec, FeatureSpec
+from ..models import (
+    ConcatSourceSpec,
+    ConstantSourceSpec,
+    FeatureSourceSpec,
+    FeatureSpec,
+    FieldSourceSpec,
+    MetadataSourceSpec,
+    StackSourceSpec,
+)
+
+
+@dataclass(frozen=True)
+class FeatureEvaluationContext:
+    timestamp_ns: int | None = None
+    values: dict[str, Any | None] = field(default_factory=dict)
+    presence: dict[str, int] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    @classmethod
+    def from_row(
+        cls,
+        *,
+        timestamp_ns: int,
+        values: dict[str, Any | None],
+        presence: dict[str, int],
+        metadata: dict[str, Any] | None = None,
+    ) -> "FeatureEvaluationContext":
+        resolved_metadata = {
+            "timestamp_ns": timestamp_ns,
+            "present_topics": sorted(topic for topic, present in presence.items() if present),
+        }
+        if metadata:
+            resolved_metadata.update(metadata)
+        return cls(
+            timestamp_ns=timestamp_ns,
+            values=dict(values),
+            presence=dict(presence),
+            metadata=resolved_metadata,
+        )
 
 
 def resolve_field_path(payload: Any, field_path: str | None) -> Any:
@@ -42,12 +80,70 @@ def runtime_source_topic(source: FeatureSourceSpec) -> str:
     return source.topic
 
 
-def resolve_source_value(payload: Any, source: FeatureSourceSpec) -> Any:
-    if not isinstance(source, FieldSourceSpec):
-        raise NotImplementedError(
-            f"runtime feature extraction currently supports only path sources; got '{source.kind}'"
-        )
-    return resolve_field_path(payload, source.field_path)
+def source_input_topics(source: FeatureSourceSpec) -> list[str]:
+    return source.input_topics()
+
+
+def _resolve_path_source(context: Any, source: FieldSourceSpec) -> Any:
+    if isinstance(context, FeatureEvaluationContext):
+        if context.presence.get(source.topic, 0) == 0:
+            raise KeyError(f"missing source topic: {source.topic}")
+        payload = context.values.get(source.topic)
+        if payload is None:
+            raise KeyError(f"missing source topic: {source.topic}")
+        return resolve_field_path(payload, source.field_path)
+
+    return resolve_field_path(context, source.field_path)
+
+
+def _resolve_metadata_source(context: Any, source: MetadataSourceSpec) -> Any:
+    if not isinstance(context, FeatureEvaluationContext):
+        raise TypeError("metadata sources require feature evaluation context")
+    if source.key in context.metadata:
+        return context.metadata[source.key]
+    if source.default_value is not None:
+        return source.default_value
+    raise KeyError(f"missing metadata key: {source.key}")
+
+
+def _coerce_concat_values(values: list[Any], axis: int) -> Any:
+    if all(isinstance(value, (bytes, bytearray)) for value in values):
+        if axis != 0:
+            raise ValueError("byte concatenation only supports axis 0")
+        return b"".join(bytes(value) for value in values)
+
+    if all(isinstance(value, str) for value in values):
+        if axis != 0:
+            raise ValueError("string concatenation only supports axis 0")
+        return "".join(values)
+
+    arrays = [value if isinstance(value, np.ndarray) else np.asarray(value) for value in values]
+    if any(array.ndim == 0 for array in arrays):
+        raise ValueError("concat requires sequence or array values")
+    return np.concatenate(arrays, axis=axis)
+
+
+def _coerce_stack_values(values: list[Any], axis: int) -> Any:
+    if any(isinstance(value, (bytes, bytearray, str)) for value in values):
+        raise ValueError("stack requires numeric or array-like values")
+    arrays = [value if isinstance(value, np.ndarray) else np.asarray(value) for value in values]
+    return np.stack(arrays, axis=axis)
+
+
+def resolve_source_value(context: Any, source: FeatureSourceSpec) -> Any:
+    if isinstance(source, FieldSourceSpec):
+        return _resolve_path_source(context, source)
+    if isinstance(source, ConstantSourceSpec):
+        return source.value
+    if isinstance(source, MetadataSourceSpec):
+        return _resolve_metadata_source(context, source)
+    if isinstance(source, ConcatSourceSpec):
+        values = [resolve_source_value(context, child) for child in source.sources]
+        return _coerce_concat_values(values, source.axis)
+    if isinstance(source, StackSourceSpec):
+        values = [resolve_source_value(context, child) for child in source.sources]
+        return _coerce_stack_values(values, source.axis)
+    raise TypeError(f"unsupported feature source type: {type(source).__name__}")
 
 
 def _validate_shape(value: Any, shape: list[int] | None) -> None:
@@ -73,13 +169,21 @@ def _validate_shape(value: Any, shape: list[int] | None) -> None:
         _validate_shape(item, next_shape)
 
 
+def _normalize_feature_value(value: Any) -> Any:
+    if isinstance(value, np.ndarray):
+        return value.tolist()
+    if isinstance(value, np.generic):
+        return value.item()
+    return value
+
+
 @dataclass(frozen=True)
 class FeatureBuilder:
-    def extract(self, payload: Any, feature: FeatureSpec) -> Any:
-        return resolve_source_value(payload, feature.source)
+    def extract(self, context: Any, feature: FeatureSpec) -> Any:
+        return resolve_source_value(context, feature.source)
 
-    def build(self, payload: Any, feature: FeatureSpec) -> Any:
-        value = self.extract(payload, feature)
+    def build(self, context: Any, feature: FeatureSpec) -> Any:
+        value = self.extract(context, feature)
         value = apply_transform_chain(value, feature.transforms)
         _validate_shape(value, feature.shape)
-        return value
+        return _normalize_feature_value(value)

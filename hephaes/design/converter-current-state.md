@@ -11,6 +11,7 @@ The library currently supports:
 - schema-aware conversion with shared `trigger`, `per-message`, and `resample` row construction
 - explicit `row_strategy` spec modeling with trigger compatibility through `assembly`
 - feature-source unions for `path`, `constant`, `metadata`, `concat`, and `stack`
+- runtime source-expression evaluation for `path`, `constant`, `metadata`, `concat`, and `stack`
 - draft-origin metadata on inferred specs
 - declarative transforms for images, numeric values, and sequences
 - spec serialization and migration helpers for the richer v2 contract shape
@@ -18,7 +19,7 @@ The library currently supports:
 - introspection, draft-spec generation, and preview helpers
 - validation, sharding, manifests, and conversion reports
 
-The code has been exercised with the hephaes test suite and the current authoring-focused tests are passing (`281 passed`).
+The code has been exercised with the hephaes test suite and the current authoring-focused tests are passing (`283 passed`).
 
 ## Implemented In `hephaes`
 
@@ -37,7 +38,7 @@ The code has been exercised with the hephaes test suite and the current authorin
 ### Runtime conversion
 
 - `hephaes/src/hephaes/conversion/assembly.py` now owns the shared row-construction layer for trigger, per-message, and resample strategies.
-- `hephaes/src/hephaes/conversion/features.py` resolves feature sources and applies transform chains.
+- `hephaes/src/hephaes/conversion/features.py` resolves source expressions, applies transform chains, and evaluates row metadata.
 - `hephaes/src/hephaes/conversion/validation.py` validates sampled constructed rows before writing.
 - `hephaes/src/hephaes/converter.py` executes legacy mapping and schema-aware flows through the shared row-construction path.
 
@@ -51,16 +52,16 @@ The code has been exercised with the hephaes test suite and the current authorin
 
 The biggest product gaps are still around authoring flexibility and cross-package integration.
 
-- richer feature-source variants are represented in the spec, but runtime evaluation is still path-only
 - non-trigger row strategies exist, but advanced join semantics are still only defined for trigger-based assembly
+- preview, manifests, and reports do not yet fully explain composed sources and missing-data behavior in an authoring-friendly way
 - backend and frontend contracts for reusable configs, inspections, drafts, and previews are still only planned
 - the config-first demo and reusable-config UX still need a final pass to reflect the intended authoring flow
 
 ## Current Limitations To Keep In Mind
 
 - If a user does not provide a schema-aware spec, the converter still falls back to the legacy mapping path.
-- `constant`, `metadata`, `concat`, and `stack` sources serialize and validate today, but conversion/preview runtime paths still raise explicit unsupported errors for them.
 - trigger joins support richer sync and missing-data policies than the current `per-message` and `resample` strategies.
+- manifest `mapping_resolved` still collapses composed sources down to a best-effort single-topic summary or `null`.
 - The authoring helpers are useful, but they are heuristic by nature and should be treated as draft generation rather than a guaranteed final contract.
 - The business-logic package is ready for reuse, but backend/frontend wiring is still a future step.
 

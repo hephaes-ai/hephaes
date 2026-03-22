@@ -161,7 +161,22 @@ def test_converter_supports_per_message_row_strategy(tmp_bag_file, tmp_path):
                 source=FieldSourceSpec(topic="/joy", field_path="buttons"),
                 dtype="int64",
                 shape=[3],
-            )
+            ),
+            "buttons_plus_bias": FeatureSpec(
+                source={
+                    "kind": "concat",
+                    "sources": [
+                        {"topic": "/joy", "field_path": "buttons"},
+                        {"kind": "constant", "value": [9]},
+                    ],
+                },
+                dtype="int64",
+                shape=[4],
+            ),
+            "row_timestamp": FeatureSpec(
+                source={"kind": "metadata", "key": "timestamp_ns"},
+                dtype="int64",
+            ),
         },
         output=OutputSpec(format="tfrecord"),
     )
@@ -181,4 +196,8 @@ def test_converter_supports_per_message_row_strategy(tmp_bag_file, tmp_path):
     assert [row["timestamp_ns"] for row in rows] == [100, 200]
     assert rows[0]["buttons__present"] == 1
     assert rows[0]["buttons"] == [1, 0, 0]
+    assert rows[0]["buttons_plus_bias"] == [1, 0, 0, 9]
+    assert rows[0]["row_timestamp"] == 100
     assert rows[1]["buttons"] == [0, 1, 0]
+    assert rows[1]["buttons_plus_bias"] == [0, 1, 0, 9]
+    assert rows[1]["row_timestamp"] == 200

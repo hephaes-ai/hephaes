@@ -31,7 +31,11 @@ from .conversion.layout import (
     partition_records_for_split,
     render_output_filename,
 )
-from .conversion.features import FeatureBuilder, runtime_source_topic
+from .conversion.features import (
+    FeatureBuilder,
+    FeatureEvaluationContext,
+    source_input_topics,
+)
 from .conversion.validation import validate_constructed_rows
 from .conversion.report import write_conversion_report
 from .manifest import build_episode_manifest, write_episode_manifest
@@ -427,23 +431,15 @@ def _build_schema_output_records(
     for record in records:
         row_values: dict[str, Any | None] = {}
         row_presence: dict[str, int] = {}
+        context = FeatureEvaluationContext.from_row(
+            timestamp_ns=int(record.timestamp_ns),
+            values=record.values,
+            presence=record.presence,
+        )
 
         for feature_name, feature in spec.features.items():
-            source_topic = runtime_source_topic(feature.source)
-            topic_presence = record.presence.get(source_topic, 0)
-            if topic_presence == 0:
-                row_values[feature_name] = None
-                row_presence[feature_name] = 0
-                continue
-
-            source_payload = record.values.get(source_topic)
-            if source_payload is None:
-                row_values[feature_name] = None
-                row_presence[feature_name] = 0
-                continue
-
             try:
-                extracted_value = feature_builder.build(source_payload, feature)
+                extracted_value = feature_builder.build(context, feature)
             except Exception:
                 row_values[feature_name] = None
                 row_presence[feature_name] = 0
@@ -551,18 +547,24 @@ def _convert_schema_aware_source(
                     mapping_resolved = _build_mapping_resolution(
                         field_names=field_names,
                         topic_to_field={
-                            feature_name: runtime_source_topic(feature.source)
+                            feature_name: (
+                                source_topics[0] if len(source_topics) == 1 else None
+                            )
                             for feature_name, feature in spec.features.items()
+                            for source_topics in [source_input_topics(feature.source)]
                         },
                     )
                 else:
                     mapping_requested = {
-                        feature_name: [runtime_source_topic(feature.source)]
+                        feature_name: source_input_topics(feature.source)
                         for feature_name, feature in spec.features.items()
                     }
                     mapping_resolved = {
-                        feature_name: runtime_source_topic(feature.source)
+                        feature_name: (
+                            source_topics[0] if len(source_topics) == 1 else None
+                        )
                         for feature_name, feature in spec.features.items()
+                        for source_topics in [source_input_topics(feature.source)]
                     }
 
                 manifest = build_episode_manifest(

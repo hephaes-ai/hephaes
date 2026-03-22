@@ -39,7 +39,13 @@ from .introspection import (
     inspect_bag,
     inspect_reader,
 )
-from .features import FeatureBuilder, resolve_field_path, resolve_source_value
+from .features import (
+    FeatureBuilder,
+    FeatureEvaluationContext,
+    resolve_field_path,
+    resolve_source_value,
+    source_input_topics,
+)
 from .preview import PreviewResult, PreviewRow, preview_conversion_spec
 from .spec_io import (
     CONVERSION_SPEC_DOCUMENT_VERSION,
@@ -92,9 +98,11 @@ __all__ = [
     "InspectionRequest",
     "InspectionResult",
     "FeatureBuilder",
+    "FeatureEvaluationContext",
     "SampledMessage",
     "resolve_field_path",
     "resolve_source_value",
+    "source_input_topics",
     "TopicInspectionResult",
     "inspect_bag",
     "inspect_reader",

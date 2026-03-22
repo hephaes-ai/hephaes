@@ -5,7 +5,7 @@ from typing import Any
 
 from ..models import ConversionSpec
 from .assembly import ConstructedRowRecord
-from .features import FeatureBuilder, runtime_source_topic
+from .features import FeatureBuilder, FeatureEvaluationContext, source_input_topics
 
 
 @dataclass(frozen=True)
@@ -42,25 +42,23 @@ def validate_constructed_rows(
 
     for record in sampled_records:
         record_bad = False
+        context = FeatureEvaluationContext.from_row(
+            timestamp_ns=int(record.timestamp_ns),
+            values=record.values,
+            presence=record.presence,
+        )
         for feature_name, feature in spec.features.items():
-            source_topic = runtime_source_topic(feature.source)
-            source_payload = record.values.get(source_topic)
-            source_present = record.presence.get(source_topic, 0)
+            for source_topic in source_input_topics(feature.source):
+                source_present = record.presence.get(source_topic, 0)
+                if source_present == 0 or record.values.get(source_topic) is None:
+                    missing_topic_counts[source_topic] = missing_topic_counts.get(source_topic, 0) + 1
 
-            if source_present == 0:
-                missing_topic_counts[source_topic] = missing_topic_counts.get(source_topic, 0) + 1
-
-            if source_payload is None:
+            try:
+                feature_builder.build(context, feature)
+            except Exception:
                 missing_feature_counts[feature_name] += 1
                 if feature.required and feature.missing != "zeros":
                     record_bad = True
-                continue
-
-            try:
-                feature_builder.build(source_payload, feature)
-            except Exception:
-                missing_feature_counts[feature_name] += 1
-                record_bad = True
 
         if not record_bad:
             continue
