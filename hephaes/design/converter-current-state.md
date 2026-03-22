@@ -14,6 +14,7 @@ The library currently supports:
 - runtime source-expression evaluation for `path`, `constant`, `metadata`, `concat`, and `stack`
 - draft-origin metadata on inferred specs
 - preflight and preview summaries with missing-data rates and label validation
+- manifests and reports that carry row strategy, composed source metadata, draft provenance, and preflight summaries
 - declarative transforms for images, numeric values, and sequences
 - spec serialization and migration helpers for the richer v2 contract shape
 - capability metadata that distinguishes authoring surface from current runtime support
@@ -46,7 +47,8 @@ The code has been exercised with the hephaes test suite and the current authorin
 ### Output and reporting
 
 - `hephaes/src/hephaes/conversion/layout.py` handles sharding and split layout.
-- `hephaes/src/hephaes/conversion/report.py` writes conversion reports.
+- `hephaes/src/hephaes/conversion/report.py` writes conversion reports that include row strategy, label config, draft origin, and preflight summaries.
+- `hephaes/src/hephaes/manifest.py` writes manifests that carry richer contract metadata for schema-aware runs.
 - `hephaes/src/hephaes/outputs/` contains the TFRecord and Parquet writers used by the converter.
 
 ## What Is Still Partial
@@ -54,7 +56,6 @@ The code has been exercised with the hephaes test suite and the current authorin
 The biggest product gaps are still around authoring flexibility and cross-package integration.
 
 - non-trigger row strategies exist, but advanced join semantics are still only defined for trigger-based assembly
-- manifests and reports do not yet fully explain composed sources and preflight behavior in an authoring-friendly way
 - backend and frontend contracts for reusable configs, inspections, drafts, and previews are still only planned
 - the config-first demo and reusable-config UX still need a final pass to reflect the intended authoring flow
 

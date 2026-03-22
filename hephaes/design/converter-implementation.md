@@ -25,7 +25,6 @@ The current baseline already gives us:
 
 The main gaps are:
 
-- reporting and manifest metadata still lag behind the richer source-expression contract
 - the config-first demo and reusable-config workflow are still incomplete
 - backend and frontend contract wiring still needs to be built around the `hephaes` business-logic surface
 
@@ -199,7 +198,7 @@ Make preview and validation the reliable gate before long-running conversion.
 
 ## Phase 5: Align Reporting And Runtime Metadata With The Richer Contract
 
-Status: partial
+Status: complete
 
 Goal:
 Make manifests and reports reflect the actual authored contract and conversion path.
@@ -228,6 +227,14 @@ Make manifests and reports reflect the actual authored contract and conversion p
 ### Exit Criteria
 
 - A conversion artifact tells the full story of how rows were constructed and features were produced.
+
+### Completed
+
+- Added row-strategy metadata to schema-aware manifests and reports.
+- Added richer feature and label config metadata, including composed-source definitions.
+- Added draft-origin metadata to conversion artifacts when a run starts from an inferred draft.
+- Added preflight summary metadata so reports capture the validation gate that ran before writing.
+- Kept missing-feature and missing-topic summaries aligned with the runtime validation path.
 
 ## Phase 6: Rewrite The Authoring Demo Around The Real Workflow
 

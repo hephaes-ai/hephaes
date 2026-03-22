@@ -44,6 +44,8 @@ def build_conversion_report(
             f"- file size bytes: {dataset['file_size_bytes']}",
         ]
     )
+    if conversion.get("row_strategy") is not None:
+        lines.append(f"- row strategy: {conversion['row_strategy'].get('kind', 'unknown')}")
 
     if dataset.get("split_name") is not None:
         lines.append(f"- split: {dataset['split_name']}")
@@ -59,16 +61,24 @@ def build_conversion_report(
     lines.extend(_format_block("Temporal Metadata", manifest.temporal.model_dump()))
     lines.extend(_format_block("Output Config", conversion["output"]))
 
+    if conversion.get("row_strategy") is not None:
+        lines.extend(_format_block("Row Strategy", conversion["row_strategy"]))
     if conversion.get("resample") is not None:
         lines.extend(_format_block("Resample Config", conversion["resample"]))
     if conversion.get("schema_spec") is not None:
         lines.extend(_format_block("Resolved Schema", conversion["schema_spec"]))
     if conversion.get("features"):
         lines.extend(_format_block("Resolved Features", conversion["features"]))
+    if conversion.get("labels_spec") is not None:
+        lines.extend(_format_block("Label Config", conversion["labels_spec"]))
+    if conversion.get("draft_origin") is not None:
+        lines.extend(_format_block("Draft Origin", conversion["draft_origin"]))
     if conversion.get("split") is not None:
         lines.extend(_format_block("Split Config", conversion["split"]))
     if conversion.get("validation") is not None:
-        lines.extend(_format_block("Validation Summary", conversion["validation"]))
+        lines.extend(_format_block("Validation Config", conversion["validation"]))
+    if conversion.get("preflight") is not None:
+        lines.extend(_format_block("Preflight Summary", conversion["preflight"]))
     if conversion.get("mapping_requested"):
         lines.extend(_format_block("Requested Mapping", conversion["mapping_requested"]))
     if conversion.get("mapping_resolved"):
@@ -82,6 +92,8 @@ def build_conversion_report(
         lines.extend(_format_block("Missing Topic Counts", conversion["missing_topic_counts"]))
     if conversion.get("missing_feature_rates"):
         lines.extend(_format_block("Missing Feature Rates", conversion["missing_feature_rates"]))
+    if conversion.get("missing_topic_rates"):
+        lines.extend(_format_block("Missing Topic Rates", conversion["missing_topic_rates"]))
 
     if manifest.robot_context is not None:
         lines.extend(_format_block("Robot Context", manifest.robot_context))

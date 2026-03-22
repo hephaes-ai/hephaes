@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -156,6 +157,11 @@ def test_converter_supports_per_message_row_strategy(tmp_bag_file, tmp_path):
     spec = ConversionSpec(
         schema=SchemaSpec(name="per_message_converter_demo", version=1),
         row_strategy={"kind": "per-message", "topic": "/joy"},
+        draft_origin={
+            "kind": "inspection",
+            "source_topics": ["/joy"],
+            "assumptions": ["demo"],
+        },
         features={
             "buttons": FeatureSpec(
                 source=FieldSourceSpec(topic="/joy", field_path="buttons"),
@@ -201,3 +207,18 @@ def test_converter_supports_per_message_row_strategy(tmp_bag_file, tmp_path):
     assert rows[1]["buttons"] == [0, 1, 0]
     assert rows[1]["buttons_plus_bias"] == [0, 1, 0, 9]
     assert rows[1]["row_timestamp"] == 200
+
+    manifest = json.loads(results[0].with_suffix(".manifest.json").read_text())
+    assert manifest["conversion"]["row_strategy"]["kind"] == "per-message"
+    assert manifest["conversion"]["features"]["buttons_plus_bias"]["source"]["kind"] == "concat"
+    assert manifest["conversion"]["mapping_requested"]["buttons_plus_bias"] == ["/joy"]
+    assert manifest["conversion"]["mapping_resolved"]["buttons_plus_bias"] == "/joy"
+    assert manifest["conversion"]["draft_origin"]["kind"] == "inspection"
+    assert manifest["conversion"]["preflight"]["checked_records"] == 2
+    assert manifest["conversion"]["preflight"]["bad_records"] == 0
+    assert manifest["conversion"]["missing_topic_rates"] == {}
+
+    report_text = results[0].with_name(f"{results[0].stem}.report.md").read_text()
+    assert "Row Strategy" in report_text
+    assert "Draft Origin" in report_text
+    assert "Preflight Summary" in report_text

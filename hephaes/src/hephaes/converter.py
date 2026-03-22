@@ -488,6 +488,15 @@ def _convert_schema_aware_source(
         spec=spec,
     )
     validation_summary = validate_constructed_rows(spec=spec, records=row_result.records)
+    preflight_summary = {
+        "checked_records": validation_summary.checked_records,
+        "bad_records": validation_summary.bad_records,
+        "missing_feature_counts": validation_summary.missing_feature_counts,
+        "missing_feature_rates": validation_summary.missing_feature_rates,
+        "missing_topic_counts": validation_summary.missing_topic_counts,
+        "missing_topic_rates": validation_summary.missing_topic_rates,
+        "label_summary": validation_summary.label_summary,
+    }
 
     field_names = list(spec.features.keys())
     output_config = spec.to_output_config()
@@ -581,7 +590,11 @@ def _convert_schema_aware_source(
                     robot_context=robot_context,
                     schema=spec.schema.model_dump(),
                     features={name: feature.model_dump() for name, feature in spec.features.items()},
-                    validation_summary=asdict(validation_summary),
+                    labels=spec.labels.model_dump() if spec.labels is not None else None,
+                    row_strategy=spec.row_strategy.model_dump() if spec.row_strategy is not None else None,
+                    draft_origin=spec.draft_origin.model_dump() if spec.draft_origin is not None else None,
+                    validation=spec.validation.model_dump(),
+                    preflight=preflight_summary,
                     split=spec.split.model_dump() if spec.split is not None else None,
                     split_name=split_name,
                     shard_index=shard_index,
@@ -592,12 +605,10 @@ def _convert_schema_aware_source(
                     missing_feature_counts=validation_summary.missing_feature_counts,
                     missing_topic_counts=validation_summary.missing_topic_counts,
                     missing_feature_rates={
-                        name: (
-                            count / validation_summary.checked_records
-                            if validation_summary.checked_records > 0
-                            else 0.0
-                        )
-                        for name, count in validation_summary.missing_feature_counts.items()
+                        name: rate for name, rate in validation_summary.missing_feature_rates.items()
+                    },
+                    missing_topic_rates={
+                        name: rate for name, rate in validation_summary.missing_topic_rates.items()
                     },
                 )
                 write_episode_manifest(manifest, dataset_path=shard_writer.path)

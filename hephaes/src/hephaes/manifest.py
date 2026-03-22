@@ -65,19 +65,24 @@ class ConversionManifest(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
     output: dict[str, Any]
+    row_strategy: dict[str, Any] | None = None
     resample: dict[str, Any] | None = None
     mapping_requested: dict[str, list[str]]
     mapping_resolved: dict[str, str | None]
     schema_spec: dict[str, Any] | None = Field(default=None, alias="schema", serialization_alias="schema")
     features: dict[str, Any] = Field(default_factory=dict)
+    labels_spec: dict[str, Any] | None = Field(default=None, alias="labels", serialization_alias="labels")
+    draft_origin: dict[str, Any] | None = None
     split: dict[str, Any] | None = None
     validation: dict[str, Any] | None = None
+    preflight: dict[str, Any] | None = None
     rows_written: int | None = None
     dropped_rows: int | None = None
     split_counts: dict[str, int] = Field(default_factory=dict)
     missing_feature_counts: dict[str, int] = Field(default_factory=dict)
     missing_topic_counts: dict[str, int] = Field(default_factory=dict)
     missing_feature_rates: dict[str, float] = Field(default_factory=dict)
+    missing_topic_rates: dict[str, float] = Field(default_factory=dict)
 
 
 class EpisodeManifest(BaseModel):
@@ -114,8 +119,12 @@ def build_episode_manifest(
     robot_context: dict[str, Any] | None = None,
     schema: dict[str, Any] | None = None,
     features: dict[str, Any] | None = None,
+    labels: dict[str, Any] | None = None,
+    row_strategy: dict[str, Any] | None = None,
+    draft_origin: dict[str, Any] | None = None,
     split: dict[str, Any] | None = None,
-    validation_summary: dict[str, Any] | None = None,
+    validation: dict[str, Any] | None = None,
+    preflight: dict[str, Any] | None = None,
     split_name: str | None = None,
     shard_index: int | None = None,
     num_shards: int = 1,
@@ -125,6 +134,7 @@ def build_episode_manifest(
     missing_feature_counts: dict[str, int] | None = None,
     missing_topic_counts: dict[str, int] | None = None,
     missing_feature_rates: dict[str, float] | None = None,
+    missing_topic_rates: dict[str, float] | None = None,
 ) -> EpisodeManifest:
     resolved_dataset_path = Path(dataset_path)
     return EpisodeManifest(
@@ -144,19 +154,24 @@ def build_episode_manifest(
         temporal=temporal_metadata,
         conversion=ConversionManifest(
             output=output.model_dump(),
+            row_strategy=dict(row_strategy or {}) or None,
             resample=resample.model_dump() if resample is not None else None,
             mapping_requested={key: list(value) for key, value in mapping_requested.items()},
             mapping_resolved=dict(mapping_resolved),
             schema_spec=schema,
             features=dict(features or {}),
+            labels_spec=dict(labels or {}) or None,
+            draft_origin=dict(draft_origin or {}) or None,
             split=split,
-            validation=validation_summary,
+            validation=dict(validation or {}) or None,
+            preflight=dict(preflight or {}) or None,
             rows_written=rows_written,
             dropped_rows=dropped_rows,
             split_counts=dict(split_counts or {}),
             missing_feature_counts=dict(missing_feature_counts or {}),
             missing_topic_counts=dict(missing_topic_counts or {}),
             missing_feature_rates=dict(missing_feature_rates or {}),
+            missing_topic_rates=dict(missing_topic_rates or {}),
         ),
         robot_context=dict(robot_context) if robot_context is not None else None,
     )
