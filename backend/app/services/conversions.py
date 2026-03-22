@@ -27,6 +27,11 @@ from app.config import get_settings
 from app.db.models import Asset, Conversion, utc_now
 from app.schemas.conversions import ConversionCreateRequest
 from app.services.assets import AssetNotFoundError, get_asset_or_raise
+from app.services.conversion_configs import (
+    ConversionConfigInvalidError,
+    ConversionConfigNotFoundError,
+    ConversionConfigService,
+)
 from app.services.jobs import JobService
 from app.services.outputs import sync_output_artifacts_for_conversion
 
@@ -207,14 +212,46 @@ class ConversionService:
 
     def run_conversion(self, request: ConversionCreateRequest) -> Conversion:
         assets = _resolve_assets(self.session, request.asset_ids)
-        mapping = _resolve_mapping(assets, request)
-        conversion_spec = _resolve_conversion_spec(request, mapping=mapping)
-        mapping_mode = "spec" if request.spec is not None else ("custom" if request.mapping is not None else "auto")
-        conversion_config = _build_conversion_config(
-            mapping=mapping,
-            mapping_mode=mapping_mode,
-            spec=conversion_spec,
-        )
+        conversion_spec: ConversionSpec
+        mapping_mode: str
+
+        if request.saved_config_id is not None:
+            config_service = ConversionConfigService(self.session)
+            try:
+                saved_config_document = config_service.resolve_saved_config_spec_document(
+                    request.saved_config_id,
+                    persist_migration=True,
+                    mark_opened=True,
+                )
+            except ConversionConfigNotFoundError as exc:
+                raise ConversionValidationError(str(exc)) from exc
+            except ConversionConfigInvalidError as exc:
+                raise ConversionValidationError(str(exc)) from exc
+
+            conversion_spec = saved_config_document.spec
+            if request.write_manifest is not None:
+                conversion_spec = conversion_spec.model_copy(update={"write_manifest": request.write_manifest})
+            mapping = conversion_spec.mapping or build_mapping_template(_topics_from_asset(assets[0]))
+            mapping_mode = "saved-config"
+            conversion_config = _build_conversion_config(
+                mapping=mapping,
+                mapping_mode=mapping_mode,
+                spec=conversion_spec,
+            )
+            conversion_config["saved_config_id"] = request.saved_config_id
+            conversion_config["saved_config_revision_number"] = config_service._get_config_or_raise(
+                request.saved_config_id
+            ).current_revision_number
+            conversion_config["saved_config_spec_document_version"] = saved_config_document.spec_version
+        else:
+            mapping = _resolve_mapping(assets, request)
+            conversion_spec = _resolve_conversion_spec(request, mapping=mapping)
+            mapping_mode = "spec" if request.spec is not None else ("custom" if request.mapping is not None else "auto")
+            conversion_config = _build_conversion_config(
+                mapping=mapping,
+                mapping_mode=mapping_mode,
+                spec=conversion_spec,
+            )
 
         conversion_id = str(uuid4())
         output_dir = self.settings.outputs_dir / "conversions" / conversion_id

@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from app.api.assets import router as assets_router
+from app.api.conversion_configs import router as conversion_configs_router
 from app.api.conversions import router as conversions_router
 from app.api.dashboard import router as dashboard_router
 from app.api.episodes import router as episodes_router
@@ -54,6 +55,7 @@ def create_app() -> FastAPI:
     app.include_router(assets_router)
     app.include_router(episodes_router)
     app.include_router(dashboard_router)
+    app.include_router(conversion_configs_router)
     app.include_router(conversions_router)
     app.include_router(jobs_router)
     app.include_router(outputs_router)
