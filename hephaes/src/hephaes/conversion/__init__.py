@@ -15,6 +15,7 @@ from .layout import (
     partition_records_for_split,
     render_output_filename,
 )
+from .report import build_conversion_report, report_path_for_dataset, write_conversion_report
 from .decoding import MessageDecoder, build_message_decoder
 from .discovery import (
     discover_input_paths,
@@ -40,6 +41,9 @@ __all__ = [
     "partition_records_for_shards",
     "partition_records_for_split",
     "render_output_filename",
+    "build_conversion_report",
+    "report_path_for_dataset",
+    "write_conversion_report",
     "MessageDecoder",
     "build_message_decoder",
     "discover_input_paths",

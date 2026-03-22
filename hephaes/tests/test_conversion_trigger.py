@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -220,6 +222,7 @@ def test_converter_spec_path_shards_trigger_outputs_with_default_layout(tmp_bag_
                 required=True,
             ),
         },
+        validation={"preview": True},
         output=OutputSpec(format="tfrecord", shards=2),
     )
 
@@ -240,6 +243,23 @@ def test_converter_spec_path_shards_trigger_outputs_with_default_layout(tmp_bag_
     ]
     assert [row["timestamp_ns"] for row in stream_tfrecord_rows(results[0])] == [100, 200]
     assert [row["timestamp_ns"] for row in stream_tfrecord_rows(results[1])] == [300, 400]
+
+    manifest_path = results[0].with_name(f"{results[0].stem}.manifest.json")
+    report_path = results[0].with_name(f"{results[0].stem}.report.md")
+    assert manifest_path.exists()
+    assert report_path.exists()
+
+    manifest = json.loads(manifest_path.read_text())
+    assert manifest["conversion"]["schema"] == {"name": "sharded_trigger_demo", "version": 1}
+    assert manifest["dataset"]["split_name"] == "all"
+    assert manifest["dataset"]["shard_index"] == 0
+    assert manifest["dataset"]["num_shards"] == 2
+    assert manifest["dataset"]["output_filename"] == "episode_0001-00000-of-00002.tfrecord"
+
+    report_text = report_path.read_text()
+    assert "# conversion report" in report_text
+    assert "Preview" in report_text
+    assert "rows written: 2" in report_text
 
 
 def test_converter_spec_validation_enforces_bad_record_budget(tmp_bag_file, tmp_path):

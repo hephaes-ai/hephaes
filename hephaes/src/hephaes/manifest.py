@@ -62,13 +62,13 @@ class SourceArtifact(BaseModel):
 
 
 class ConversionManifest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
     output: dict[str, Any]
     resample: dict[str, Any] | None = None
     mapping_requested: dict[str, list[str]]
     mapping_resolved: dict[str, str | None]
-    schema: dict[str, Any] | None = None
+    schema_spec: dict[str, Any] | None = Field(default=None, alias="schema", serialization_alias="schema")
     features: dict[str, Any] = Field(default_factory=dict)
     split: dict[str, Any] | None = None
     validation: dict[str, Any] | None = None
@@ -147,7 +147,7 @@ def build_episode_manifest(
             resample=resample.model_dump() if resample is not None else None,
             mapping_requested={key: list(value) for key, value in mapping_requested.items()},
             mapping_resolved=dict(mapping_resolved),
-            schema=schema,
+            schema_spec=schema,
             features=dict(features or {}),
             split=split,
             validation=validation_summary,
@@ -170,7 +170,7 @@ def write_episode_manifest(
     path = manifest_path_for_dataset(dataset_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = json.dumps(
-        manifest.model_dump(),
+        manifest.model_dump(by_alias=True),
         indent=2,
         default=_json_default,
     )

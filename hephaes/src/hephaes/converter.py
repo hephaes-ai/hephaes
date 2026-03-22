@@ -33,6 +33,7 @@ from .conversion.layout import (
 )
 from .conversion.features import FeatureBuilder
 from .conversion.validation import validate_trigger_records
+from .conversion.report import write_conversion_report
 from .manifest import build_episode_manifest, write_episode_manifest
 from .models import (
     ConversionSpec,
@@ -605,6 +606,16 @@ def _convert_trigger_based_source(
                     },
                 )
                 write_episode_manifest(manifest, dataset_path=shard_writer.path)
+                preview_rows = (
+                    [asdict(record) for record in shard_records[: min(5, len(shard_records))]]
+                    if spec.validation.preview
+                    else None
+                )
+                write_conversion_report(
+                    manifest=manifest,
+                    dataset_path=shard_writer.path,
+                    preview_rows=preview_rows,
+                )
 
     logger.info(
         "Validated %s trigger record(s) for %s: %s bad, %s feature misses, %s missing source topic hits",
@@ -754,6 +765,7 @@ def _convert_single_source(
                 robot_context=robot_context,
             )
             write_episode_manifest(manifest, dataset_path=dataset_path)
+            write_conversion_report(manifest=manifest, dataset_path=dataset_path)
 
         logger.info("Finished %s: wrote %s rows to %s", episode_id, rows_written, writer.path)
         return [str(writer.path)]
