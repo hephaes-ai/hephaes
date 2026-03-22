@@ -1,6 +1,5 @@
 import logging
 import os
-from dataclasses import dataclass
 from multiprocessing import Pool
 from pathlib import Path
 from typing import Any
@@ -18,6 +17,12 @@ from ._converter_helpers import (
     _TopicSamples,
 )
 from ._utils import determine_ros_version_from_path
+from .conversion import build_message_decoder, discover_input_paths
+from .conversion.assembly import (
+    TopicPlan as _AssemblyTopicPlan,
+    build_mapping_resolution as _build_mapping_resolution_stage,
+    resolve_mapping_for_bag as _resolve_mapping_for_bag_stage,
+)
 from .manifest import build_episode_manifest, write_episode_manifest
 from .models import (
     MappingTemplate,
@@ -34,10 +39,7 @@ logger = logging.getLogger(__name__)
 _OUTPUT_CONFIG_ADAPTER = TypeAdapter(OutputConfig)
 
 
-@dataclass(frozen=True)
-class TopicPlan:
-    topics_to_read: list[str]
-    topic_to_field: dict[str, str]
+TopicPlan = _AssemblyTopicPlan
 
 
 def _default_episode_id(index: int) -> str:
@@ -53,17 +55,10 @@ def _resolve_mapping_for_bag(
     mapping: MappingTemplate,
     available_topics: dict[str, str],
 ) -> TopicPlan:
-    topics_to_read: list[str] = []
-    topic_to_field: dict[str, str] = {}
-
-    for target_field, source_topics in mapping.root.items():
-        for source_topic in source_topics:
-            if source_topic in available_topics:
-                topics_to_read.append(source_topic)
-                topic_to_field[source_topic] = target_field
-                break
-
-    return TopicPlan(topics_to_read=topics_to_read, topic_to_field=topic_to_field)
+    return _resolve_mapping_for_bag_stage(
+        mapping=mapping,
+        available_topics=available_topics,
+    )
 
 
 def _resolve_output_config(
@@ -106,10 +101,10 @@ def _build_mapping_resolution(
     field_names: list[str],
     topic_to_field: dict[str, str],
 ) -> dict[str, str | None]:
-    resolved = {field_name: None for field_name in field_names}
-    for topic_name, field_name in topic_to_field.items():
-        resolved[field_name] = topic_name
-    return resolved
+    return _build_mapping_resolution_stage(
+        field_names=field_names,
+        topic_to_field=topic_to_field,
+    )
 
 
 def _flush_chunk(
@@ -134,7 +129,8 @@ def _iter_output_messages(
     use_normalized_payloads: bool,
 ):
     if use_normalized_payloads:
-        for message in reader.read_messages(topics=topics):
+        decoder = build_message_decoder()
+        for message in decoder.iter_messages(reader, topics=topics):
             yield message.topic, int(message.timestamp), _normalize_payload(message.data)
         return
 
@@ -488,10 +484,11 @@ class Converter:
         if robot_context is not None and not isinstance(robot_context, dict):
             raise TypeError("robot_context must be a dict or None")
 
-        for file_path in file_paths:
+        discovered_file_paths = discover_input_paths(file_paths)
+        for file_path in discovered_file_paths:
             determine_ros_version_from_path(file_path)
 
-        self.file_paths = [Path(path) for path in file_paths]
+        self.file_paths = discovered_file_paths
         self.mapping = mapping
         self.output_dir = Path(output_dir)
         self.output = _resolve_output_config(output)
