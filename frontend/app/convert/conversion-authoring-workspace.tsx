@@ -6,7 +6,6 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import {
   ArrowLeft,
   ArrowRight,
-  Bot,
   CheckCircle2,
   ChevronDown,
   Copy,
@@ -357,56 +356,6 @@ export function ConversionAuthoringWorkspaceFallback() {
         </CardContent>
       </Card>
     </div>
-  )
-}
-
-function SavedConfigMenu({
-  config,
-  onOpen,
-  onDuplicate,
-  onRun,
-}: {
-  config: SavedConversionConfigSummaryResponse
-  onDuplicate: () => void
-  onOpen: () => void
-  onRun: () => void
-}) {
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button size="icon" type="button" variant="ghost">
-          <ChevronDown className="size-4" />
-          <span className="sr-only">Config actions for {config.name}</span>
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end">
-        <DropdownMenuItem
-          onSelect={(event) => {
-            event.preventDefault()
-            onOpen()
-          }}
-        >
-          Open
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          onSelect={(event) => {
-            event.preventDefault()
-            onDuplicate()
-          }}
-        >
-          Duplicate
-        </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem
-          onSelect={(event) => {
-            event.preventDefault()
-            onRun()
-          }}
-        >
-          Run saved config
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
   )
 }
 
@@ -2073,78 +2022,6 @@ export function ConversionAuthoringWorkspace() {
         </div>
 
         <div className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Bot className="size-4" />
-                Saved configs
-              </CardTitle>
-              <CardDescription>Browse reusable configs, switch selection, or duplicate the current one.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {savedConfigs.length > 0 ? (
-                savedConfigs.map((config) => {
-                  const isSelected = config.id === selectedSavedConfigId
-                  return (
-                    <div
-                      key={config.id}
-                      className={`space-y-2 rounded-lg border px-3 py-3 ${
-                        isSelected ? "border-foreground/20 bg-muted/30" : "bg-background"
-                      }`}
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0 space-y-1">
-                          <button
-                            className="block text-left text-sm font-medium text-foreground hover:underline"
-                            onClick={() => selectSavedConfig(config.id)}
-                            type="button"
-                          >
-                            {config.name}
-                          </button>
-                          <p className="line-clamp-2 text-sm text-muted-foreground">
-                            {config.description ?? "No description"}
-                          </p>
-                        </div>
-                        <SavedConfigMenu
-                          config={config}
-                          onDuplicate={() => {
-                            selectSavedConfig(config.id)
-                            openDuplicateDialog()
-                          }}
-                          onOpen={() => selectSavedConfig(config.id)}
-                          onRun={() => {
-                            selectSavedConfig(config.id)
-                            void runSavedConfigConversion()
-                          }}
-                        />
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        <Badge className={getConfigStatusClasses(config.status)} variant={getConfigStatusBadgeVariant(config.status)}>
-                          {formatSentenceCase(config.status)}
-                        </Badge>
-                        <Badge variant="outline">{config.spec_feature_count} features</Badge>
-                        <Badge variant="outline">{config.revision_count} revs</Badge>
-                        {config.draft_count > 0 ? <Badge variant="outline">{config.draft_count} drafts</Badge> : null}
-                      </div>
-                      <p className="text-xs text-muted-foreground">
-                        {config.spec_schema_name ?? "Unknown schema"}{" "}
-                        {config.spec_schema_version !== null ? `v${config.spec_schema_version}` : ""} |{" "}
-                        {config.spec_row_strategy_kind ?? "No row strategy"} |{" "}
-                        {config.spec_output_format ?? "No output"}
-                      </p>
-                    </div>
-                  )
-                })
-              ) : (
-                <EmptyState
-                  variant="card"
-                  description="Save a draft or select an imported config to see it here."
-                  title="No saved configs yet"
-                />
-              )}
-            </CardContent>
-          </Card>
-
           <Card>
             <CardHeader>
               <CardTitle>Selected config</CardTitle>
