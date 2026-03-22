@@ -6,8 +6,10 @@ import importlib.util
 import json
 from unittest.mock import MagicMock, patch
 
+import numpy as np
 import pytest
 
+from hephaes._converter_helpers import _normalize_payload
 from hephaes.converter import _interpolate_json_leaves, _json_default, _resolve_mapping_for_bag
 from hephaes.models import MappingTemplate, ResampleConfig, TFRecordOutputConfig
 
@@ -78,6 +80,13 @@ class TestJsonDefault:
         result = _json_default({1, 2, 3})
         assert isinstance(result, list)
         assert sorted(result) == [1, 2, 3]
+
+
+class TestNormalizePayload:
+    def test_numpy_scalar_and_array_round_trip_to_python_values(self):
+        assert _normalize_payload(np.int64(7)) == 7
+        assert _normalize_payload(np.float32(0.25)) == pytest.approx(0.25)
+        assert _normalize_payload(np.array([1, 2, 3])) == [1, 2, 3]
 
 
 class TestResolveMappingForBag:
@@ -243,6 +252,44 @@ class TestConverter:
         assert [row["timestamp_ns"] for row in rows] == [1_000_000_000, 2_000_000_000]
         assert rows[0]["cmd_vel__present"] == 1
         assert rows[0]["cmd_vel__v"] == 1
+
+    def test_convert_tfrecord_preserves_numpy_payloads(self, tmp_bag_file, tmp_path):
+        from hephaes.converter import Converter
+        from hephaes.tfrecord import stream_tfrecord_rows
+
+        mock_reader = make_mock_any_reader_with_payloads(
+            topics={"/cmd_vel": "geometry_msgs/Twist"},
+            messages=[
+                (
+                    "/cmd_vel",
+                    1_000_000_000,
+                    {
+                        "covariance": np.array([1, 2, 3]),
+                        "count": np.int64(7),
+                        "gain": np.float32(0.25),
+                    },
+                )
+            ],
+        )
+
+        with _patch_any_reader(mock_reader):
+            converter = Converter(
+                [str(tmp_bag_file)],
+                self._make_mapping(),
+                tmp_path,
+                max_workers=1,
+                output="tfrecord",
+            )
+            results = converter.convert()
+
+        rows = list(stream_tfrecord_rows(results[0]))
+        assert len(rows) == 1
+        row = rows[0]
+        assert row["timestamp_ns"] == 1_000_000_000
+        assert row["cmd_vel__present"] == 1
+        assert row["cmd_vel__covariance"] == [1, 2, 3]
+        assert row["cmd_vel__count"] == 7
+        assert row["cmd_vel__gain"] == pytest.approx(0.25)
 
     def test_convert_writes_manifest_with_defaults_and_robot_context(self, tmp_bag_file, tmp_path):
         from hephaes.converter import Converter
