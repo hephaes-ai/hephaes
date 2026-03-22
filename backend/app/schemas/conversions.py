@@ -51,6 +51,7 @@ class ConversionCreateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     asset_ids: list[str] = Field(min_length=1)
+    saved_config_id: str | None = None
     spec: ConversionSpec | None = None
     output: ConversionOutputRequest | None = None
     mapping: dict[str, list[str]] | None = None
@@ -75,6 +76,16 @@ class ConversionCreateRequest(BaseModel):
             raise ValueError("asset_ids must not contain duplicates")
         return value
 
+    @field_validator("saved_config_id", mode="before")
+    @classmethod
+    def normalize_saved_config_id(cls, value: object) -> object:
+        if value is None or not isinstance(value, str):
+            return value
+        stripped = value.strip()
+        if not stripped:
+            return None
+        return stripped
+
     @model_validator(mode="after")
     def validate_mapping_payload(self) -> "ConversionCreateRequest":
         if self.mapping is None:
@@ -95,6 +106,16 @@ class ConversionCreateRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_spec_payload(self) -> "ConversionCreateRequest":
+        if self.saved_config_id is not None and self.spec is not None:
+            raise ValueError("saved_config_id cannot be combined with an inline spec")
+
+        if self.saved_config_id is not None:
+            if self.mapping is not None or self.output is not None or self.resample is not None:
+                raise ValueError(
+                    "saved_config_id cannot be combined with legacy mapping, output, or resample fields"
+                )
+            return self
+
         if self.spec is None:
             return self
 

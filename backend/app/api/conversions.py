@@ -10,12 +10,29 @@ from sqlalchemy.orm import Session
 from app.api._status import HTTP_422_UNPROCESSABLE_CONTENT
 from app.db.models import Conversion
 from app.db.session import get_db_session
+from app.schemas.conversion_authoring import (
+    ConversionAuthoringCapabilitiesResponse,
+    ConversionDraftRequest,
+    ConversionDraftResponse,
+    ConversionInspectionRequest,
+    ConversionInspectionResponse,
+    ConversionPreviewRequest,
+    ConversionPreviewResponse,
+)
 from app.schemas.conversions import (
     ConversionCreateRequest,
     ConversionDetailResponse,
     ConversionSummaryResponse,
 )
 from app.schemas.jobs import JobResponse
+from app.services.conversion_authoring import (
+    ConversionAuthoringInspectionError,
+    ConversionAuthoringNotFoundError,
+    ConversionAuthoringPreviewError,
+    ConversionAuthoringService,
+    ConversionAuthoringServiceError,
+    ConversionAuthoringValidationError,
+)
 from app.services.conversions import (
     ConversionExecutionError,
     ConversionNotFoundError,
@@ -54,6 +71,46 @@ def build_conversion_detail_response(conversion: Conversion) -> ConversionDetail
     )
 
 
+def build_inspection_response(
+    *,
+    request: ConversionInspectionRequest,
+    inspection,
+) -> ConversionInspectionResponse:
+    return ConversionInspectionResponse(
+        asset_id=request.asset_id,
+        request=request,
+        inspection=inspection,
+    )
+
+
+def build_draft_response(
+    *,
+    request: ConversionDraftRequest,
+    inspection,
+    draft,
+    draft_revision_id: str | None = None,
+) -> ConversionDraftResponse:
+    return ConversionDraftResponse(
+        asset_id=request.asset_id,
+        request=request,
+        inspection=inspection,
+        draft=draft,
+        draft_revision_id=draft_revision_id,
+    )
+
+
+def build_preview_response(
+    *,
+    request: ConversionPreviewRequest,
+    preview,
+) -> ConversionPreviewResponse:
+    return ConversionPreviewResponse(
+        asset_id=request.asset_id,
+        request=request,
+        preview=preview,
+    )
+
+
 @router.post("", response_model=ConversionDetailResponse, status_code=status.HTTP_201_CREATED)
 def create_conversion_route(payload: ConversionCreateRequest, session: DbSession) -> ConversionDetailResponse:
     service = ConversionService(session)
@@ -66,6 +123,68 @@ def create_conversion_route(payload: ConversionCreateRequest, session: DbSession
         raise HTTPException(status_code=HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
 
     return build_conversion_detail_response(conversion)
+
+
+@router.get("/capabilities", response_model=ConversionAuthoringCapabilitiesResponse)
+def get_conversion_authoring_capabilities_route(session: DbSession) -> ConversionAuthoringCapabilitiesResponse:
+    service = ConversionAuthoringService(session)
+    return service.get_capabilities()
+
+
+@router.post("/inspect", response_model=ConversionInspectionResponse)
+def inspect_conversion_route(
+    payload: ConversionInspectionRequest,
+    session: DbSession,
+) -> ConversionInspectionResponse:
+    service = ConversionAuthoringService(session)
+
+    try:
+        inspection = service.inspect_asset(payload)
+    except ConversionAuthoringNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except (ConversionAuthoringValidationError, ConversionAuthoringInspectionError, ConversionAuthoringServiceError) as exc:
+        raise HTTPException(status_code=HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
+
+    return build_inspection_response(request=payload, inspection=inspection)
+
+
+@router.post("/draft", response_model=ConversionDraftResponse)
+def draft_conversion_route(
+    payload: ConversionDraftRequest,
+    session: DbSession,
+) -> ConversionDraftResponse:
+    service = ConversionAuthoringService(session)
+
+    try:
+        inspection, draft, draft_revision_id = service.draft_asset(payload)
+    except ConversionAuthoringNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except (ConversionAuthoringValidationError, ConversionAuthoringInspectionError, ConversionAuthoringServiceError) as exc:
+        raise HTTPException(status_code=HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
+
+    return build_draft_response(
+        request=payload,
+        inspection=inspection,
+        draft=draft,
+        draft_revision_id=draft_revision_id,
+    )
+
+
+@router.post("/preview", response_model=ConversionPreviewResponse)
+def preview_conversion_route(
+    payload: ConversionPreviewRequest,
+    session: DbSession,
+) -> ConversionPreviewResponse:
+    service = ConversionAuthoringService(session)
+
+    try:
+        preview = service.preview_asset(payload)
+    except ConversionAuthoringNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except (ConversionAuthoringValidationError, ConversionAuthoringPreviewError, ConversionAuthoringServiceError) as exc:
+        raise HTTPException(status_code=HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
+
+    return build_preview_response(request=payload, preview=preview)
 
 
 @router.get("", response_model=list[ConversionSummaryResponse])

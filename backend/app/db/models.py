@@ -21,6 +21,8 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
+from hephaes.conversion.spec_io import CONVERSION_SPEC_DOCUMENT_VERSION
+
 ASSET_INDEXING_STATUSES = ("pending", "indexing", "indexed", "failed")
 JOB_TYPES = ("index", "convert", "prepare_visualization")
 JOB_STATUSES = ("queued", "running", "succeeded", "failed")
@@ -234,6 +236,170 @@ class Conversion(Base):
         cascade="all, delete-orphan",
         order_by="OutputArtifact.created_at.desc()",
     )
+
+
+class ConversionConfig(Base):
+    """Durable reusable conversion config stored as JSON-backed spec documents."""
+
+    __tablename__ = "conversion_configs"
+    __table_args__ = (
+        UniqueConstraint("normalized_name", name="uq_conversion_configs_normalized_name"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    normalized_name: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    spec_document_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    spec_document_version: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=CONVERSION_SPEC_DOCUMENT_VERSION,
+    )
+    current_revision_number: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    latest_preview_json: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    latest_preview_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    invalid_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    migration_notes_json: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+        index=True,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+        onupdate=utc_now,
+    )
+    last_opened_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    revisions: Mapped[list["ConversionConfigRevision"]] = relationship(
+        back_populates="config",
+        cascade="all, delete-orphan",
+        order_by="ConversionConfigRevision.revision_number.desc()",
+    )
+    draft_revisions: Mapped[list["ConversionDraftRevision"]] = relationship(
+        back_populates="saved_config",
+        cascade="all, delete-orphan",
+        order_by="ConversionDraftRevision.created_at.desc()",
+    )
+
+
+class ConversionConfigRevision(Base):
+    """Immutable history entry for a saved conversion config."""
+
+    __tablename__ = "conversion_config_revisions"
+    __table_args__ = (
+        CheckConstraint(
+            "revision_number >= 1",
+            name="ck_conversion_config_revisions_revision_number_positive",
+        ),
+        UniqueConstraint(
+            "config_id",
+            "revision_number",
+            name="uq_conversion_config_revisions_config_id_revision_number",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    config_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("conversion_configs.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    revision_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    change_kind: Mapped[str] = mapped_column(String(32), nullable=False, default="create")
+    change_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    spec_document_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    spec_document_version: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=CONVERSION_SPEC_DOCUMENT_VERSION,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+        index=True,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+        onupdate=utc_now,
+    )
+
+    config: Mapped[ConversionConfig] = relationship(back_populates="revisions")
+
+
+class ConversionDraftRevision(Base):
+    """Persisted draft generated from inspection and preview data."""
+
+    __tablename__ = "conversion_draft_revisions"
+    __table_args__ = (
+        CheckConstraint(
+            "revision_number >= 1",
+            name="ck_conversion_draft_revisions_revision_number_positive",
+        ),
+        CheckConstraint(
+            "status IN ('draft', 'saved', 'discarded')",
+            name="ck_conversion_draft_revisions_status_valid",
+        ),
+        UniqueConstraint(
+            "saved_config_id",
+            "revision_number",
+            name="uq_conversion_draft_revisions_saved_config_id_revision_number",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    saved_config_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("conversion_configs.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
+    revision_number: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    source_asset_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("assets.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="draft")
+    inspection_request_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    inspection_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    draft_request_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    draft_result_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    spec_document_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    spec_document_version: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=CONVERSION_SPEC_DOCUMENT_VERSION,
+    )
+    preview_json: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    warning_messages_json: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    assumption_messages_json: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    unresolved_fields_json: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+        index=True,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+        onupdate=utc_now,
+    )
+
+    saved_config: Mapped[ConversionConfig | None] = relationship(back_populates="draft_revisions")
+    source_asset: Mapped[Asset | None] = relationship()
 
 
 class OutputArtifact(Base):
