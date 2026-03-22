@@ -25,6 +25,7 @@ from .conversion.assembly import (
     resolve_mapping_for_bag as _resolve_mapping_for_bag_stage,
 )
 from .conversion.features import FeatureBuilder
+from .conversion.validation import validate_trigger_records
 from .manifest import build_episode_manifest, write_episode_manifest
 from .models import (
     ConversionSpec,
@@ -380,6 +381,7 @@ def _convert_trigger_based_source(
         on_failure=spec.decoding.on_decode_failure,
         topic_type_hints=topic_type_hints or None,
     )
+    validation_summary = validate_trigger_records(spec=spec, records=records)
 
     field_names = list(spec.features.keys())
     feature_builder = FeatureBuilder()
@@ -449,6 +451,14 @@ def _convert_trigger_based_source(
             _flush()
 
     _flush()
+    logger.info(
+        "Validated %s trigger record(s) for %s: %s bad, %s feature misses, %s missing source topic hits",
+        validation_summary.checked_records,
+        spec.schema.name,
+        validation_summary.bad_records,
+        sum(validation_summary.missing_feature_counts.values()),
+        sum(validation_summary.missing_topic_counts.values()),
+    )
     return rows_written, dropped_count
 
 

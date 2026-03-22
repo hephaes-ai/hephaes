@@ -18,6 +18,7 @@ from .discovery import (
 )
 from .features import FeatureBuilder, resolve_field_path, resolve_source_value
 from .transforms import apply_transform, apply_transform_chain
+from .validation import ValidationSummary, validate_trigger_records
 
 __all__ = [
     "TopicPlan",
@@ -40,4 +41,6 @@ __all__ = [
     "resolve_source_value",
     "apply_transform",
     "apply_transform_chain",
+    "ValidationSummary",
+    "validate_trigger_records",
 ]

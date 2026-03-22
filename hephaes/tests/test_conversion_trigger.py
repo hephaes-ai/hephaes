@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from hephaes import Converter
 from hephaes.conversion import assemble_trigger_records
 from hephaes.models import ConversionSpec, FeatureSpec, FieldSourceSpec, JoinSpec, OutputSpec, SchemaSpec
@@ -192,3 +194,51 @@ def test_converter_spec_path_emits_presence_flags_for_trigger_assembly(tmp_bag_f
     assert rows[1]["frame__present"] == 1
     assert rows[1]["buttons__present"] == 1
     assert rows[1]["buttons"] == [3, 4]
+
+
+def test_converter_spec_validation_enforces_bad_record_budget(tmp_bag_file, tmp_path):
+    mock_reader = make_mock_any_reader_with_payloads(
+        topics={"/trigger": "custom_msgs/msg/Trigger"},
+        messages=[
+            ("/trigger", 100, {"frame": {"value": [1, 2]}}),
+        ],
+    )
+
+    spec = ConversionSpec(
+        schema=SchemaSpec(name="trigger_validation_demo", version=1),
+        assembly={
+            "trigger_topic": "/trigger",
+            "joins": [],
+        },
+        features={
+            "frame": FeatureSpec(
+                source=FieldSourceSpec(topic="/trigger", field_path="frame.value"),
+                dtype="int64",
+                shape=[3],
+                required=True,
+                transforms=[
+                    {"length": {"exact": 3}},
+                    {"cast": {"dtype": "int64"}},
+                ],
+            ),
+        },
+        validation={
+            "sample_n": 1,
+            "fail_fast": False,
+            "bad_record_budget": 0,
+        },
+        output=OutputSpec(format="tfrecord"),
+    )
+
+    with _patch_any_reader(mock_reader):
+        converter = Converter(
+            [str(tmp_bag_file)],
+            None,
+            tmp_path,
+            spec=spec,
+            max_workers=1,
+            output="tfrecord",
+        )
+
+        with pytest.raises(ValueError, match="bad_record_budget"):
+            converter.convert()
