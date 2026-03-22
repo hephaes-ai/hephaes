@@ -4,7 +4,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from .assembly import assemble_trigger_records
+from .assembly import construct_rows
 from .features import FeatureBuilder, runtime_source_topic
 from ..models import ConversionSpec
 
@@ -34,34 +34,22 @@ def preview_conversion_spec(
 ) -> PreviewResult:
     if sample_n < 1:
         raise ValueError("sample_n must be >= 1")
-    if spec.assembly is None:
-        raise ValueError("preview requires a schema-aware conversion spec with an assembly section")
-    if not spec.assembly.trigger_topic:
-        raise ValueError("preview requires a trigger topic")
+    if spec.row_strategy is None:
+        raise ValueError("preview requires a schema-aware conversion spec with row_strategy")
     if not spec.features:
         raise ValueError("preview requires feature definitions")
 
-    hint_map = {
-        topic: topic_spec.type_hint
-        for topic, topic_spec in spec.decoding.topics.items()
-        if topic_spec.type_hint is not None
-    }
-    if topic_type_hints:
-        hint_map.update(topic_type_hints)
-
-    records, dropped_count = assemble_trigger_records(
+    row_result = construct_rows(
         reader=reader,
-        trigger_topic=spec.assembly.trigger_topic,
-        joins=spec.assembly.joins,
-        on_failure=spec.decoding.on_decode_failure,
-        topic_type_hints=hint_map or None,
+        spec=spec,
+        topic_type_hints=topic_type_hints,
     )
 
     feature_builder = FeatureBuilder()
     rows: list[PreviewRow] = []
     warnings: list[str] = []
 
-    for record in records[:sample_n]:
+    for record in row_result.records[:sample_n]:
         row_values: dict[str, Any | None] = {}
         row_presence: dict[str, int] = {}
         for feature_name, feature in spec.features.items():
@@ -99,4 +87,4 @@ def preview_conversion_spec(
             )
         )
 
-    return PreviewResult(rows=rows, dropped_count=dropped_count, warnings=warnings)
+    return PreviewResult(rows=rows, dropped_count=row_result.dropped_count, warnings=warnings)

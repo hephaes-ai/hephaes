@@ -40,6 +40,7 @@ from .conversion.introspection import (
     inspect_bag,
     inspect_reader,
 )
+from .conversion.assembly import ConstructedRowRecord, RowConstructionResult, construct_rows
 from .conversion.preview import PreviewResult, PreviewRow, preview_conversion_spec
 from .conversion.spec_io import (
     CONVERSION_SPEC_DOCUMENT_VERSION,
@@ -96,6 +97,7 @@ __all__ = [
     "ConversionCapabilities",
     "DraftSpecRequest",
     "DraftSpecResult",
+    "ConstructedRowRecord",
     "AssemblySpec",
     "ConcatSourceSpec",
     "ConstantSourceSpec",
@@ -117,6 +119,7 @@ __all__ = [
     "MissingDataPolicy",
     "PreviewResult",
     "PreviewRow",
+    "RowConstructionResult",
     "OutputSpec",
     "ParquetOutputConfig",
     "PerMessageRowStrategySpec",
@@ -171,3 +174,4 @@ def __getattr__(name: str):
 
         return stream_tfrecord_rows
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    "construct_rows",

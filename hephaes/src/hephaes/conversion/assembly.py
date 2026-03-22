@@ -13,8 +13,15 @@ from .._converter_helpers import (
     _step_ns_from_frequency,
     _TopicSamples,
 )
-from ..models import MappingTemplate
-from ..models import DecodeFailurePolicy, JoinSpec
+from ..models import (
+    AssemblySpec,
+    ConversionSpec,
+    DecodeFailurePolicy,
+    JoinSpec,
+    MappingTemplate,
+    PerMessageRowStrategySpec,
+    ResampleRowStrategySpec,
+)
 from ..outputs.base import RecordBatch
 from ..reader import RosReader
 
@@ -26,10 +33,19 @@ class TopicPlan:
 
 
 @dataclass(frozen=True)
-class TriggerAssemblyRecord:
+class ConstructedRowRecord:
     timestamp_ns: int
     values: dict[str, Any | None]
     presence: dict[str, int]
+
+
+TriggerAssemblyRecord = ConstructedRowRecord
+
+
+@dataclass(frozen=True)
+class RowConstructionResult:
+    records: list[ConstructedRowRecord]
+    dropped_count: int = 0
 
 
 def resolve_mapping_for_bag(
@@ -59,6 +75,68 @@ def build_mapping_resolution(
     for topic_name, field_name in topic_to_field.items():
         resolved[field_name] = topic_name
     return resolved
+
+
+def _unique_topics(topics: list[str]) -> list[str]:
+    return list(dict.fromkeys(topic for topic in topics if topic))
+
+
+def _topic_hints_from_spec(spec: ConversionSpec) -> dict[str, str]:
+    return {
+        topic: topic_spec.type_hint
+        for topic, topic_spec in spec.decoding.topics.items()
+        if topic_spec.type_hint is not None
+    }
+
+
+def topics_for_schema_spec(spec: ConversionSpec) -> list[str]:
+    topics: list[str] = []
+    if spec.row_strategy is not None:
+        topics.extend(spec.row_strategy.input_topics())
+    for feature in spec.features.values():
+        topics.extend(feature.source.input_topics())
+    if spec.labels is not None and spec.labels.source is not None:
+        topics.extend(spec.labels.source.input_topics())
+    return _unique_topics(topics)
+
+
+def _read_messages_by_topic(
+    *,
+    reader: RosReader,
+    topics: list[str],
+    on_failure: DecodeFailurePolicy,
+    topic_type_hints: dict[str, str] | None,
+) -> dict[str, list[Any]]:
+    normalized_topics = _unique_topics(topics)
+    messages_by_topic: dict[str, list[Any]] = {topic: [] for topic in normalized_topics}
+    if not normalized_topics:
+        return messages_by_topic
+
+    for message in reader.read_messages(
+        topics=normalized_topics,
+        on_failure=on_failure,
+        topic_type_hints=topic_type_hints,
+    ):
+        messages_by_topic.setdefault(message.topic, []).append(message)
+
+    for topic_messages in messages_by_topic.values():
+        topic_messages.sort(key=lambda message: int(message.timestamp))
+    return messages_by_topic
+
+
+def _flatten_messages_by_topic(
+    messages_by_topic: dict[str, list[Any]],
+    *,
+    topics: list[str],
+) -> list[Any]:
+    topic_order = {topic: index for index, topic in enumerate(topics)}
+    flattened = [
+        message
+        for topic in topics
+        for message in messages_by_topic.get(topic, [])
+    ]
+    flattened.sort(key=lambda message: (int(message.timestamp), topic_order.get(message.topic, len(topic_order))))
+    return flattened
 
 
 def _select_join_candidate(
@@ -123,25 +201,21 @@ def assemble_trigger_records(
     joins: list[JoinSpec],
     on_failure: DecodeFailurePolicy = "warn",
     topic_type_hints: dict[str, str] | None = None,
-) -> tuple[list[TriggerAssemblyRecord], int]:
+) -> tuple[list[ConstructedRowRecord], int]:
     topics = [trigger_topic]
     for join in joins:
         if join.topic not in topics:
             topics.append(join.topic)
 
-    messages_by_topic: dict[str, list[Any]] = {topic: [] for topic in topics}
-    for message in reader.read_messages(
+    messages_by_topic = _read_messages_by_topic(
+        reader=reader,
         topics=topics,
         on_failure=on_failure,
         topic_type_hints=topic_type_hints,
-    ):
-        messages_by_topic.setdefault(message.topic, []).append(message)
-
-    for topic_messages in messages_by_topic.values():
-        topic_messages.sort(key=lambda message: int(message.timestamp))
+    )
 
     trigger_messages = messages_by_topic.get(trigger_topic, [])
-    records: list[TriggerAssemblyRecord] = []
+    records: list[ConstructedRowRecord] = []
     dropped_count = 0
 
     for trigger_message in trigger_messages:
@@ -187,7 +261,7 @@ def assemble_trigger_records(
             continue
 
         records.append(
-            TriggerAssemblyRecord(
+            ConstructedRowRecord(
                 timestamp_ns=int(trigger_message.timestamp),
                 values=values,
                 presence=presence,
@@ -195,6 +269,268 @@ def assemble_trigger_records(
         )
 
     return records, dropped_count
+
+
+def assemble_per_message_records(
+    *,
+    reader: RosReader,
+    topic: str,
+    on_failure: DecodeFailurePolicy = "warn",
+    topic_type_hints: dict[str, str] | None = None,
+) -> tuple[list[ConstructedRowRecord], int]:
+    records: list[ConstructedRowRecord] = []
+    for message in reader.read_messages(
+        topics=[topic],
+        on_failure=on_failure,
+        topic_type_hints=topic_type_hints,
+    ):
+        records.append(
+            ConstructedRowRecord(
+                timestamp_ns=int(message.timestamp),
+                values={topic: message.data},
+                presence={topic: 1},
+            )
+        )
+
+    records.sort(key=lambda record: record.timestamp_ns)
+    return records, 0
+
+
+def _resolve_resample_bounds(
+    *,
+    messages_by_topic: dict[str, list[Any]],
+    topics: list[str],
+    anchor_topic: str | None,
+) -> tuple[int | None, int | None]:
+    if anchor_topic is not None and messages_by_topic.get(anchor_topic):
+        anchor_messages = messages_by_topic[anchor_topic]
+        return int(anchor_messages[0].timestamp), int(anchor_messages[-1].timestamp)
+
+    min_ts: int | None = None
+    max_ts: int | None = None
+    for topic in topics:
+        topic_messages = messages_by_topic.get(topic, [])
+        if not topic_messages:
+            continue
+        topic_min = int(topic_messages[0].timestamp)
+        topic_max = int(topic_messages[-1].timestamp)
+        if min_ts is None or topic_min < min_ts:
+            min_ts = topic_min
+        if max_ts is None or topic_max > max_ts:
+            max_ts = topic_max
+    return min_ts, max_ts
+
+
+def _construct_downsample_records(
+    *,
+    messages_by_topic: dict[str, list[Any]],
+    topics: list[str],
+    strategy: ResampleRowStrategySpec,
+) -> list[ConstructedRowRecord]:
+    all_messages = _flatten_messages_by_topic(messages_by_topic, topics=topics)
+    if not all_messages:
+        return []
+
+    step_ns = _step_ns_from_frequency(strategy.freq_hz)
+    start_ts, _ = _resolve_resample_bounds(
+        messages_by_topic=messages_by_topic,
+        topics=topics,
+        anchor_topic=strategy.anchor_topic,
+    )
+    if start_ts is None:
+        return []
+
+    bucket_start = start_ts
+    bucket_end = bucket_start + step_ns
+    bucket_values: dict[str, Any | None] = {}
+    bucket_presence: dict[str, int] = {}
+    records: list[ConstructedRowRecord] = []
+
+    for message in all_messages:
+        timestamp = int(message.timestamp)
+        while timestamp >= bucket_end:
+            records.append(
+                ConstructedRowRecord(
+                    timestamp_ns=bucket_start,
+                    values=dict(bucket_values),
+                    presence=dict(bucket_presence),
+                )
+            )
+            bucket_values = {}
+            bucket_presence = {}
+            bucket_start += step_ns
+            bucket_end += step_ns
+
+        bucket_values[message.topic] = message.data
+        bucket_presence[message.topic] = 1
+
+    records.append(
+        ConstructedRowRecord(
+            timestamp_ns=bucket_start,
+            values=dict(bucket_values),
+            presence=dict(bucket_presence),
+        )
+    )
+    return records
+
+
+def _construct_interpolate_records(
+    *,
+    messages_by_topic: dict[str, list[Any]],
+    topics: list[str],
+    strategy: ResampleRowStrategySpec,
+) -> list[ConstructedRowRecord]:
+    start_ts, end_ts = _resolve_resample_bounds(
+        messages_by_topic=messages_by_topic,
+        topics=topics,
+        anchor_topic=strategy.anchor_topic,
+    )
+    if start_ts is None or end_ts is None:
+        return []
+
+    samples = {topic: _TopicSamples() for topic in topics}
+    for topic in topics:
+        for message in messages_by_topic.get(topic, []):
+            samples[topic].append(int(message.timestamp), message.data)
+
+    for sample in samples.values():
+        sample.sort()
+
+    step_ns = _step_ns_from_frequency(strategy.freq_hz)
+    lower_indices = {topic: 0 for topic in topics}
+    records: list[ConstructedRowRecord] = []
+
+    target_ts = start_ts
+    while target_ts <= end_ts:
+        row_values: dict[str, Any | None] = {}
+        row_presence: dict[str, int] = {}
+
+        for topic in topics:
+            sample = samples[topic]
+            if not sample.timestamps:
+                continue
+
+            timestamps = sample.timestamps
+            payloads = sample.payloads
+            index = lower_indices[topic]
+            if index >= len(timestamps):
+                index = len(timestamps) - 1
+
+            if target_ts < timestamps[0] or target_ts > timestamps[-1]:
+                lower_indices[topic] = index
+                continue
+
+            while index + 1 < len(timestamps) and timestamps[index + 1] <= target_ts:
+                index += 1
+            lower_indices[topic] = index
+
+            if timestamps[index] == target_ts:
+                row_values[topic] = payloads[index]
+                row_presence[topic] = 1
+                continue
+
+            upper_index = index + 1
+            if upper_index >= len(timestamps):
+                continue
+
+            lo_ts = timestamps[index]
+            hi_ts = timestamps[upper_index]
+            if hi_ts == lo_ts:
+                row_values[topic] = payloads[index]
+                row_presence[topic] = 1
+                continue
+
+            alpha = (target_ts - lo_ts) / (hi_ts - lo_ts)
+            row_values[topic] = _interpolate_json_leaves(payloads[index], payloads[upper_index], alpha)
+            row_presence[topic] = 1
+
+        records.append(
+            ConstructedRowRecord(
+                timestamp_ns=target_ts,
+                values=row_values,
+                presence=row_presence,
+            )
+        )
+        target_ts += step_ns
+
+    return records
+
+
+def assemble_resample_records(
+    *,
+    reader: RosReader,
+    strategy: ResampleRowStrategySpec,
+    topics: list[str],
+    on_failure: DecodeFailurePolicy = "warn",
+    topic_type_hints: dict[str, str] | None = None,
+) -> tuple[list[ConstructedRowRecord], int]:
+    resolved_topics = _unique_topics([*topics, *strategy.input_topics()])
+    messages_by_topic = _read_messages_by_topic(
+        reader=reader,
+        topics=resolved_topics,
+        on_failure=on_failure,
+        topic_type_hints=topic_type_hints,
+    )
+
+    if strategy.method == "downsample":
+        return _construct_downsample_records(
+            messages_by_topic=messages_by_topic,
+            topics=resolved_topics,
+            strategy=strategy,
+        ), 0
+
+    return _construct_interpolate_records(
+        messages_by_topic=messages_by_topic,
+        topics=resolved_topics,
+        strategy=strategy,
+    ), 0
+
+
+def construct_rows(
+    *,
+    reader: RosReader,
+    spec: ConversionSpec,
+    on_failure: DecodeFailurePolicy | None = None,
+    topic_type_hints: dict[str, str] | None = None,
+) -> RowConstructionResult:
+    if spec.row_strategy is None:
+        raise ValueError("row construction requires a schema-aware spec with row_strategy")
+
+    resolved_on_failure = on_failure or spec.decoding.on_decode_failure
+    resolved_hints = dict(_topic_hints_from_spec(spec))
+    if topic_type_hints:
+        resolved_hints.update(topic_type_hints)
+
+    if isinstance(spec.row_strategy, AssemblySpec):
+        if not spec.row_strategy.trigger_topic:
+            raise ValueError("trigger row_strategy requires a trigger_topic")
+        records, dropped_count = assemble_trigger_records(
+            reader=reader,
+            trigger_topic=spec.row_strategy.trigger_topic,
+            joins=spec.row_strategy.joins,
+            on_failure=resolved_on_failure,
+            topic_type_hints=resolved_hints or None,
+        )
+        return RowConstructionResult(records=records, dropped_count=dropped_count)
+
+    if isinstance(spec.row_strategy, PerMessageRowStrategySpec):
+        records, dropped_count = assemble_per_message_records(
+            reader=reader,
+            topic=spec.row_strategy.topic,
+            on_failure=resolved_on_failure,
+            topic_type_hints=resolved_hints or None,
+        )
+        return RowConstructionResult(records=records, dropped_count=dropped_count)
+
+    resolved_topics = topics_for_schema_spec(spec)
+    records, dropped_count = assemble_resample_records(
+        reader=reader,
+        strategy=spec.row_strategy,
+        topics=resolved_topics,
+        on_failure=resolved_on_failure,
+        topic_type_hints=resolved_hints or None,
+    )
+    return RowConstructionResult(records=records, dropped_count=dropped_count)
 
 
 def _flush_chunk(

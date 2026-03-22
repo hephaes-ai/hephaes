@@ -25,7 +25,6 @@ The current baseline already gives us:
 
 The main gaps are:
 
-- schema-aware conversion is still trigger-centric at runtime
 - runtime feature-source evaluation is still limited to `path`
 - preview and validation are not yet the full contract-authoring gate
 - the config-first demo and reusable-config workflow are still incomplete
@@ -76,7 +75,7 @@ Turn the current spec into the final contract shape we actually need, without br
 
 ## Phase 2: Build A Shared Row-Construction Engine
 
-Status: not started
+Status: complete
 
 Goal:
 Make row construction a first-class stage that preview, validation, and final conversion all share.
@@ -107,6 +106,14 @@ Make row construction a first-class stage that preview, validation, and final co
 
 - A schema-aware spec can build rows without being trigger-only.
 - Preview, validation, and conversion all operate on the same row model.
+
+### Completed
+
+- Added a shared row-construction entrypoint that dispatches by `row_strategy`.
+- Kept the trigger assembly API intact as a compatibility wrapper on top of the shared layer.
+- Added executable row construction for `trigger`, `per-message`, and `resample` strategies.
+- Routed preview, validation, and schema-aware conversion through the same constructed-row model.
+- Added regression coverage for per-message rows, resample interpolation preview, and converter execution on the per-message path.
 
 ## Phase 3: Implement Source-Expression Evaluation
 

@@ -21,7 +21,7 @@ from ._utils import determine_ros_version_from_path
 from .conversion import build_message_decoder, discover_input_paths
 from .conversion.assembly import (
     TopicPlan as _AssemblyTopicPlan,
-    assemble_trigger_records,
+    construct_rows,
     build_mapping_resolution as _build_mapping_resolution_stage,
     resolve_mapping_for_bag as _resolve_mapping_for_bag_stage,
 )
@@ -32,7 +32,7 @@ from .conversion.layout import (
     render_output_filename,
 )
 from .conversion.features import FeatureBuilder, runtime_source_topic
-from .conversion.validation import validate_trigger_records
+from .conversion.validation import validate_constructed_rows
 from .conversion.report import write_conversion_report
 from .manifest import build_episode_manifest, write_episode_manifest
 from .models import (
@@ -415,7 +415,7 @@ def _convert_interpolate(
     return rows_written
 
 
-def _build_trigger_output_records(
+def _build_schema_output_records(
     *,
     spec: ConversionSpec,
     records: list[Any],
@@ -468,7 +468,7 @@ def _build_trigger_output_records(
     return output_records
 
 
-def _convert_trigger_based_source(
+def _convert_schema_aware_source(
     *,
     reader: RosReader,
     spec: ConversionSpec,
@@ -482,28 +482,20 @@ def _convert_trigger_based_source(
     robot_context: dict[str, Any] | None,
     chunk_rows: int,
 ) -> tuple[list[Path], int, int]:
-    if spec.assembly is None:
-        raise ValueError("trigger-based conversion requires an assembly spec")
+    if spec.row_strategy is None:
+        raise ValueError("schema-aware conversion requires row_strategy")
     if not spec.features:
-        raise ValueError("trigger-based conversion requires feature specs")
+        raise ValueError("schema-aware conversion requires feature specs")
 
-    topic_type_hints = {
-        topic: topic_spec.type_hint
-        for topic, topic_spec in spec.decoding.topics.items()
-        if topic_spec.type_hint is not None
-    }
-    records, dropped_count = assemble_trigger_records(
+    row_result = construct_rows(
         reader=reader,
-        trigger_topic=spec.assembly.trigger_topic or "",
-        joins=spec.assembly.joins,
-        on_failure=spec.decoding.on_decode_failure,
-        topic_type_hints=topic_type_hints or None,
+        spec=spec,
     )
-    validation_summary = validate_trigger_records(spec=spec, records=records)
+    validation_summary = validate_constructed_rows(spec=spec, records=row_result.records)
 
     field_names = list(spec.features.keys())
     output_config = spec.to_output_config()
-    output_records = _build_trigger_output_records(spec=spec, records=records)
+    output_records = _build_schema_output_records(spec=spec, records=row_result.records)
     split_partitions = partition_records_for_split(output_records, spec.split)
     split_counts = {split_name: len(split_records) for split_name, split_records in split_partitions.items()}
     output_paths: list[Path] = []
@@ -593,7 +585,7 @@ def _convert_trigger_based_source(
                     shard_index=shard_index,
                     num_shards=num_shards,
                     output_filename=output_filename,
-                    dropped_rows=dropped_count,
+                    dropped_rows=row_result.dropped_count,
                     split_counts=split_counts,
                     missing_feature_counts=validation_summary.missing_feature_counts,
                     missing_topic_counts=validation_summary.missing_topic_counts,
@@ -619,14 +611,14 @@ def _convert_trigger_based_source(
                 )
 
     logger.info(
-        "Validated %s trigger record(s) for %s: %s bad, %s feature misses, %s missing source topic hits",
+        "Validated %s constructed row(s) for %s: %s bad, %s feature misses, %s missing source topic hits",
         validation_summary.checked_records,
         spec.schema.name,
         validation_summary.bad_records,
         sum(validation_summary.missing_feature_counts.values()),
         sum(validation_summary.missing_topic_counts.values()),
     )
-    return output_paths, total_rows_written, dropped_count
+    return output_paths, total_rows_written, row_result.dropped_count
 
 
 def _convert_single_source(
@@ -664,8 +656,8 @@ def _convert_single_source(
         temporal_metadata = extract_temporal_metadata(reader)
         resolved_registry = writer_registry or DEFAULT_WRITER_REGISTRY
 
-        if conversion_spec.assembly is not None and conversion_spec.features:
-            output_paths, rows_written, dropped_count = _convert_trigger_based_source(
+        if conversion_spec.row_strategy is not None and conversion_spec.features:
+            output_paths, rows_written, dropped_count = _convert_schema_aware_source(
                 reader=reader,
                 spec=conversion_spec,
                 output_dir=output_dir,
@@ -681,7 +673,7 @@ def _convert_single_source(
 
             if dropped_count:
                 logger.info(
-                    "Trigger assembly dropped %s record(s) for %s",
+                    "Row construction dropped %s record(s) for %s",
                     dropped_count,
                     episode_id,
                 )
@@ -837,7 +829,7 @@ class Converter:
         self.robot_context = dict(robot_context) if robot_context is not None else None
 
     def convert(self) -> list[Path]:
-        if self.spec.assembly is None and not self.mapping.root:
+        if self.spec.row_strategy is None and not self.mapping.root:
             raise ValueError("No topics found in mapping template")
 
         mapping_dict = self.mapping.model_dump()

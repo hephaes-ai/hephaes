@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from ..models import ConversionSpec
-from .assembly import TriggerAssemblyRecord
+from .assembly import ConstructedRowRecord
 from .features import FeatureBuilder, runtime_source_topic
 
 
@@ -16,10 +16,10 @@ class ValidationSummary:
     missing_topic_counts: dict[str, int]
 
 
-def validate_trigger_records(
+def validate_constructed_rows(
     *,
     spec: ConversionSpec,
-    records: list[TriggerAssemblyRecord],
+    records: list[ConstructedRowRecord],
 ) -> ValidationSummary:
     validation = spec.validation
     missing_expected_features = [
@@ -81,3 +81,11 @@ def validate_trigger_records(
         missing_feature_counts=missing_feature_counts,
         missing_topic_counts=missing_topic_counts,
     )
+
+
+def validate_trigger_records(
+    *,
+    spec: ConversionSpec,
+    records: list[ConstructedRowRecord],
+) -> ValidationSummary:
+    return validate_constructed_rows(spec=spec, records=records)

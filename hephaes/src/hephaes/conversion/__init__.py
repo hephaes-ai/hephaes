@@ -1,7 +1,12 @@
 from .assembly import (
+    ConstructedRowRecord,
+    RowConstructionResult,
     TopicPlan,
     TriggerAssemblyRecord,
     assemble_trigger_records,
+    assemble_per_message_records,
+    assemble_resample_records,
+    construct_rows,
     collect_interpolation_samples,
     convert_downsample,
     convert_interpolate,
@@ -48,12 +53,17 @@ from .spec_io import (
     migrate_conversion_spec_payload,
 )
 from .transforms import apply_transform, apply_transform_chain
-from .validation import ValidationSummary, validate_trigger_records
+from .validation import ValidationSummary, validate_constructed_rows, validate_trigger_records
 
 __all__ = [
+    "ConstructedRowRecord",
+    "RowConstructionResult",
     "TopicPlan",
     "TriggerAssemblyRecord",
     "assemble_trigger_records",
+    "assemble_per_message_records",
+    "assemble_resample_records",
+    "construct_rows",
     "collect_interpolation_samples",
     "convert_downsample",
     "convert_interpolate",
@@ -103,5 +113,6 @@ __all__ = [
     "apply_transform",
     "apply_transform_chain",
     "ValidationSummary",
+    "validate_constructed_rows",
     "validate_trigger_records",
 ]
