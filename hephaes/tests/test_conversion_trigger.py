@@ -138,7 +138,7 @@ def test_converter_spec_path_emits_presence_flags_for_trigger_assembly(tmp_bag_f
         topics={"/trigger": "custom_msgs/msg/Trigger", "/joy": "sensor_msgs/msg/Joy"},
         messages=[
             ("/trigger", 100, {"frame": {"value": 1}}),
-            ("/joy", 150, {"buttons": [3, 4]}),
+            ("/joy", 150, {"buttons": [3.2, 4.9]}),
             ("/trigger", 200, {"frame": {"value": 2}}),
         ],
     )
@@ -167,6 +167,7 @@ def test_converter_spec_path_emits_presence_flags_for_trigger_assembly(tmp_bag_f
                 dtype="int64",
                 shape=[2],
                 required=True,
+                transforms=[{"cast": {"dtype": "int64"}}],
             ),
         },
         output=OutputSpec(format="tfrecord"),

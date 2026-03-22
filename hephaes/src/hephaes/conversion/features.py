@@ -3,6 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+import numpy as np
+
+from .transforms import apply_transform_chain
 from ..models import FieldSourceSpec, FeatureSpec
 
 
@@ -35,7 +38,36 @@ def resolve_source_value(payload: Any, source: FieldSourceSpec) -> Any:
     return resolve_field_path(payload, source.field_path)
 
 
+def _validate_shape(value: Any, shape: list[int] | None) -> None:
+    if shape is None:
+        return
+    if not shape:
+        return
+
+    if isinstance(value, np.ndarray):
+        value = value.tolist()
+
+    if not isinstance(value, (list, tuple)):
+        raise ValueError("feature shape validation requires a sequence value")
+
+    expected = shape[0]
+    if expected >= 0 and len(value) != expected:
+        raise ValueError(f"expected sequence length {expected}, got {len(value)}")
+    if expected < 0:
+        return
+
+    next_shape = shape[1:]
+    for item in value:
+        _validate_shape(item, next_shape)
+
+
 @dataclass(frozen=True)
 class FeatureBuilder:
     def extract(self, payload: Any, feature: FeatureSpec) -> Any:
         return resolve_source_value(payload, feature.source)
+
+    def build(self, payload: Any, feature: FeatureSpec) -> Any:
+        value = self.extract(payload, feature)
+        value = apply_transform_chain(value, feature.transforms)
+        _validate_shape(value, feature.shape)
+        return value

@@ -24,7 +24,7 @@ from .conversion.assembly import (
     build_mapping_resolution as _build_mapping_resolution_stage,
     resolve_mapping_for_bag as _resolve_mapping_for_bag_stage,
 )
-from .conversion.features import resolve_source_value
+from .conversion.features import FeatureBuilder
 from .manifest import build_episode_manifest, write_episode_manifest
 from .models import (
     ConversionSpec,
@@ -382,6 +382,7 @@ def _convert_trigger_based_source(
     )
 
     field_names = list(spec.features.keys())
+    feature_builder = FeatureBuilder()
 
     # Keep the writer contract simple: we batch feature rows and provide
     # explicit presence flags for any default-filled values.
@@ -426,7 +427,7 @@ def _convert_trigger_based_source(
                 continue
 
             try:
-                extracted_value = resolve_source_value(source_payload, feature.source)
+                extracted_value = feature_builder.build(source_payload, feature)
             except Exception:
                 row_values[feature_name] = None
                 row_presence[feature_name] = 0

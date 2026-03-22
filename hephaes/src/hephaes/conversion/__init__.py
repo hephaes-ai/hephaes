@@ -17,6 +17,7 @@ from .discovery import (
     filter_topics_from_spec,
 )
 from .features import FeatureBuilder, resolve_field_path, resolve_source_value
+from .transforms import apply_transform, apply_transform_chain
 
 __all__ = [
     "TopicPlan",
@@ -37,4 +38,6 @@ __all__ = [
     "FeatureBuilder",
     "resolve_field_path",
     "resolve_source_value",
+    "apply_transform",
+    "apply_transform_chain",
 ]
