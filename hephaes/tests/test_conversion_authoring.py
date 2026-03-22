@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from hephaes import build_doom_ros_train_py_compatible
+from hephaes import build_doom_ros_train_py_compatible, dump_conversion_spec, load_conversion_spec
 from hephaes.conversion.draft_spec import DraftSpecRequest, build_draft_conversion_spec
 from hephaes.conversion.introspection import inspect_reader
-from hephaes.conversion.preview import preview_conversion_spec
-from hephaes.models import ConversionSpec, FeatureSpec, FieldSourceSpec, Message, OutputSpec, SchemaSpec
+from hephaes.conversion.preview import preflight_conversion_spec, preview_conversion_spec
+from hephaes.models import ConversionSpec, FeatureSpec, FieldSourceSpec, LabelSpec, Message, OutputSpec, SchemaSpec
 
 
 class FakeAuthoringReader:
@@ -188,3 +188,45 @@ def test_draft_generation_can_return_preview_and_label_metadata():
     assert draft.preview.rows[0].field_data["image"] is not None
     assert draft.preview.rows[0].field_data["buttons"][:3] == [1, 0, 0]
     assert len(draft.preview.rows[0].field_data["buttons"]) == 15
+
+
+def test_config_first_authoring_flow_can_go_from_inspection_to_preflight():
+    reader = _build_authoring_reader()
+    inspection = inspect_reader(reader, sample_n=2)
+
+    draft = build_draft_conversion_spec(
+        inspection,
+        request=DraftSpecRequest(
+            trigger_topic="/doom_image",
+            selected_topics=["/doom_image", "/joy"],
+            max_features_per_topic=1,
+            include_preview=False,
+        ),
+    )
+    edited_spec = draft.spec.model_copy(
+        update={
+            "features": {
+                **draft.spec.features,
+                "row_timestamp": FeatureSpec(
+                    source={"kind": "metadata", "key": "timestamp_ns"},
+                    dtype="int64",
+                    required=True,
+                ),
+                "dataset_tag": FeatureSpec(
+                    source={"kind": "constant", "value": "authoring-test"},
+                    dtype="json",
+                    required=True,
+                ),
+            },
+            "labels": draft.spec.labels or LabelSpec(primary=next(iter(draft.spec.features))),
+        }
+    )
+
+    round_tripped_spec = load_conversion_spec(dump_conversion_spec(edited_spec))
+    preflight = preflight_conversion_spec(reader, round_tripped_spec, sample_n=2)
+
+    assert preflight.preflight_ok is True
+    assert preflight.checked_records == 2
+    assert preflight.bad_records == 0
+    assert preflight.rows[0].field_data["row_timestamp"] == 100
+    assert preflight.rows[0].field_data["dataset_tag"] == "authoring-test"

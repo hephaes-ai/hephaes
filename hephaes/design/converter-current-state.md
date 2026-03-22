@@ -15,13 +15,14 @@ The library currently supports:
 - draft-origin metadata on inferred specs
 - preflight and preview summaries with missing-data rates and label validation
 - manifests and reports that carry row strategy, composed source metadata, draft provenance, and preflight summaries
+- a config-first `core_demo.ipynb` that walks through inspect -> draft -> edit -> preflight -> convert
 - declarative transforms for images, numeric values, and sequences
 - spec serialization and migration helpers for the richer v2 contract shape
 - capability metadata that distinguishes authoring surface from current runtime support
 - introspection, draft-spec generation, and preview helpers
 - validation, sharding, manifests, and conversion reports
 
-The code has been exercised with the hephaes test suite and the current authoring-focused tests are passing (`287 passed`).
+The code has been exercised with the hephaes test suite and the current authoring-focused tests are passing (`288 passed`).
 
 ## Implemented In `hephaes`
 
@@ -57,7 +58,7 @@ The biggest product gaps are still around authoring flexibility and cross-packag
 
 - non-trigger row strategies exist, but advanced join semantics are still only defined for trigger-based assembly
 - backend and frontend contracts for reusable configs, inspections, drafts, and previews are still only planned
-- the config-first demo and reusable-config UX still need a final pass to reflect the intended authoring flow
+- reusable-config persistence and product UX still need the future backend/frontend work tracked in the package design docs
 
 ## Current Limitations To Keep In Mind
 

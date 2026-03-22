@@ -25,7 +25,6 @@ The current baseline already gives us:
 
 The main gaps are:
 
-- the config-first demo and reusable-config workflow are still incomplete
 - backend and frontend contract wiring still needs to be built around the `hephaes` business-logic surface
 
 ## Phase 1: Normalize The Spec Model Around The Missing Runtime Concepts
@@ -238,7 +237,7 @@ Make manifests and reports reflect the actual authored contract and conversion p
 
 ## Phase 6: Rewrite The Authoring Demo Around The Real Workflow
 
-Status: partial
+Status: complete
 
 Goal:
 Make the demo and docs teach inspect -> draft -> edit -> preview -> convert instead of preset-first usage.
@@ -265,6 +264,12 @@ Make the demo and docs teach inspect -> draft -> edit -> preview -> convert inst
 
 - The recommended usage pattern is clearly config-first.
 - A new teammate could follow the demo without discovering an old preset-first mental model.
+
+### Completed
+
+- Rewrote `hephaes/demo/core_demo.ipynb` around inspect -> draft -> edit -> preflight -> convert.
+- Removed the preset-first notebook flow in favor of public authoring APIs such as `inspect_reader`, `build_draft_conversion_spec`, `dump_conversion_spec`, `load_conversion_spec`, and `preflight_conversion_spec`.
+- Added a notebook-adjacent smoke test that exercises the same config-first authoring loop.
 
 ## Phase 7: Add Backend Authoring And Reusable-Config Contracts
 
