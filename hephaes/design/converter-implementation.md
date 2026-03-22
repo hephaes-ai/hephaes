@@ -20,6 +20,77 @@ The safest path is to introduce the new config and conversion stages in small st
 
 That lets us ship the training-ready workflow without breaking existing users who only need generic export.
 
+## Tasks
+
+This is the execution checklist for the plan above. The detailed phase sections that follow provide the supporting rationale and implementation notes.
+
+### Phase 1: Add A Schema-Aware Config Model
+
+- [ ] Add richer config models for input discovery, decoding, assembly, feature mapping, transforms, labels, splitting, output, and validation.
+- [ ] Preserve the current `mapping`, `resample`, `output`, and `write_manifest` inputs as compatibility fields.
+- [ ] Add a built-in `doom_ros_train_py_compatible` preset so the training-ready path is easy to discover.
+- Testing / debug: add unit tests for config validation, legacy translation, and preset expansion, then run a dry conversion and inspect the manifest for schema name and version fields.
+
+### Phase 2: Split The Conversion Pipeline Into Explicit Stages
+
+- [ ] Expand file discovery to support explicit paths, glob patterns, recursive directories, topic include/exclude filters, and time windows.
+- [ ] Add a decoding layer with ROS2 auto-detection, manual type hints, and decode failure policies such as `skip`, `warn`, and `fail`.
+- [ ] Keep `RosReader` focused on raw log access, topic iteration, and metadata extraction.
+- Testing / debug: add tests for discovery edge cases and decode failure behavior, then debug one small MCAP by comparing requested topics against actually decoded topics.
+
+### Phase 3: Implement Trigger-Based Record Assembly
+
+- [ ] Add trigger-topic selection so each trigger message becomes one output record.
+- [ ] Implement join policies for `nearest`, `last-known-before`, and `exact-within-tolerance`.
+- [ ] Add per-topic tolerance, staleness limits, required flags, optional flags, and missing-data behavior.
+- Testing / debug: build synthetic timeline tests for each sync policy, then debug assembled rows by verifying trigger timestamps, joined values, and presence flags.
+
+### Phase 4: Add Feature Mapping, Transforms, And Encoding
+
+- [ ] Define explicit features using topic plus field path, output dtype, shape constraints, required status, and transform chains.
+- [ ] Add image transforms for channel conversion, resize, crop, normalization, and encoding format selection.
+- [ ] Add numeric transforms, sequence padding and truncation, label derivation, and class mapping support.
+- Testing / debug: add round-trip tests for PNG image bytes, `buttons` vectors, numeric casts, and shape validation, then debug a known Doom sample to confirm `image` and `buttons` match the training contract.
+
+### Phase 5: Add Validation, Preflight, And Reports
+
+- [ ] Validate dtype and shape before writing any record.
+- [ ] Add schema compatibility checks, sample-N preflight validation, and fail-fast handling for required feature mismatches.
+- [ ] Add a bad-record budget, missing-topic rates, label summaries, and dry-run mode.
+- Testing / debug: add failure-path tests for missing required features and invalid shapes, then run preflight-only mode and confirm it stops before shard writing when a contract is broken.
+
+### Phase 6: Add Sharding, Splitting, And Deterministic Output
+
+- [ ] Add shard counts, file naming templates, GZIP or uncompressed output, and deterministic ordering.
+- [ ] Support train/val/test splits with time-based or random strategies and a fixed seed.
+- [ ] Keep shard and split outputs stable across reruns so results are easy to compare.
+- Testing / debug: add tests that verify shard naming, split assignment stability, and repeated-run determinism, then rerun the same fixture twice and diff the emitted outputs.
+
+### Phase 7: Update The Manifest And Conversion Report
+
+- [ ] Add schema name and version.
+- [ ] Add resolved feature definitions.
+- [ ] Add per-feature missing rates.
+- [ ] Add record counts and dropped counts.
+- [ ] Add split counts.
+- [ ] Add validation summary.
+- [ ] Keep the existing source metadata and temporal metadata.
+- Testing / debug: add checks for manifest schema fields, summary counts, and preview metadata, then verify the report matches the emitted shards.
+
+### Phase 8: Update The Backend Conversion Contract
+
+- [ ] Extend `backend/app/schemas/conversions.py` to accept the richer converter config.
+- [ ] Translate legacy backend requests into the new converter spec when possible.
+- [ ] Align backend validation errors with library validation errors so the user sees one consistent contract.
+- Testing / debug: add API tests for both legacy and new payload shapes, plus failure cases for invalid schema contracts, then trace one conversion request from API payload to `Converter` arguments.
+
+### Phase 9: Add Built-In Templates
+
+- [ ] Add `doom_ros_train_py_compatible`.
+- [ ] Add at least one generic template for single-trigger sensor logs.
+- [ ] Document how to override a built-in template with custom transforms or labels.
+- Testing / debug: add preset expansion tests and one end-to-end smoke test for the Doom template.
+
 ## Phase 1: Add A Schema-Aware Config Model
 
 The first implementation step is to define a richer config object.
@@ -274,4 +345,3 @@ Built-in templates reduce setup friction and make the training-friendly path dis
 - Image transforms should be tested carefully so RGB byte order and PNG encoding match the training script.
 - Trigger-based assembly can use a lot of memory if the implementation buffers too much per topic.
 - Split logic must remain deterministic so runs are reproducible.
-
