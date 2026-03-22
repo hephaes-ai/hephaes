@@ -10,7 +10,6 @@ import {
   CheckCircle2,
   ChevronDown,
   Copy,
-  Database,
   FileJson2,
   LoaderCircle,
   Play,
@@ -45,7 +44,10 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
@@ -408,6 +410,66 @@ function SavedConfigMenu({
   )
 }
 
+function SavedConfigDropdown({
+  configs,
+  onOpenSaveDialog,
+  onSelectConfig,
+  selectedConfig,
+}: {
+  configs: SavedConversionConfigSummaryResponse[]
+  onOpenSaveDialog: () => void
+  onSelectConfig: (configId: string) => void
+  selectedConfig: SavedConversionConfigSummaryResponse | null
+}) {
+  const buttonLabel = selectedConfig?.name ?? "Choose saved config"
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button className="min-w-[16rem] justify-between" size="sm" type="button" variant="outline">
+          <span className="truncate">{buttonLabel}</span>
+          <ChevronDown className="size-4" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="min-w-[19rem]">
+        <DropdownMenuLabel>Saved configs</DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        {configs.length > 0 ? (
+          <DropdownMenuRadioGroup
+            onValueChange={onSelectConfig}
+            value={selectedConfig?.id ?? ""}
+          >
+            {configs.map((config) => (
+              <DropdownMenuRadioItem
+                key={config.id}
+                className="flex flex-col items-start gap-0.5 py-2"
+                value={config.id}
+              >
+                <span className="font-medium text-foreground">{config.name}</span>
+                <span className="text-xs text-muted-foreground">
+                  {config.spec_schema_name ?? "Unknown schema"}
+                  {config.spec_schema_version !== null ? ` v${config.spec_schema_version}` : ""}
+                </span>
+              </DropdownMenuRadioItem>
+            ))}
+          </DropdownMenuRadioGroup>
+        ) : (
+          <DropdownMenuItem disabled>No saved configs yet</DropdownMenuItem>
+        )}
+        <DropdownMenuSeparator />
+        <DropdownMenuItem
+          onSelect={(event) => {
+            event.preventDefault()
+            onOpenSaveDialog()
+          }}
+        >
+          Save Config
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
 function ConfigEditorDialog({
   description,
   dialogMode,
@@ -548,8 +610,12 @@ export function ConversionAuthoringWorkspace() {
   const selectedSourceAsset =
     selectedAssets.find((asset) => asset.id === sourceAssetId) ?? selectedAssets[0] ?? null
   const selectedSavedConfig = selectedSavedConfigResponse.data ?? null
-  const savedConfigs = savedConfigsResponse.data ?? []
+  const savedConfigs = React.useMemo(() => savedConfigsResponse.data ?? [], [savedConfigsResponse.data])
   const capabilities = capabilitiesResponse.data?.hephaes ?? null
+  const selectedConfigSummary = React.useMemo(
+    () => savedConfigs.find((config) => config.id === selectedSavedConfigId) ?? null,
+    [savedConfigs, selectedSavedConfigId],
+  )
   const inspectionTopicNames = React.useMemo(
     () => Object.keys(inspectionResponse?.inspection.topics ?? {}),
     [inspectionResponse?.inspection.topics],
@@ -933,65 +999,6 @@ export function ConversionAuthoringWorkspace() {
     }
   }
 
-  async function runCurrentSpecConversion() {
-    if (!selectedSourceAsset) {
-      return
-    }
-
-    if (unindexedAssets.length > 0) {
-      setRequestMessage({
-        description: "Index the selected assets before executing the conversion.",
-        title: "Assets are not indexed yet",
-        tone: "error",
-      })
-      return
-    }
-
-    const parsedSpec = parseJsonObject(specText)
-    if (parsedSpec.error || !parsedSpec.value) {
-      setRequestMessage({
-        description: parsedSpec.error ?? "Enter a valid conversion spec first.",
-        title: "Spec JSON is invalid",
-        tone: "error",
-      })
-      return
-    }
-
-    const payload: ConversionCreateRequest = {
-      asset_ids: selectedAssets.map((asset) => asset.id),
-      spec: parsedSpec.value,
-    }
-
-    setRequestMessage(null)
-
-    const result = await submitConversion(payload, selectedAssets)
-    if (result.conversion) {
-      setCreatedConversion(result.conversion)
-      updateRouteQuery({
-        conversionId: result.conversion.id,
-        savedConfigId: selectedSavedConfigId || null,
-        sourceId: sourceAssetId || null,
-      })
-      await Promise.all([
-        revalidateConversionDetail(result.conversion.id),
-        revalidateConversions(),
-        revalidateJobs(),
-        revalidateOutputs(),
-      ])
-    }
-
-    if (result.notice) {
-      setRequestMessage({
-        description: result.notice.description,
-        title: result.notice.title,
-        tone: "error",
-      })
-      toast.error("Conversion failed", {
-        description: result.notice.description,
-      })
-    }
-  }
-
   async function runSavedConfigConversion() {
     if (!selectedSavedConfigId || !selectedSavedConfig) {
       return
@@ -1340,18 +1347,29 @@ export function ConversionAuthoringWorkspace() {
               </span>
             </div>
             <p className="max-w-3xl text-sm text-muted-foreground">
-              Inspect one asset, draft a spec, tune the JSON directly, preview the result, and save or execute it when
-              you are ready.
+              Inspect one asset, draft a spec, tune the JSON directly, preview the result, and save or run the selected
+              config when you are ready.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Button disabled={isSubmitting} onClick={openCreateDialog} size="sm" type="button" variant="outline">
-              <Save className="size-4" />
-              Save config
-            </Button>
-            <Button disabled={isSubmitting} onClick={runCurrentSpecConversion} size="sm" type="button">
-              <Play className="size-4" />
-              Run current spec
+            <SavedConfigDropdown
+              configs={savedConfigs}
+              onOpenSaveDialog={openCreateDialog}
+              onSelectConfig={selectSavedConfig}
+              selectedConfig={selectedConfigSummary}
+            />
+            <Button
+              disabled={!selectedSavedConfig || isSubmitting || isRunningSavedConfig || unindexedAssets.length > 0}
+              onClick={() => void runSavedConfigConversion()}
+              size="sm"
+              type="button"
+            >
+              {isSubmitting || isRunningSavedConfig ? (
+                <LoaderCircle className="size-4 animate-spin" />
+              ) : (
+                <Play className="size-4" />
+              )}
+              Run
             </Button>
           </div>
         </div>
@@ -2052,31 +2070,6 @@ export function ConversionAuthoringWorkspace() {
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Run</CardTitle>
-              <CardDescription>Execute the current spec or run the selected saved config as-is.</CardDescription>
-            </CardHeader>
-            <CardContent className="flex flex-wrap gap-2">
-              <Button
-                disabled={isSubmitting || specParse.error !== null || unindexedAssets.length > 0}
-                onClick={() => void runCurrentSpecConversion()}
-                type="button"
-              >
-                {isSubmitting ? <LoaderCircle className="size-4 animate-spin" /> : <Play className="size-4" />}
-                {isSubmitting ? "Submitting..." : "Run current spec"}
-              </Button>
-              <Button
-                disabled={isRunningSavedConfig || !selectedSavedConfigId || unindexedAssets.length > 0}
-                onClick={() => void runSavedConfigConversion()}
-                type="button"
-                variant="outline"
-              >
-                {isRunningSavedConfig ? <LoaderCircle className="size-4 animate-spin" /> : <Database className="size-4" />}
-                {isRunningSavedConfig ? "Starting..." : "Run saved config"}
-              </Button>
-            </CardContent>
-          </Card>
         </div>
 
         <div className="space-y-6">
