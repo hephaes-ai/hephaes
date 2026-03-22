@@ -196,6 +196,52 @@ def test_converter_spec_path_emits_presence_flags_for_trigger_assembly(tmp_bag_f
     assert rows[1]["buttons"] == [3, 4]
 
 
+def test_converter_spec_path_shards_trigger_outputs_with_default_layout(tmp_bag_file, tmp_path):
+    mock_reader = make_mock_any_reader_with_payloads(
+        topics={"/trigger": "custom_msgs/msg/Trigger"},
+        messages=[
+            ("/trigger", 100, {"frame": {"value": 1}}),
+            ("/trigger", 200, {"frame": {"value": 2}}),
+            ("/trigger", 300, {"frame": {"value": 3}}),
+            ("/trigger", 400, {"frame": {"value": 4}}),
+        ],
+    )
+
+    spec = ConversionSpec(
+        schema=SchemaSpec(name="sharded_trigger_demo", version=1),
+        assembly={
+            "trigger_topic": "/trigger",
+            "joins": [],
+        },
+        features={
+            "frame": FeatureSpec(
+                source=FieldSourceSpec(topic="/trigger", field_path="frame.value"),
+                dtype="int64",
+                required=True,
+            ),
+        },
+        output=OutputSpec(format="tfrecord", shards=2),
+    )
+
+    with _patch_any_reader(mock_reader):
+        converter = Converter(
+            [str(tmp_bag_file)],
+            None,
+            tmp_path,
+            spec=spec,
+            max_workers=1,
+            output="tfrecord",
+        )
+        results = converter.convert()
+
+    assert [path.name for path in results] == [
+        "episode_0001-00000-of-00002.tfrecord",
+        "episode_0001-00001-of-00002.tfrecord",
+    ]
+    assert [row["timestamp_ns"] for row in stream_tfrecord_rows(results[0])] == [100, 200]
+    assert [row["timestamp_ns"] for row in stream_tfrecord_rows(results[1])] == [300, 400]
+
+
 def test_converter_spec_validation_enforces_bad_record_budget(tmp_bag_file, tmp_path):
     mock_reader = make_mock_any_reader_with_payloads(
         topics={"/trigger": "custom_msgs/msg/Trigger"},

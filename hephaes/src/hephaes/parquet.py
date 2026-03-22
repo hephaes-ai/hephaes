@@ -30,6 +30,7 @@ class WideParquetWriter:
         episode_id: str,
         field_names: list[str],
         compression: str = "none",
+        output_filename: str | None = None,
     ) -> None:
         _require_pyarrow()
         self._pa = pa
@@ -38,7 +39,8 @@ class WideParquetWriter:
 
         output_path = Path(output_dir)
         output_path.mkdir(parents=True, exist_ok=True)
-        self.path = output_path / f"{episode_id}.parquet"
+        filename = output_filename or f"{episode_id}.parquet"
+        self.path = output_path / filename
 
         fixed_fields = [
             pa.field("timestamp_ns", pa.int64()),

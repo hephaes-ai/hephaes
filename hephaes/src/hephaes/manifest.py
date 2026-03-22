@@ -44,6 +44,10 @@ class DatasetArtifact(BaseModel):
     file_size_bytes: int = Field(ge=0)
     rows_written: int = Field(ge=0)
     field_names: list[str]
+    split_name: str | None = None
+    shard_index: int | None = None
+    num_shards: int = Field(default=1, ge=1)
+    output_filename: str | None = None
 
 
 class SourceArtifact(BaseModel):
@@ -64,6 +68,16 @@ class ConversionManifest(BaseModel):
     resample: dict[str, Any] | None = None
     mapping_requested: dict[str, list[str]]
     mapping_resolved: dict[str, str | None]
+    schema: dict[str, Any] | None = None
+    features: dict[str, Any] = Field(default_factory=dict)
+    split: dict[str, Any] | None = None
+    validation: dict[str, Any] | None = None
+    rows_written: int | None = None
+    dropped_rows: int | None = None
+    split_counts: dict[str, int] = Field(default_factory=dict)
+    missing_feature_counts: dict[str, int] = Field(default_factory=dict)
+    missing_topic_counts: dict[str, int] = Field(default_factory=dict)
+    missing_feature_rates: dict[str, float] = Field(default_factory=dict)
 
 
 class EpisodeManifest(BaseModel):
@@ -98,6 +112,19 @@ def build_episode_manifest(
     mapping_requested: dict[str, list[str]],
     mapping_resolved: dict[str, str | None],
     robot_context: dict[str, Any] | None = None,
+    schema: dict[str, Any] | None = None,
+    features: dict[str, Any] | None = None,
+    split: dict[str, Any] | None = None,
+    validation_summary: dict[str, Any] | None = None,
+    split_name: str | None = None,
+    shard_index: int | None = None,
+    num_shards: int = 1,
+    output_filename: str | None = None,
+    dropped_rows: int | None = None,
+    split_counts: dict[str, int] | None = None,
+    missing_feature_counts: dict[str, int] | None = None,
+    missing_topic_counts: dict[str, int] | None = None,
+    missing_feature_rates: dict[str, float] | None = None,
 ) -> EpisodeManifest:
     resolved_dataset_path = Path(dataset_path)
     return EpisodeManifest(
@@ -108,6 +135,10 @@ def build_episode_manifest(
             file_size_bytes=compute_path_size_bytes(resolved_dataset_path),
             rows_written=rows_written,
             field_names=list(field_names),
+            split_name=split_name,
+            shard_index=shard_index,
+            num_shards=num_shards,
+            output_filename=output_filename,
         ),
         source=SourceArtifact(**reader_metadata.model_dump()),
         temporal=temporal_metadata,
@@ -116,6 +147,16 @@ def build_episode_manifest(
             resample=resample.model_dump() if resample is not None else None,
             mapping_requested={key: list(value) for key, value in mapping_requested.items()},
             mapping_resolved=dict(mapping_resolved),
+            schema=schema,
+            features=dict(features or {}),
+            split=split,
+            validation=validation_summary,
+            rows_written=rows_written,
+            dropped_rows=dropped_rows,
+            split_counts=dict(split_counts or {}),
+            missing_feature_counts=dict(missing_feature_counts or {}),
+            missing_topic_counts=dict(missing_topic_counts or {}),
+            missing_feature_rates=dict(missing_feature_rates or {}),
         ),
         robot_context=dict(robot_context) if robot_context is not None else None,
     )

@@ -9,6 +9,12 @@ from .assembly import (
     build_mapping_resolution,
     resolve_mapping_for_bag,
 )
+from .layout import (
+    OutputRecord,
+    partition_records_for_shards,
+    partition_records_for_split,
+    render_output_filename,
+)
 from .decoding import MessageDecoder, build_message_decoder
 from .discovery import (
     discover_input_paths,
@@ -30,6 +36,10 @@ __all__ = [
     "convert_no_resample",
     "build_mapping_resolution",
     "resolve_mapping_for_bag",
+    "OutputRecord",
+    "partition_records_for_shards",
+    "partition_records_for_split",
+    "render_output_filename",
     "MessageDecoder",
     "build_message_decoder",
     "discover_input_paths",

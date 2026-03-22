@@ -229,7 +229,8 @@ class TFRecordDatasetWriter(BaseDatasetWriter):
     ) -> None:
         output_path = Path(output_dir)
         output_path.mkdir(parents=True, exist_ok=True)
-        self.path = output_path / f"{context.episode_id}.tfrecord"
+        file_name = context.output_filename or f"{context.episode_id}.tfrecord"
+        self.path = output_path / file_name
         self._field_names = list(context.field_names)
         self._handle: BinaryIO
         if config.compression == "gzip":

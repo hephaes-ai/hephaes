@@ -15,6 +15,10 @@ class EpisodeContext:
     field_names: list[str]
     resample: ResampleConfig | None
     output: OutputConfig
+    output_filename: str | None = None
+    split_name: str | None = None
+    shard_index: int | None = None
+    num_shards: int = 1
 
 
 @dataclass(frozen=True)
