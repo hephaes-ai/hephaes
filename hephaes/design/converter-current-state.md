@@ -13,13 +13,14 @@ The library currently supports:
 - feature-source unions for `path`, `constant`, `metadata`, `concat`, and `stack`
 - runtime source-expression evaluation for `path`, `constant`, `metadata`, `concat`, and `stack`
 - draft-origin metadata on inferred specs
+- preflight and preview summaries with missing-data rates and label validation
 - declarative transforms for images, numeric values, and sequences
 - spec serialization and migration helpers for the richer v2 contract shape
 - capability metadata that distinguishes authoring surface from current runtime support
 - introspection, draft-spec generation, and preview helpers
 - validation, sharding, manifests, and conversion reports
 
-The code has been exercised with the hephaes test suite and the current authoring-focused tests are passing (`283 passed`).
+The code has been exercised with the hephaes test suite and the current authoring-focused tests are passing (`287 passed`).
 
 ## Implemented In `hephaes`
 
@@ -33,13 +34,13 @@ The code has been exercised with the hephaes test suite and the current authorin
 
 - `hephaes/src/hephaes/conversion/introspection.py` samples decoded payloads and infers field candidates.
 - `hephaes/src/hephaes/conversion/draft_spec.py` turns inspection results into editable `ConversionSpec` drafts and now carries draft provenance into `draft_origin`.
-- `hephaes/src/hephaes/conversion/preview.py` previews rows through the shared row-construction layer and extracted feature values.
+- `hephaes/src/hephaes/conversion/preview.py` previews rows through the shared row-construction layer, exposes preflight summaries, and reports missing-data and label information.
 
 ### Runtime conversion
 
 - `hephaes/src/hephaes/conversion/assembly.py` now owns the shared row-construction layer for trigger, per-message, and resample strategies.
 - `hephaes/src/hephaes/conversion/features.py` resolves source expressions, applies transform chains, and evaluates row metadata.
-- `hephaes/src/hephaes/conversion/validation.py` validates sampled constructed rows before writing.
+- `hephaes/src/hephaes/conversion/validation.py` validates sampled constructed rows before writing, including dtype and label-contract checks.
 - `hephaes/src/hephaes/converter.py` executes legacy mapping and schema-aware flows through the shared row-construction path.
 
 ### Output and reporting
@@ -53,7 +54,7 @@ The code has been exercised with the hephaes test suite and the current authorin
 The biggest product gaps are still around authoring flexibility and cross-package integration.
 
 - non-trigger row strategies exist, but advanced join semantics are still only defined for trigger-based assembly
-- preview, manifests, and reports do not yet fully explain composed sources and missing-data behavior in an authoring-friendly way
+- manifests and reports do not yet fully explain composed sources and preflight behavior in an authoring-friendly way
 - backend and frontend contracts for reusable configs, inspections, drafts, and previews are still only planned
 - the config-first demo and reusable-config UX still need a final pass to reflect the intended authoring flow
 
@@ -62,6 +63,7 @@ The biggest product gaps are still around authoring flexibility and cross-packag
 - If a user does not provide a schema-aware spec, the converter still falls back to the legacy mapping path.
 - trigger joins support richer sync and missing-data policies than the current `per-message` and `resample` strategies.
 - manifest `mapping_resolved` still collapses composed sources down to a best-effort single-topic summary or `null`.
+- preflight is currently surfaced as a library function and preview payload rather than a dedicated persisted backend/frontend workflow.
 - The authoring helpers are useful, but they are heuristic by nature and should be treated as draft generation rather than a guaranteed final contract.
 - The business-logic package is ready for reuse, but backend/frontend wiring is still a future step.
 

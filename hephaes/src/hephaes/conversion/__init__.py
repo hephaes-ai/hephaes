@@ -46,7 +46,7 @@ from .features import (
     resolve_source_value,
     source_input_topics,
 )
-from .preview import PreviewResult, PreviewRow, preview_conversion_spec
+from .preview import PreviewResult, PreviewRow, preflight_conversion_spec, preview_conversion_spec
 from .spec_io import (
     CONVERSION_SPEC_DOCUMENT_VERSION,
     ConversionSpecDocument,
@@ -117,6 +117,7 @@ __all__ = [
     "migrate_conversion_spec_payload",
     "PreviewResult",
     "PreviewRow",
+    "preflight_conversion_spec",
     "preview_conversion_spec",
     "apply_transform",
     "apply_transform_chain",

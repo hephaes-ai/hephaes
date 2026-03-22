@@ -177,6 +177,34 @@ def _normalize_feature_value(value: Any) -> Any:
     return value
 
 
+def _validate_scalar_dtype(value: Any, dtype: str) -> None:
+    if dtype == "bytes":
+        if not isinstance(value, (bytes, bytearray)):
+            raise ValueError("expected bytes-compatible feature value")
+        return
+    if dtype == "bool":
+        if not isinstance(value, bool):
+            raise ValueError("expected bool feature value")
+        return
+    if dtype == "int64":
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ValueError("expected int64-compatible feature value")
+        return
+    if dtype in {"float32", "float64"}:
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError(f"expected {dtype}-compatible feature value")
+
+
+def _validate_feature_dtype(value: Any, dtype: str) -> None:
+    if dtype == "json":
+        return
+    if isinstance(value, list):
+        for item in value:
+            _validate_feature_dtype(item, dtype)
+        return
+    _validate_scalar_dtype(value, dtype)
+
+
 @dataclass(frozen=True)
 class FeatureBuilder:
     def extract(self, context: Any, feature: FeatureSpec) -> Any:
@@ -186,4 +214,6 @@ class FeatureBuilder:
         value = self.extract(context, feature)
         value = apply_transform_chain(value, feature.transforms)
         _validate_shape(value, feature.shape)
-        return _normalize_feature_value(value)
+        value = _normalize_feature_value(value)
+        _validate_feature_dtype(value, feature.dtype)
+        return value

@@ -25,7 +25,6 @@ The current baseline already gives us:
 
 The main gaps are:
 
-- preview and validation are not yet the full contract-authoring gate
 - reporting and manifest metadata still lag behind the richer source-expression contract
 - the config-first demo and reusable-config workflow are still incomplete
 - backend and frontend contract wiring still needs to be built around the `hephaes` business-logic surface
@@ -159,7 +158,7 @@ Remove the need for custom Python builder functions by letting features be compo
 
 ## Phase 4: Tighten Preflight Validation And Authoring Preview
 
-Status: partial
+Status: complete
 
 Goal:
 Make preview and validation the reliable gate before long-running conversion.
@@ -189,6 +188,14 @@ Make preview and validation the reliable gate before long-running conversion.
 
 - Preview is useful as an authoring review step, not just a thin sample dump.
 - Preflight catches contract problems before the write path begins.
+
+### Completed
+
+- Added `preflight_conversion_spec()` as a shared authoring gate that resolves rows, validates features, and returns before shard writing.
+- Added explicit dtype validation alongside the existing shape and required-feature checks.
+- Added label-contract validation and label summary reporting to preflight/preview output.
+- Added missing-topic and missing-feature counts plus rates to the preview/preflight surface.
+- Kept fail-fast and bad-record-budget behavior aligned by reusing the same validation path in preview/preflight and full conversion.
 
 ## Phase 5: Align Reporting And Runtime Metadata With The Richer Contract
 

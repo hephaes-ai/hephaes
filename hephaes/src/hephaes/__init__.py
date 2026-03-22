@@ -42,7 +42,7 @@ from .conversion.introspection import (
 )
 from .conversion.assembly import ConstructedRowRecord, RowConstructionResult, construct_rows
 from .conversion.features import FeatureEvaluationContext, source_input_topics
-from .conversion.preview import PreviewResult, PreviewRow, preview_conversion_spec
+from .conversion.preview import PreviewResult, PreviewRow, preflight_conversion_spec, preview_conversion_spec
 from .conversion.spec_io import (
     CONVERSION_SPEC_DOCUMENT_VERSION,
     ConversionSpecDocument,
@@ -158,6 +158,7 @@ __all__ = [
     "load_conversion_spec_document",
     "migrate_conversion_spec_document",
     "migrate_conversion_spec_payload",
+    "preflight_conversion_spec",
     "preview_conversion_spec",
     "source_input_topics",
     "build_single_trigger_sensor_log_template",

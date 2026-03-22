@@ -149,3 +149,23 @@ def test_feature_builder_rejects_missing_metadata_without_default():
         assert "missing metadata key" in str(exc)
     else:  # pragma: no cover - the assertion above should always fail first
         raise AssertionError("expected a missing metadata error")
+
+
+def test_feature_builder_rejects_dtype_mismatch_after_source_resolution():
+    context = FeatureEvaluationContext.from_row(
+        timestamp_ns=123,
+        values={"/joy": {"buttons": [1.5, 2.0]}},
+        presence={"/joy": 1},
+    )
+    feature = FeatureSpec(
+        source=FieldSourceSpec(topic="/joy", field_path="buttons"),
+        dtype="int64",
+        shape=[2],
+    )
+
+    try:
+        FeatureBuilder().build(context, feature)
+    except ValueError as exc:
+        assert "int64-compatible" in str(exc)
+    else:  # pragma: no cover - the assertion above should always fail first
+        raise AssertionError("expected a dtype validation error")

@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .assembly import construct_rows
 from .features import FeatureBuilder, FeatureEvaluationContext
+from .validation import validate_constructed_rows
 from ..models import ConversionSpec
 
 
@@ -22,17 +23,29 @@ class PreviewResult(BaseModel):
 
     rows: list[PreviewRow] = Field(default_factory=list)
     dropped_count: int = 0
+    checked_records: int = 0
+    bad_records: int = 0
+    missing_feature_counts: dict[str, int] = Field(default_factory=dict)
+    missing_feature_rates: dict[str, float] = Field(default_factory=dict)
+    missing_topic_counts: dict[str, int] = Field(default_factory=dict)
+    missing_topic_rates: dict[str, float] = Field(default_factory=dict)
+    label_summary: dict[str, Any] | None = None
     warnings: list[str] = Field(default_factory=list)
 
+    @property
+    def preflight_ok(self) -> bool:
+        return self.bad_records == 0
 
-def preview_conversion_spec(
+
+def preflight_conversion_spec(
     reader: Any,
     spec: ConversionSpec,
     *,
-    sample_n: int = 5,
+    sample_n: int | None = None,
     topic_type_hints: dict[str, str] | None = None,
 ) -> PreviewResult:
-    if sample_n < 1:
+    preview_sample_n = 5 if sample_n is None else sample_n
+    if preview_sample_n < 1:
         raise ValueError("sample_n must be >= 1")
     if spec.row_strategy is None:
         raise ValueError("preview requires a schema-aware conversion spec with row_strategy")
@@ -44,12 +57,13 @@ def preview_conversion_spec(
         spec=spec,
         topic_type_hints=topic_type_hints,
     )
+    validation_summary = validate_constructed_rows(spec=spec, records=row_result.records)
 
     feature_builder = FeatureBuilder()
     rows: list[PreviewRow] = []
     warnings: list[str] = []
 
-    for record in row_result.records[:sample_n]:
+    for record in row_result.records[:preview_sample_n]:
         row_values: dict[str, Any | None] = {}
         row_presence: dict[str, int] = {}
         context = FeatureEvaluationContext.from_row(
@@ -83,4 +97,30 @@ def preview_conversion_spec(
             )
         )
 
-    return PreviewResult(rows=rows, dropped_count=row_result.dropped_count, warnings=warnings)
+    return PreviewResult(
+        rows=rows,
+        dropped_count=row_result.dropped_count,
+        checked_records=validation_summary.checked_records,
+        bad_records=validation_summary.bad_records,
+        missing_feature_counts=validation_summary.missing_feature_counts,
+        missing_feature_rates=validation_summary.missing_feature_rates,
+        missing_topic_counts=validation_summary.missing_topic_counts,
+        missing_topic_rates=validation_summary.missing_topic_rates,
+        label_summary=validation_summary.label_summary,
+        warnings=warnings,
+    )
+
+
+def preview_conversion_spec(
+    reader: Any,
+    spec: ConversionSpec,
+    *,
+    sample_n: int = 5,
+    topic_type_hints: dict[str, str] | None = None,
+) -> PreviewResult:
+    return preflight_conversion_spec(
+        reader,
+        spec,
+        sample_n=sample_n,
+        topic_type_hints=topic_type_hints,
+    )

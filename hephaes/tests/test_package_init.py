@@ -38,6 +38,10 @@ class TestPublicExports:
         from hephaes import preview_conversion_spec
         assert callable(preview_conversion_spec)
 
+    def test_preflight_conversion_spec_exported(self):
+        from hephaes import preflight_conversion_spec
+        assert callable(preflight_conversion_spec)
+
     def test_mapping_template_exported(self):
         from hephaes import MappingTemplate
         assert MappingTemplate is not None
@@ -159,6 +163,7 @@ class TestPublicExports:
             "load_conversion_spec_document",
             "migrate_conversion_spec_document",
             "migrate_conversion_spec_payload",
+            "preflight_conversion_spec",
             "preview_conversion_spec",
             "PreviewResult",
             "PreviewRow",

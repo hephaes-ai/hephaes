@@ -6,7 +6,7 @@ from hephaes import build_doom_ros_train_py_compatible
 from hephaes.conversion.draft_spec import DraftSpecRequest, build_draft_conversion_spec
 from hephaes.conversion.introspection import inspect_reader
 from hephaes.conversion.preview import preview_conversion_spec
-from hephaes.models import Message
+from hephaes.models import ConversionSpec, FeatureSpec, FieldSourceSpec, Message, OutputSpec, SchemaSpec
 
 
 class FakeAuthoringReader:
@@ -77,6 +77,9 @@ def test_preview_conversion_spec_uses_trigger_and_join_data():
     preview = preview_conversion_spec(reader, spec, sample_n=2)
 
     assert preview.dropped_count == 0
+    assert preview.checked_records == 2
+    assert preview.bad_records == 0
+    assert preview.missing_feature_counts == {"image": 0, "buttons": 0}
     assert preview.warnings == []
     assert len(preview.rows) == 2
     assert preview.rows[0].timestamp_ns == 100
@@ -88,6 +91,66 @@ def test_preview_conversion_spec_uses_trigger_and_join_data():
     assert preview.rows[1].timestamp_ns == 200
     assert preview.rows[1].field_data["buttons"][:3] == [0, 1, 0]
     assert len(preview.rows[1].field_data["buttons"]) == 15
+    assert preview.label_summary == {
+        "primary": "buttons",
+        "present_count": 2,
+        "missing_count": 0,
+        "sample_values": [preview.rows[0].field_data["buttons"], preview.rows[1].field_data["buttons"]],
+    }
+
+
+def test_preview_conversion_spec_reports_missing_topic_and_feature_rates():
+    reader = FakeAuthoringReader(
+        topics={"/trigger": "custom_msgs/msg/Trigger", "/joy": "sensor_msgs/msg/Joy"},
+        messages=[("/trigger", 100, {"frame": {"value": 1}})],
+    )
+    spec = ConversionSpec(
+        schema=SchemaSpec(name="missing_join_demo", version=1),
+        assembly={"trigger_topic": "/trigger", "joins": [{"topic": "/joy", "required": False}]},
+        features={
+            "buttons": FeatureSpec(
+                source=FieldSourceSpec(topic="/joy", field_path="buttons"),
+                dtype="int64",
+                shape=[2],
+            )
+        },
+        output=OutputSpec(format="tfrecord"),
+    )
+
+    preview = preview_conversion_spec(reader, spec, sample_n=1)
+
+    assert preview.checked_records == 1
+    assert preview.bad_records == 0
+    assert preview.missing_feature_counts == {"buttons": 1}
+    assert preview.missing_feature_rates == {"buttons": 1.0}
+    assert preview.missing_topic_counts == {"/joy": 1}
+    assert preview.missing_topic_rates == {"/joy": 1.0}
+
+
+def test_preview_conversion_spec_raises_for_invalid_label_primary():
+    reader = FakeAuthoringReader(
+        topics={"/joy": "sensor_msgs/msg/Joy"},
+        messages=[("/joy", 100, {"buttons": [1, 0, 0]})],
+    )
+    spec = ConversionSpec(
+        schema=SchemaSpec(name="bad_label_demo", version=1),
+        row_strategy={"kind": "per-message", "topic": "/joy"},
+        features={
+            "buttons": FeatureSpec(
+                source=FieldSourceSpec(topic="/joy", field_path="buttons"),
+                dtype="int64",
+            )
+        },
+        labels={"primary": "missing_label"},
+        output=OutputSpec(format="tfrecord"),
+    )
+
+    try:
+        preview_conversion_spec(reader, spec, sample_n=1)
+    except ValueError as exc:
+        assert "label primary feature" in str(exc)
+    else:  # pragma: no cover - the assertion above should always fail first
+        raise AssertionError("expected label validation to fail")
 
 
 def test_draft_generation_can_return_preview_and_label_metadata():
