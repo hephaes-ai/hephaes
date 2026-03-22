@@ -1629,28 +1629,6 @@ export function ConversionAuthoringWorkspace({
                   </NativeSelect>
                 </div>
 
-                <div className="flex flex-wrap gap-2">
-                  {selectedAssets.map((asset) => (
-                    <Badge
-                      key={asset.id}
-                      className={
-                        asset.id === selectedSourceAsset?.id
-                          ? "border-foreground/20 bg-foreground text-background"
-                          : asset.indexing_status === "indexed"
-                            ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-900 dark:text-emerald-200"
-                            : ""
-                      }
-                      variant={
-                        asset.id === selectedSourceAsset?.id
-                          ? "default"
-                          : "outline"
-                      }
-                    >
-                      {asset.file_name}
-                    </Badge>
-                  ))}
-                </div>
-
                 <div className="grid gap-4 sm:grid-cols-3">
                   <div className="space-y-1">
                     <p className="text-xs tracking-wide text-muted-foreground uppercase">
@@ -1693,70 +1671,88 @@ export function ConversionAuthoringWorkspace({
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-5">
-                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="sample-n">Sample count</Label>
-                    <Input
-                      id="sample-n"
-                      min="1"
-                      onChange={(event) =>
-                        setInspectionForm((current) => ({
-                          ...current,
-                          sampleN: event.target.value,
-                        }))
-                      }
-                      type="number"
-                      value={inspectionForm.sampleN}
-                    />
+                <details className="group rounded-lg border bg-muted/20">
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-3 [&::-webkit-details-marker]:hidden">
+                    <div className="space-y-1">
+                      <p className="text-sm font-medium text-foreground">
+                        Inspect Settings
+                      </p>
+                      <p className="text-sm text-muted-foreground">
+                        Sample count, depth, and decode policy.
+                      </p>
+                    </div>
+                    <ChevronDown className="size-4 shrink-0 text-muted-foreground transition-transform duration-200 group-open:rotate-180" />
+                  </summary>
+                  <div className="border-t px-3 py-4">
+                    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="sample-n">Sample count</Label>
+                        <Input
+                          id="sample-n"
+                          min="1"
+                          onChange={(event) =>
+                            setInspectionForm((current) => ({
+                              ...current,
+                              sampleN: event.target.value,
+                            }))
+                          }
+                          type="number"
+                          value={inspectionForm.sampleN}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="max-depth">Max depth</Label>
+                        <Input
+                          id="max-depth"
+                          min="0"
+                          onChange={(event) =>
+                            setInspectionForm((current) => ({
+                              ...current,
+                              maxDepth: event.target.value,
+                            }))
+                          }
+                          type="number"
+                          value={inspectionForm.maxDepth}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="max-sequence-items">
+                          Sequence items
+                        </Label>
+                        <Input
+                          id="max-sequence-items"
+                          min="1"
+                          onChange={(event) =>
+                            setInspectionForm((current) => ({
+                              ...current,
+                              maxSequenceItems: event.target.value,
+                            }))
+                          }
+                          type="number"
+                          value={inspectionForm.maxSequenceItems}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="on-failure">Decode failure</Label>
+                        <NativeSelect
+                          id="on-failure"
+                          onChange={(event) =>
+                            setInspectionForm((current) => ({
+                              ...current,
+                              onFailure: event.target
+                                .value as DecodeFailurePolicy,
+                            }))
+                          }
+                          value={inspectionForm.onFailure}
+                        >
+                          <option value="skip">Skip</option>
+                          <option value="warn">Warn</option>
+                          <option value="fail">Fail</option>
+                        </NativeSelect>
+                      </div>
+                    </div>
                   </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="max-depth">Max depth</Label>
-                    <Input
-                      id="max-depth"
-                      min="0"
-                      onChange={(event) =>
-                        setInspectionForm((current) => ({
-                          ...current,
-                          maxDepth: event.target.value,
-                        }))
-                      }
-                      type="number"
-                      value={inspectionForm.maxDepth}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="max-sequence-items">Sequence items</Label>
-                    <Input
-                      id="max-sequence-items"
-                      min="1"
-                      onChange={(event) =>
-                        setInspectionForm((current) => ({
-                          ...current,
-                          maxSequenceItems: event.target.value,
-                        }))
-                      }
-                      type="number"
-                      value={inspectionForm.maxSequenceItems}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="on-failure">Decode failure</Label>
-                    <NativeSelect
-                      id="on-failure"
-                      onChange={(event) =>
-                        setInspectionForm((current) => ({
-                          ...current,
-                          onFailure: event.target.value as DecodeFailurePolicy,
-                        }))
-                      }
-                      value={inspectionForm.onFailure}
-                    >
-                      <option value="skip">Skip</option>
-                      <option value="warn">Warn</option>
-                      <option value="fail">Fail</option>
-                    </NativeSelect>
-                  </div>
-                </div>
+                </details>
 
                 <div className="space-y-2">
                   <div className="flex items-center justify-between gap-3">
@@ -2024,7 +2020,10 @@ export function ConversionAuthoringWorkspace({
                       value={specForm.previewRows}
                     />
                   </div>
-                  <div className="space-y-2">
+                </div>
+
+                <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
+                  <div className="space-y-1">
                     <Label htmlFor="label-feature">Label feature</Label>
                     <Input
                       id="label-feature"
@@ -2038,30 +2037,24 @@ export function ConversionAuthoringWorkspace({
                       value={specForm.labelFeature}
                     />
                   </div>
-                </div>
-
-                <div className="flex items-center justify-between gap-4 rounded-lg border bg-muted/20 px-3 py-3">
-                  <div className="space-y-1">
+                  <div className="flex items-center justify-between gap-4 lg:self-center">
                     <Label
                       className="text-sm font-medium text-foreground"
                       htmlFor="include-preview"
                     >
                       Include preview
                     </Label>
-                    <p className="text-sm text-muted-foreground">
-                      Ask the backend to embed preview rows in the draft.
-                    </p>
+                    <Switch
+                      checked={specForm.includePreview}
+                      id="include-preview"
+                      onCheckedChange={(checked) =>
+                        setSpecForm((current) => ({
+                          ...current,
+                          includePreview: checked,
+                        }))
+                      }
+                    />
                   </div>
-                  <Switch
-                    checked={specForm.includePreview}
-                    id="include-preview"
-                    onCheckedChange={(checked) =>
-                      setSpecForm((current) => ({
-                        ...current,
-                        includePreview: checked,
-                      }))
-                    }
-                  />
                 </div>
 
                 {inspectionResponse ? (
