@@ -3,6 +3,8 @@ import json
 from dataclasses import asdict, dataclass, field, is_dataclass
 from typing import Any
 
+import numpy as _np
+
 try:
     import orjson as _orjson
 
@@ -78,6 +80,10 @@ class _SparseChunkBuilder:
 
 
 def _json_default(obj: Any) -> Any:
+    if isinstance(obj, _np.generic):
+        return obj.item()
+    if isinstance(obj, _np.ndarray):
+        return obj.tolist()
     if is_dataclass(obj):
         return asdict(obj)
     if isinstance(obj, (bytes, bytearray)):
@@ -94,6 +100,10 @@ def _json_default(obj: Any) -> Any:
 
 
 def _json_default_orjson(obj: Any) -> Any:
+    if isinstance(obj, _np.generic):
+        return obj.item()
+    if isinstance(obj, _np.ndarray):
+        return obj.tolist()
     if isinstance(obj, (bytes, bytearray)):
         return {
             "__bytes__": True,
@@ -115,6 +125,10 @@ def _encode_raw_payload(raw_payload: bytes) -> str:
 def _normalize_payload(payload: Any) -> Any:
     if payload is None or isinstance(payload, (bool, int, float, str)):
         return payload
+    if isinstance(payload, _np.generic):
+        return _normalize_payload(payload.item())
+    if isinstance(payload, _np.ndarray):
+        return _normalize_payload(payload.tolist())
     if is_dataclass(payload):
         return _normalize_payload(asdict(payload))
     if isinstance(payload, (bytes, bytearray)):

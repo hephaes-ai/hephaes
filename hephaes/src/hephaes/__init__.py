@@ -29,7 +29,30 @@ def configure_logging(
 
 from .converter import Converter
 from .mappers import build_mapping_template, build_mapping_template_from_json
-from .models import MappingTemplate, ParquetOutputConfig, ResampleConfig, TFRecordOutputConfig
+from .models import (
+    AssemblySpec,
+    ConversionSpec,
+    DecodingSpec,
+    FieldSourceSpec,
+    FeatureSpec,
+    InputDiscoverySpec,
+    JoinSpec,
+    LabelSpec,
+    MappingTemplate,
+    MissingDataPolicy,
+    OutputSpec,
+    ParquetOutputConfig,
+    ResampleConfig,
+    SchemaSpec,
+    SplitSpec,
+    TFRecordOutputConfig,
+    TopicDecodeSpec,
+    TransformSpec,
+    ValidationSpec,
+    build_doom_ros_train_py_compatible,
+    build_legacy_conversion_spec,
+    build_single_trigger_sensor_log_template,
+)
 from .profiler import Profiler
 from .reader import ROS1Reader, ROS2Reader, RosReader
 
@@ -37,10 +60,25 @@ __all__ = [
     "__version__",
     "configure_logging",
     "Converter",
+    "AssemblySpec",
+    "ConversionSpec",
+    "DecodingSpec",
+    "FieldSourceSpec",
+    "FeatureSpec",
+    "InputDiscoverySpec",
+    "JoinSpec",
+    "LabelSpec",
     "MappingTemplate",
+    "MissingDataPolicy",
+    "OutputSpec",
     "ParquetOutputConfig",
     "ResampleConfig",
+    "SchemaSpec",
+    "SplitSpec",
     "TFRecordOutputConfig",
+    "TopicDecodeSpec",
+    "TransformSpec",
+    "ValidationSpec",
     "WideParquetWriter",
     "Profiler",
     "ROS1Reader",
@@ -48,6 +86,9 @@ __all__ = [
     "RosReader",
     "build_mapping_template",
     "build_mapping_template_from_json",
+    "build_doom_ros_train_py_compatible",
+    "build_legacy_conversion_spec",
+    "build_single_trigger_sensor_log_template",
     "stream_wide_parquet_rows",
     "stream_tfrecord_rows",
 ]

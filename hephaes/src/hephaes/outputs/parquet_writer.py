@@ -25,6 +25,7 @@ class ParquetDatasetWriter(BaseDatasetWriter):
             episode_id=context.episode_id,
             field_names=context.field_names,
             compression=config.compression,
+            output_filename=context.output_filename,
         )
         self.path = self._writer.path
 

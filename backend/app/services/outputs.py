@@ -57,6 +57,10 @@ def _candidate_output_paths(conversion: Conversion) -> list[Path]:
         if manifest_path.exists() and manifest_path not in paths:
             paths.append(manifest_path)
 
+        report_path = dataset_path.with_name(f"{dataset_path.stem}.report.md")
+        if report_path.exists() and report_path not in paths:
+            paths.append(report_path)
+
     return paths
 
 
@@ -76,6 +80,8 @@ def _infer_format_and_role(artifact_path: Path) -> tuple[str, str]:
 
     if name.endswith(".manifest.json"):
         return "json", "manifest"
+    if name.endswith(".report.md"):
+        return "md", "report"
     if artifact_path.suffix.lower() == ".parquet":
         return "parquet", "dataset"
     if artifact_path.suffix.lower() == ".tfrecord":

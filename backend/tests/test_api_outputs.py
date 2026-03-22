@@ -63,7 +63,7 @@ def index_registered_asset(client: TestClient, monkeypatch, asset_path: Path) ->
     return asset_id
 
 
-def install_fake_converter(monkeypatch) -> None:
+def install_fake_converter(monkeypatch, *, with_report: bool = False) -> None:
     class FakeConverter:
         def __init__(self, **kwargs):
             self.output_dir = Path(kwargs["output_dir"])
@@ -99,6 +99,9 @@ def install_fake_converter(monkeypatch) -> None:
                 ),
                 encoding="utf-8",
             )
+            if with_report:
+                report_path = dataset_path.with_name(f"{dataset_path.stem}.report.md")
+                report_path.write_text("# conversion report\n", encoding="utf-8")
             return [dataset_path]
 
     monkeypatch.setattr(conversion_service, "Converter", FakeConverter)
@@ -200,6 +203,27 @@ def test_outputs_are_registered_and_filterable_after_conversion(
     conversion_filtered_response = client.get("/outputs", params={"conversion_id": conversion["id"]})
     assert conversion_filtered_response.status_code == 200
     assert {item["id"] for item in conversion_filtered_response.json()} == {dataset["id"], manifest["id"]}
+
+
+def test_outputs_register_report_sidecars_when_present(
+    client: TestClient,
+    monkeypatch,
+    sample_asset_file: Path,
+):
+    asset_id = index_registered_asset(client, monkeypatch, sample_asset_file)
+    install_fake_converter(monkeypatch, with_report=True)
+
+    response = client.post(
+        "/conversions",
+        json={"asset_ids": [asset_id], "output": {"format": "parquet"}},
+    )
+    assert response.status_code == 201
+
+    outputs = client.get("/outputs").json()
+    assert {item["role"] for item in outputs} == {"dataset", "manifest", "report"}
+    report = next(item for item in outputs if item["role"] == "report")
+    assert report["format"] == "md"
+    assert report["file_name"] == "episode_0001.report.md"
 
 
 def test_get_output_detail_and_content(

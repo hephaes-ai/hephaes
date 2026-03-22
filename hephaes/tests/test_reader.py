@@ -295,6 +295,59 @@ class TestROS1Reader:
             assert "bad payload" in captured.err
             reader.close()
 
+    def test_read_messages_uses_topic_type_hints(self, tmp_bag_file):
+        msgs = [
+            ("/cmd_vel", 1_000_000_000, {}),
+        ]
+        mock_reader = make_mock_any_reader(
+            topics={"/cmd_vel": "geometry_msgs/Twist"},
+            messages=msgs,
+        )
+
+        seen_msgtypes: list[str] = []
+
+        def _deserialize(rawdata, msgtype):
+            seen_msgtypes.append(msgtype)
+            return {"value": 1}
+
+        mock_reader.deserialize = _deserialize
+
+        with _patch_any_reader(mock_reader):
+            from hephaes.reader import ROS1Reader
+
+            reader = ROS1Reader(str(tmp_bag_file))
+            result = list(
+                reader.read_messages(
+                    topic_type_hints={"/cmd_vel": "custom_msgs/msg/Twist"},
+                )
+            )
+
+            assert len(result) == 1
+            assert seen_msgtypes == ["custom_msgs/msg/Twist"]
+            reader.close()
+
+    def test_read_messages_fail_policy_raises(self, tmp_bag_file):
+        msgs = [
+            ("/cmd_vel", 1_000_000_000, {}),
+        ]
+        mock_reader = make_mock_any_reader(
+            topics={"/cmd_vel": "geometry_msgs/Twist"},
+            messages=msgs,
+        )
+
+        def _deserialize(rawdata, msgtype):
+            raise ValueError("bad payload")
+
+        mock_reader.deserialize = _deserialize
+
+        with _patch_any_reader(mock_reader):
+            from hephaes.reader import ROS1Reader
+
+            reader = ROS1Reader(str(tmp_bag_file))
+            with pytest.raises(ValueError, match="bad payload"):
+                list(reader.read_messages(on_failure="fail"))
+            reader.close()
+
     def test_start_time_end_time(self, tmp_bag_file):
         mock_reader = make_mock_any_reader(start_time=100, end_time=200)
         with _patch_any_reader(mock_reader):

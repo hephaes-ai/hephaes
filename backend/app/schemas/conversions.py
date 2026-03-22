@@ -8,6 +8,7 @@ from typing import Any, Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.schemas.jobs import JobResponse
+from hephaes.models import ConversionSpec
 
 ConversionStatus = Literal["queued", "running", "succeeded", "failed"]
 ParquetCompression = Literal["none", "snappy", "gzip", "brotli", "lz4", "zstd"]
@@ -50,12 +51,11 @@ class ConversionCreateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     asset_ids: list[str] = Field(min_length=1)
-    output: ConversionOutputRequest = Field(
-        default_factory=ParquetConversionOutputRequest,
-    )
+    spec: ConversionSpec | None = None
+    output: ConversionOutputRequest | None = None
     mapping: dict[str, list[str]] | None = None
     resample: ConversionResampleRequest | None = None
-    write_manifest: bool = True
+    write_manifest: bool | None = None
 
     @field_validator("asset_ids", mode="before")
     @classmethod
@@ -90,6 +90,18 @@ class ConversionCreateRequest(BaseModel):
                 raise ValueError("mapping source topic lists must be non-empty")
             if any(not topic for topic in source_topics):
                 raise ValueError("mapping source topic names must be non-empty")
+
+        return self
+
+    @model_validator(mode="after")
+    def validate_spec_payload(self) -> "ConversionCreateRequest":
+        if self.spec is None:
+            return self
+
+        if self.mapping is not None or self.output is not None or self.resample is not None:
+            raise ValueError(
+                "spec cannot be combined with legacy mapping, output, or resample fields"
+            )
 
         return self
 

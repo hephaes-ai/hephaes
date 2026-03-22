@@ -13,7 +13,7 @@ from ._utils import (
     determine_ros_version_from_path,
     determine_storage_format_from_path,
 )
-from .models import InternalStats, Message, ReaderMetadata, RosVersion
+from .models import DecodeFailurePolicy, InternalStats, Message, ReaderMetadata, RosVersion
 
 logger = logging.getLogger(__name__)
 
@@ -93,6 +93,10 @@ class RosReader(ABC):
         if self._reader is None:
             raise RuntimeError("Reader is not initialized")
         return self._reader
+
+    def decode_message(self, rawdata: bytes, msgtype: str) -> Any:
+        reader = self._require_reader()
+        return reader.deserialize(rawdata, msgtype)
 
     def _build_reader_metadata(
         self,
@@ -202,6 +206,8 @@ class RosReader(ABC):
         *,
         start_ns: int | None = None,
         stop_ns: int | None = None,
+        on_failure: DecodeFailurePolicy = "warn",
+        topic_type_hints: dict[str, str] | None = None,
     ) -> Generator[Message, None, None]:
         reader = self._require_reader()
         if (
@@ -218,7 +224,10 @@ class RosReader(ABC):
                 stop=stop_ns,
             ):
                 try:
-                    msg_data = reader.deserialize(rawdata, connection.msgtype)
+                    msgtype = connection.msgtype
+                    if topic_type_hints is not None:
+                        msgtype = topic_type_hints.get(connection.topic, msgtype)
+                    msg_data = self.decode_message(rawdata, msgtype)
                     yield Message(
                         timestamp=timestamp,
                         topic=connection.topic,
@@ -227,13 +236,18 @@ class RosReader(ABC):
                 except Exception as exc:
                     skip_message = (
                         "Skipping message due to deserialization failure "
-                        f"(topic='{connection.topic}', type='{connection.msgtype}', "
+                        f"(topic='{connection.topic}', type='{msgtype}', "
                         f"timestamp={timestamp}): {exc}"
                     )
-                    print(skip_message, file=sys.stderr)
-                    logger.warning(skip_message)
+                    if on_failure == "fail":
+                        raise
+                    if on_failure == "warn":
+                        print(skip_message, file=sys.stderr)
+                        logger.warning(skip_message)
                     continue
         except Exception as exc:
+            if on_failure == "fail":
+                raise
             raise RuntimeError(f"Failed to read messages from bag: {exc}") from exc
 
     def close(self) -> None:

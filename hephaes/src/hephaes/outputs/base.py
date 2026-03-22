@@ -15,12 +15,17 @@ class EpisodeContext:
     field_names: list[str]
     resample: ResampleConfig | None
     output: OutputConfig
+    output_filename: str | None = None
+    split_name: str | None = None
+    shard_index: int | None = None
+    num_shards: int = 1
 
 
 @dataclass(frozen=True)
 class RecordBatch:
     timestamps: list[int]
     field_data: dict[str, list[Any | None]]
+    presence_data: dict[str, list[int]] | None = None
 
     @property
     def row_count(self) -> int:

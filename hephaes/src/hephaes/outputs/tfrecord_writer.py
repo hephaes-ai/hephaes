@@ -185,6 +185,7 @@ def _row_to_example(
     timestamp_ns: int,
     row_values: dict[str, Any | None],
     field_names: list[str],
+    presence_flags: dict[str, int | None] | None = None,
 ) -> bytes:
     features: dict[str, _FeatureValue] = {
         "timestamp_ns": ("int64", [timestamp_ns]),
@@ -193,6 +194,19 @@ def _row_to_example(
     for field_name in field_names:
         value = row_values.get(field_name)
         present_key = f"{field_name}__present"
+        explicit_presence = None if presence_flags is None else presence_flags.get(field_name)
+
+        if explicit_presence is not None:
+            features[present_key] = ("int64", [int(explicit_presence)])
+            if explicit_presence == 0:
+                continue
+            if value is None:
+                raise ValueError(
+                    f"feature '{field_name}' marked present but no value was supplied"
+                )
+            _flatten_value(field_name, value, features)
+            continue
+
         if value is None:
             features[present_key] = ("int64", [0])
             continue
@@ -215,7 +229,8 @@ class TFRecordDatasetWriter(BaseDatasetWriter):
     ) -> None:
         output_path = Path(output_dir)
         output_path.mkdir(parents=True, exist_ok=True)
-        self.path = output_path / f"{context.episode_id}.tfrecord"
+        file_name = context.output_filename or f"{context.episode_id}.tfrecord"
+        self.path = output_path / file_name
         self._field_names = list(context.field_names)
         self._handle: BinaryIO
         if config.compression == "gzip":
@@ -232,10 +247,17 @@ class TFRecordDatasetWriter(BaseDatasetWriter):
                 field_name: values[row_index]
                 for field_name, values in batch.field_data.items()
             }
+            row_presence = None
+            if batch.presence_data is not None:
+                row_presence = {
+                    field_name: values[row_index]
+                    for field_name, values in batch.presence_data.items()
+                }
             payload = _row_to_example(
                 timestamp_ns=timestamp_ns,
                 row_values=row_values,
                 field_names=self._field_names,
+                presence_flags=row_presence,
             )
             self._write_record(payload)
 

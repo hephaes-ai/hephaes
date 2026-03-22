@@ -1,6 +1,6 @@
 import logging
 import os
-from dataclasses import dataclass
+from dataclasses import asdict
 from multiprocessing import Pool
 from pathlib import Path
 from typing import Any
@@ -18,8 +18,25 @@ from ._converter_helpers import (
     _TopicSamples,
 )
 from ._utils import determine_ros_version_from_path
+from .conversion import build_message_decoder, discover_input_paths
+from .conversion.assembly import (
+    TopicPlan as _AssemblyTopicPlan,
+    assemble_trigger_records,
+    build_mapping_resolution as _build_mapping_resolution_stage,
+    resolve_mapping_for_bag as _resolve_mapping_for_bag_stage,
+)
+from .conversion.layout import (
+    OutputRecord,
+    partition_records_for_shards,
+    partition_records_for_split,
+    render_output_filename,
+)
+from .conversion.features import FeatureBuilder
+from .conversion.validation import validate_trigger_records
+from .conversion.report import write_conversion_report
 from .manifest import build_episode_manifest, write_episode_manifest
 from .models import (
+    ConversionSpec,
     MappingTemplate,
     OutputConfig,
     ParquetOutputConfig,
@@ -34,10 +51,7 @@ logger = logging.getLogger(__name__)
 _OUTPUT_CONFIG_ADAPTER = TypeAdapter(OutputConfig)
 
 
-@dataclass(frozen=True)
-class TopicPlan:
-    topics_to_read: list[str]
-    topic_to_field: dict[str, str]
+TopicPlan = _AssemblyTopicPlan
 
 
 def _default_episode_id(index: int) -> str:
@@ -53,17 +67,10 @@ def _resolve_mapping_for_bag(
     mapping: MappingTemplate,
     available_topics: dict[str, str],
 ) -> TopicPlan:
-    topics_to_read: list[str] = []
-    topic_to_field: dict[str, str] = {}
-
-    for target_field, source_topics in mapping.root.items():
-        for source_topic in source_topics:
-            if source_topic in available_topics:
-                topics_to_read.append(source_topic)
-                topic_to_field[source_topic] = target_field
-                break
-
-    return TopicPlan(topics_to_read=topics_to_read, topic_to_field=topic_to_field)
+    return _resolve_mapping_for_bag_stage(
+        mapping=mapping,
+        available_topics=available_topics,
+    )
 
 
 def _resolve_output_config(
@@ -90,6 +97,10 @@ def _build_episode_context(
     field_names: list[str],
     resample: ResampleConfig | None,
     output: ParquetOutputConfig | TFRecordOutputConfig,
+    output_filename: str | None = None,
+    split_name: str | None = None,
+    shard_index: int | None = None,
+    num_shards: int = 1,
 ) -> EpisodeContext:
     return EpisodeContext(
         episode_id=episode_id,
@@ -98,6 +109,10 @@ def _build_episode_context(
         field_names=list(field_names),
         resample=resample,
         output=output,
+        output_filename=output_filename,
+        split_name=split_name,
+        shard_index=shard_index,
+        num_shards=num_shards,
     )
 
 
@@ -106,10 +121,10 @@ def _build_mapping_resolution(
     field_names: list[str],
     topic_to_field: dict[str, str],
 ) -> dict[str, str | None]:
-    resolved = {field_name: None for field_name in field_names}
-    for topic_name, field_name in topic_to_field.items():
-        resolved[field_name] = topic_name
-    return resolved
+    return _build_mapping_resolution_stage(
+        field_names=field_names,
+        topic_to_field=topic_to_field,
+    )
 
 
 def _flush_chunk(
@@ -127,6 +142,48 @@ def _flush_chunk(
     writer.write_batch(batch)
 
 
+def _write_output_records(
+    *,
+    writer: Any,
+    records: list[OutputRecord],
+    field_names: list[str],
+    chunk_rows: int,
+) -> int:
+    timestamps: list[int] = []
+    field_data: dict[str, list[Any | None]] = {field_name: [] for field_name in field_names}
+    presence_data: dict[str, list[int]] = {field_name: [] for field_name in field_names}
+    rows_written = 0
+
+    def _flush() -> None:
+        nonlocal rows_written
+        if not timestamps:
+            return
+        writer.write_batch(
+            RecordBatch(
+                timestamps=list(timestamps),
+                field_data={name: list(values) for name, values in field_data.items()},
+                presence_data={name: list(values) for name, values in presence_data.items()},
+            )
+        )
+        rows_written += len(timestamps)
+        timestamps.clear()
+        for values in field_data.values():
+            values.clear()
+        for values in presence_data.values():
+            values.clear()
+
+    for record in records:
+        timestamps.append(record.timestamp_ns)
+        for field_name in field_names:
+            field_data[field_name].append(record.field_data.get(field_name))
+            presence_data[field_name].append(record.presence_data.get(field_name, 0))
+        if len(timestamps) >= chunk_rows:
+            _flush()
+
+    _flush()
+    return rows_written
+
+
 def _iter_output_messages(
     *,
     reader: RosReader,
@@ -134,7 +191,8 @@ def _iter_output_messages(
     use_normalized_payloads: bool,
 ):
     if use_normalized_payloads:
-        for message in reader.read_messages(topics=topics):
+        decoder = build_message_decoder()
+        for message in decoder.iter_messages(reader, topics=topics):
             yield message.topic, int(message.timestamp), _normalize_payload(message.data)
         return
 
@@ -357,6 +415,219 @@ def _convert_interpolate(
     return rows_written
 
 
+def _build_trigger_output_records(
+    *,
+    spec: ConversionSpec,
+    records: list[Any],
+) -> list[OutputRecord]:
+    feature_builder = FeatureBuilder()
+    field_names = list(spec.features.keys())
+    output_records: list[OutputRecord] = []
+
+    for record in records:
+        row_values: dict[str, Any | None] = {}
+        row_presence: dict[str, int] = {}
+
+        for feature_name, feature in spec.features.items():
+            topic_presence = record.presence.get(feature.source.topic, 0)
+            if topic_presence == 0:
+                row_values[feature_name] = None
+                row_presence[feature_name] = 0
+                continue
+
+            source_payload = record.values.get(feature.source.topic)
+            if source_payload is None:
+                row_values[feature_name] = None
+                row_presence[feature_name] = 0
+                continue
+
+            try:
+                extracted_value = feature_builder.build(source_payload, feature)
+            except Exception:
+                row_values[feature_name] = None
+                row_presence[feature_name] = 0
+                continue
+
+            if extracted_value is None:
+                row_values[feature_name] = None
+                row_presence[feature_name] = 0
+                continue
+
+            row_values[feature_name] = extracted_value
+            row_presence[feature_name] = 1
+
+        output_records.append(
+            OutputRecord(
+                timestamp_ns=int(record.timestamp_ns),
+                field_data={name: row_values.get(name) for name in field_names},
+                presence_data={name: row_presence.get(name, 0) for name in field_names},
+            )
+        )
+
+    return output_records
+
+
+def _convert_trigger_based_source(
+    *,
+    reader: RosReader,
+    spec: ConversionSpec,
+    output_dir: str | Path,
+    episode_id: str,
+    writer_registry: WriterRegistry,
+    ros_version: str,
+    reader_metadata: Any,
+    temporal_metadata: Any,
+    write_manifest: bool,
+    robot_context: dict[str, Any] | None,
+    chunk_rows: int,
+) -> tuple[list[Path], int, int]:
+    if spec.assembly is None:
+        raise ValueError("trigger-based conversion requires an assembly spec")
+    if not spec.features:
+        raise ValueError("trigger-based conversion requires feature specs")
+
+    topic_type_hints = {
+        topic: topic_spec.type_hint
+        for topic, topic_spec in spec.decoding.topics.items()
+        if topic_spec.type_hint is not None
+    }
+    records, dropped_count = assemble_trigger_records(
+        reader=reader,
+        trigger_topic=spec.assembly.trigger_topic or "",
+        joins=spec.assembly.joins,
+        on_failure=spec.decoding.on_decode_failure,
+        topic_type_hints=topic_type_hints or None,
+    )
+    validation_summary = validate_trigger_records(spec=spec, records=records)
+
+    field_names = list(spec.features.keys())
+    output_config = spec.to_output_config()
+    output_records = _build_trigger_output_records(spec=spec, records=records)
+    split_partitions = partition_records_for_split(output_records, spec.split)
+    split_counts = {split_name: len(split_records) for split_name, split_records in split_partitions.items()}
+    output_paths: list[Path] = []
+    total_rows_written = 0
+
+    for split_name in sorted(split_partitions, key=lambda value: (value != "train", value != "val", value != "test", value)):
+        split_records = split_partitions[split_name]
+        shard_partitions = partition_records_for_shards(split_records, spec.output.shards)
+        num_shards = spec.output.shards
+        if not shard_partitions:
+            continue
+
+        for shard_index, shard_records in enumerate(shard_partitions):
+            output_filename = render_output_filename(
+                episode_id=episode_id,
+                split_name=split_name,
+                shard_index=shard_index,
+                num_shards=num_shards,
+                extension=spec.output.format,
+                filename_template=spec.output.filename_template,
+            )
+            context = _build_episode_context(
+                episode_id=episode_id,
+                bag_path=str(reader.bag_path),
+                ros_version=ros_version,
+                field_names=field_names,
+                resample=spec.resample,
+                output=output_config,
+                output_filename=output_filename,
+                split_name=split_name,
+                shard_index=shard_index,
+                num_shards=num_shards,
+            )
+
+            with writer_registry.create_writer(
+                output_dir=output_dir,
+                context=context,
+                config=output_config,
+            ) as shard_writer:
+                rows_written = _write_output_records(
+                    writer=shard_writer,
+                    records=shard_records,
+                    field_names=field_names,
+                    chunk_rows=chunk_rows,
+                )
+
+            total_rows_written += rows_written
+            output_paths.append(shard_writer.path)
+
+            if write_manifest and spec.output.write_manifest:
+                if spec.mapping is not None:
+                    mapping_requested = spec.mapping.root
+                    mapping_resolved = _build_mapping_resolution(
+                        field_names=field_names,
+                        topic_to_field={
+                            feature_name: feature.source.topic
+                            for feature_name, feature in spec.features.items()
+                        },
+                    )
+                else:
+                    mapping_requested = {
+                        feature_name: [feature.source.topic]
+                        for feature_name, feature in spec.features.items()
+                    }
+                    mapping_resolved = {
+                        feature_name: feature.source.topic
+                        for feature_name, feature in spec.features.items()
+                    }
+
+                manifest = build_episode_manifest(
+                    episode_id=episode_id,
+                    dataset_path=shard_writer.path,
+                    field_names=field_names,
+                    rows_written=rows_written,
+                    reader_metadata=reader_metadata,
+                    temporal_metadata=temporal_metadata,
+                    output=output_config,
+                    resample=spec.resample,
+                    mapping_requested=mapping_requested,
+                    mapping_resolved=mapping_resolved,
+                    robot_context=robot_context,
+                    schema=spec.schema.model_dump(),
+                    features={name: feature.model_dump() for name, feature in spec.features.items()},
+                    validation_summary=asdict(validation_summary),
+                    split=spec.split.model_dump() if spec.split is not None else None,
+                    split_name=split_name,
+                    shard_index=shard_index,
+                    num_shards=num_shards,
+                    output_filename=output_filename,
+                    dropped_rows=dropped_count,
+                    split_counts=split_counts,
+                    missing_feature_counts=validation_summary.missing_feature_counts,
+                    missing_topic_counts=validation_summary.missing_topic_counts,
+                    missing_feature_rates={
+                        name: (
+                            count / validation_summary.checked_records
+                            if validation_summary.checked_records > 0
+                            else 0.0
+                        )
+                        for name, count in validation_summary.missing_feature_counts.items()
+                    },
+                )
+                write_episode_manifest(manifest, dataset_path=shard_writer.path)
+                preview_rows = (
+                    [asdict(record) for record in shard_records[: min(5, len(shard_records))]]
+                    if spec.validation.preview
+                    else None
+                )
+                write_conversion_report(
+                    manifest=manifest,
+                    dataset_path=shard_writer.path,
+                    preview_rows=preview_rows,
+                )
+
+    logger.info(
+        "Validated %s trigger record(s) for %s: %s bad, %s feature misses, %s missing source topic hits",
+        validation_summary.checked_records,
+        spec.schema.name,
+        validation_summary.bad_records,
+        sum(validation_summary.missing_feature_counts.values()),
+        sum(validation_summary.missing_topic_counts.values()),
+    )
+    return output_paths, total_rows_written, dropped_count
+
+
 def _convert_single_source(
     bag_path: str | Path,
     output_dir: str | Path,
@@ -368,23 +639,67 @@ def _convert_single_source(
     writer_registry: WriterRegistry | None,
     write_manifest: bool,
     robot_context: dict[str, Any] | None,
-) -> str:
+    spec: ConversionSpec | None = None,
+) -> list[str]:
     mapping = MappingTemplate.model_validate(mapping_dict)
     output = _OUTPUT_CONFIG_ADAPTER.validate_python(output_dict)
     resample = ResampleConfig.model_validate(resample_dict) if resample_dict is not None else None
+    conversion_spec = (
+        spec
+        if spec is not None
+        else ConversionSpec.from_legacy(
+            mapping=mapping,
+            output=output,
+            resample=resample,
+            write_manifest=write_manifest,
+        )
+    )
 
     normalized_bag_path = str(bag_path)
     ros_version = determine_ros_version_from_path(normalized_bag_path)
 
     with RosReader.open(normalized_bag_path, ros_version=ros_version) as reader:
+        reader_metadata = reader.metadata
+        temporal_metadata = extract_temporal_metadata(reader)
+        resolved_registry = writer_registry or DEFAULT_WRITER_REGISTRY
+
+        if conversion_spec.assembly is not None and conversion_spec.features:
+            output_paths, rows_written, dropped_count = _convert_trigger_based_source(
+                reader=reader,
+                spec=conversion_spec,
+                output_dir=output_dir,
+                episode_id=episode_id,
+                writer_registry=resolved_registry,
+                ros_version=ros_version,
+                reader_metadata=reader_metadata,
+                temporal_metadata=temporal_metadata,
+                write_manifest=write_manifest,
+                robot_context=robot_context,
+                chunk_rows=chunk_rows,
+            )
+
+            if dropped_count:
+                logger.info(
+                    "Trigger assembly dropped %s record(s) for %s",
+                    dropped_count,
+                    episode_id,
+                )
+            logger.info(
+                "Finished %s: wrote %s rows to %s",
+                episode_id,
+                rows_written,
+                output_paths[-1] if output_paths else output_dir,
+            )
+            return [str(path) for path in output_paths]
+
         plan = _resolve_mapping_for_bag(mapping=mapping, available_topics=reader.topics)
         if not plan.topics_to_read:
-            raise ValueError(f"No requested topics from mapping were found in bag: {normalized_bag_path}")
+            raise ValueError(
+                f"No requested topics from mapping were found in bag: {normalized_bag_path}"
+            )
 
         all_field_names = list(mapping.root.keys())
         use_normalized_payloads = output.format == "tfrecord"
-        reader_metadata = reader.metadata
-        temporal_metadata = extract_temporal_metadata(reader)
         context = _build_episode_context(
             episode_id=episode_id,
             bag_path=normalized_bag_path,
@@ -393,7 +708,6 @@ def _convert_single_source(
             resample=resample,
             output=output,
         )
-        resolved_registry = writer_registry or DEFAULT_WRITER_REGISTRY
 
         with resolved_registry.create_writer(
             output_dir=output_dir,
@@ -451,18 +765,20 @@ def _convert_single_source(
                 robot_context=robot_context,
             )
             write_episode_manifest(manifest, dataset_path=dataset_path)
+            write_conversion_report(manifest=manifest, dataset_path=dataset_path)
 
         logger.info("Finished %s: wrote %s rows to %s", episode_id, rows_written, writer.path)
-        return str(writer.path)
+        return [str(writer.path)]
 
 
 class Converter:
     def __init__(
         self,
         file_paths: list[str | Path],
-        mapping: MappingTemplate,
+        mapping: MappingTemplate | None,
         output_dir: str | Path,
         *,
+        spec: ConversionSpec | None = None,
         output: OutputConfig | str = "parquet",
         resample: ResampleConfig | None = None,
         max_workers: int | None = None,
@@ -488,22 +804,39 @@ class Converter:
         if robot_context is not None and not isinstance(robot_context, dict):
             raise TypeError("robot_context must be a dict or None")
 
-        for file_path in file_paths:
+        discovered_file_paths = discover_input_paths(file_paths)
+        for file_path in discovered_file_paths:
             determine_ros_version_from_path(file_path)
 
-        self.file_paths = [Path(path) for path in file_paths]
-        self.mapping = mapping
+        self.file_paths = discovered_file_paths
         self.output_dir = Path(output_dir)
-        self.output = _resolve_output_config(output)
-        self.resample = resample
+        if spec is None:
+            if mapping is None:
+                raise TypeError("mapping must be provided when spec is not set")
+            resolved_output = _resolve_output_config(output)
+            self.spec = ConversionSpec.from_legacy(
+                mapping=mapping,
+                output=resolved_output,
+                resample=resample,
+                write_manifest=write_manifest,
+            )
+            self.mapping = mapping
+            self.output = resolved_output
+            self.resample = resample
+            self.write_manifest = write_manifest
+        else:
+            self.spec = spec
+            self.mapping = mapping or spec.mapping or MappingTemplate.model_validate({})
+            self.output = spec.to_output_config()
+            self.resample = spec.resample
+            self.write_manifest = write_manifest and spec.write_manifest
         self.max_workers = max_workers
         self.chunk_rows = chunk_rows
         self.writer_registry = writer_registry or DEFAULT_WRITER_REGISTRY
-        self.write_manifest = write_manifest
         self.robot_context = dict(robot_context) if robot_context is not None else None
 
     def convert(self) -> list[Path]:
-        if not self.mapping.root:
+        if self.spec.assembly is None and not self.mapping.root:
             raise ValueError("No topics found in mapping template")
 
         mapping_dict = self.mapping.model_dump()
@@ -532,6 +865,7 @@ class Converter:
                     writer_registry=self.writer_registry,
                     write_manifest=self.write_manifest,
                     robot_context=self.robot_context,
+                    spec=self.spec,
                 )
                 for index, bag_path in enumerate(self.file_paths)
             ]
@@ -548,10 +882,12 @@ class Converter:
                     self.writer_registry,
                     self.write_manifest,
                     self.robot_context,
+                    self.spec,
                 )
                 for index, bag_path in enumerate(self.file_paths)
             ]
             with Pool(processes=workers) as pool:
                 results = pool.starmap(_convert_single_source, args)
 
-        return [Path(path) for path in results]
+        flattened_results = [path for group in results for path in group]
+        return [Path(path) for path in flattened_results]
