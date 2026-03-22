@@ -5,3 +5,6 @@
 /venv/
 /.venv/
 /env/
+
+# Planning docs
+design/
