@@ -19,6 +19,14 @@ FeatureSourceKind = str
 RowStrategyKind = str
 
 
+def _supported_row_strategies() -> list[RowStrategyKind]:
+    return ["trigger", "per-message", "resample"]
+
+
+def _supported_feature_source_kinds() -> list[FeatureSourceKind]:
+    return ["path", "constant", "metadata", "concat", "stack"]
+
+
 def _supported_transform_kinds() -> list[str]:
     return [
         "cast",
@@ -44,20 +52,12 @@ class ConversionCapabilities(BaseModel):
     supports_draft_generation: bool = True
     supports_preview: bool = True
     supports_migration: bool = True
-    row_strategies: list[RowStrategyKind] = Field(default_factory=lambda: ["trigger"])
-    authoring_row_strategies: list[RowStrategyKind] = Field(
-        default_factory=lambda: ["trigger", "per-message", "resample"]
-    )
-    planned_row_strategies: list[RowStrategyKind] = Field(
-        default_factory=lambda: ["per-message", "resample"]
-    )
-    feature_source_kinds: list[FeatureSourceKind] = Field(default_factory=lambda: ["path"])
-    authoring_feature_source_kinds: list[FeatureSourceKind] = Field(
-        default_factory=lambda: ["path", "constant", "metadata", "concat", "stack"]
-    )
-    planned_feature_source_kinds: list[FeatureSourceKind] = Field(
-        default_factory=lambda: ["constant", "metadata", "concat", "stack"]
-    )
+    row_strategies: list[RowStrategyKind] = Field(default_factory=_supported_row_strategies)
+    authoring_row_strategies: list[RowStrategyKind] = Field(default_factory=_supported_row_strategies)
+    planned_row_strategies: list[RowStrategyKind] = Field(default_factory=list)
+    feature_source_kinds: list[FeatureSourceKind] = Field(default_factory=_supported_feature_source_kinds)
+    authoring_feature_source_kinds: list[FeatureSourceKind] = Field(default_factory=_supported_feature_source_kinds)
+    planned_feature_source_kinds: list[FeatureSourceKind] = Field(default_factory=list)
     feature_dtypes: list[FeatureDType] = Field(
         default_factory=lambda: ["bytes", "int64", "float32", "float64", "bool", "json"]
     )
