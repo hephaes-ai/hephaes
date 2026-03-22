@@ -51,6 +51,7 @@ from .models import (
     ValidationSpec,
     build_doom_ros_train_py_compatible,
     build_legacy_conversion_spec,
+    build_single_trigger_sensor_log_template,
 )
 from .profiler import Profiler
 from .reader import ROS1Reader, ROS2Reader, RosReader
@@ -87,6 +88,7 @@ __all__ = [
     "build_mapping_template_from_json",
     "build_doom_ros_train_py_compatible",
     "build_legacy_conversion_spec",
+    "build_single_trigger_sensor_log_template",
     "stream_wide_parquet_rows",
     "stream_tfrecord_rows",
 ]

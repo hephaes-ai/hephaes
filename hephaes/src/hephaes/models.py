@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Annotated, Any, Dict, List, Literal, TypeAlias
 
 from pydantic import BaseModel, ConfigDict, Field, RootModel, field_validator, model_validator
@@ -547,6 +548,73 @@ def build_legacy_conversion_spec(
     )
 
 
+def _topic_to_feature_name(topic: str, used_names: set[str]) -> str:
+    candidate = topic.strip("/")
+    candidate = re.sub(r"[^a-zA-Z0-9]+", "_", candidate).strip("_").lower()
+    if not candidate:
+        candidate = "topic"
+
+    feature_name = candidate
+    suffix = 2
+    while feature_name in used_names:
+        feature_name = f"{candidate}_{suffix}"
+        suffix += 1
+
+    used_names.add(feature_name)
+    return feature_name
+
+
+def build_single_trigger_sensor_log_template(
+    *,
+    trigger_topic: str = "/trigger",
+    join_topics: list[str] | None = None,
+    schema_name: str = "single_trigger_sensor_log",
+    schema_version: int = 1,
+) -> ConversionSpec:
+    normalized_trigger_topic = trigger_topic.strip()
+    if not normalized_trigger_topic:
+        raise ValueError("trigger_topic must be non-empty")
+
+    normalized_join_topics = []
+    for topic in join_topics or []:
+        if not isinstance(topic, str):
+            raise TypeError("join_topics must contain strings")
+        stripped = topic.strip()
+        if not stripped:
+            raise ValueError("join_topics must contain non-empty values")
+        normalized_join_topics.append(stripped)
+
+    topics = [normalized_trigger_topic, *normalized_join_topics]
+    used_feature_names: set[str] = set()
+    features: dict[str, FeatureSpec] = {}
+
+    for topic in topics:
+        feature_name = _topic_to_feature_name(topic, used_feature_names)
+        features[feature_name] = FeatureSpec(
+            source=FieldSourceSpec(topic=topic),
+            dtype="json",
+        )
+
+    return ConversionSpec(
+        schema_spec=SchemaSpec(name=schema_name, version=schema_version),
+        input=InputDiscoverySpec(include_topics=topics),
+        assembly=AssemblySpec(
+            trigger_topic=normalized_trigger_topic,
+            joins=[
+                JoinSpec(topic=topic, sync_policy="last-known-before", required=False)
+                for topic in normalized_join_topics
+            ],
+        ),
+        features=features,
+        validation=ValidationSpec(
+            sample_n=32,
+            fail_fast=False,
+            expected_features=list(features.keys()),
+        ),
+        output=OutputSpec(format="tfrecord"),
+    )
+
+
 def build_doom_ros_train_py_compatible() -> ConversionSpec:
     return ConversionSpec(
         schema_spec=SchemaSpec(name="doom_ros_train_py_compatible", version=1),
@@ -747,6 +815,7 @@ __all__ = [
     "OutputSpec",
     "ConversionSpec",
     "build_legacy_conversion_spec",
+    "build_single_trigger_sensor_log_template",
     "build_doom_ros_train_py_compatible",
     "Message",
     "ReaderMetadata",

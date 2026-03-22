@@ -9,6 +9,7 @@ from hephaes import (
     TFRecordOutputConfig,
     build_doom_ros_train_py_compatible,
     build_legacy_conversion_spec,
+    build_single_trigger_sensor_log_template,
 )
 
 
@@ -128,3 +129,20 @@ def test_doom_preset_exposes_training_contract():
     assert spec.output.compression == "gzip"
     assert spec.validation.bad_record_budget == 0
     assert spec.uses_schema_aware_path is True
+
+
+def test_single_trigger_template_provides_runnable_starter():
+    spec = build_single_trigger_sensor_log_template(
+        trigger_topic="/camera/front/image_raw",
+        join_topics=["/imu/data"],
+    )
+
+    assert spec.schema.name == "single_trigger_sensor_log"
+    assert spec.assembly is not None
+    assert spec.assembly.trigger_topic == "/camera/front/image_raw"
+    assert [join.topic for join in spec.assembly.joins] == ["/imu/data"]
+    assert spec.assembly.joins[0].required is False
+    assert spec.features["camera_front_image_raw"].source.topic == "/camera/front/image_raw"
+    assert spec.features["imu_data"].source.topic == "/imu/data"
+    assert spec.validation.expected_features == ["camera_front_image_raw", "imu_data"]
+    assert spec.output.format == "tfrecord"
