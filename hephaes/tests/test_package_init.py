@@ -18,6 +18,14 @@ class TestPublicExports:
         from hephaes import Converter
         assert Converter is not None
 
+    def test_conversion_capabilities_exported(self):
+        from hephaes import ConversionCapabilities
+        assert ConversionCapabilities is not None
+
+    def test_conversion_spec_document_exported(self):
+        from hephaes import ConversionSpecDocument
+        assert ConversionSpecDocument is not None
+
     def test_mapping_template_exported(self):
         from hephaes import MappingTemplate
         assert MappingTemplate is not None
@@ -62,6 +70,22 @@ class TestPublicExports:
         from hephaes import build_mapping_template_from_json
         assert callable(build_mapping_template_from_json)
 
+    def test_build_conversion_capabilities_exported(self):
+        from hephaes import build_conversion_capabilities
+        assert callable(build_conversion_capabilities)
+
+    def test_build_conversion_spec_document_exported(self):
+        from hephaes import build_conversion_spec_document
+        assert callable(build_conversion_spec_document)
+
+    def test_dump_conversion_spec_exported(self):
+        from hephaes import dump_conversion_spec
+        assert callable(dump_conversion_spec)
+
+    def test_load_conversion_spec_exported(self):
+        from hephaes import load_conversion_spec
+        assert callable(load_conversion_spec)
+
     def test_stream_wide_parquet_rows_exported(self):
         from hephaes import stream_wide_parquet_rows
         assert callable(stream_wide_parquet_rows)
@@ -79,6 +103,8 @@ class TestPublicExports:
             "__version__",
             "configure_logging",
             "Converter",
+            "ConversionCapabilities",
+            "ConversionSpecDocument",
             "MappingTemplate",
             "ParquetOutputConfig",
             "ResampleConfig",
@@ -88,8 +114,16 @@ class TestPublicExports:
             "ROS1Reader",
             "ROS2Reader",
             "RosReader",
+            "build_conversion_capabilities",
+            "build_conversion_spec_document",
             "build_mapping_template",
             "build_mapping_template_from_json",
+            "dump_conversion_spec",
+            "dump_conversion_spec_document",
+            "load_conversion_spec",
+            "load_conversion_spec_document",
+            "migrate_conversion_spec_document",
+            "migrate_conversion_spec_payload",
             "stream_wide_parquet_rows",
             "stream_tfrecord_rows",
         }

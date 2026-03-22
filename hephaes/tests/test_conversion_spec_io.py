@@ -1,0 +1,75 @@
+from __future__ import annotations
+
+from hephaes import build_doom_ros_train_py_compatible
+from hephaes.conversion.spec_io import (
+    ConversionSpecDocument,
+    build_conversion_spec_document,
+    dump_conversion_spec,
+    dump_conversion_spec_document,
+    load_conversion_spec,
+    load_conversion_spec_document,
+    migrate_conversion_spec_document,
+    migrate_conversion_spec_payload,
+)
+
+
+def test_conversion_spec_json_round_trip():
+    spec = build_doom_ros_train_py_compatible()
+
+    encoded = dump_conversion_spec(spec)
+    decoded = load_conversion_spec(encoded)
+
+    assert decoded == spec
+
+
+def test_conversion_spec_document_round_trip_json_and_yaml():
+    spec = build_doom_ros_train_py_compatible()
+    document = build_conversion_spec_document(
+        spec,
+        metadata={"name": "doom", "tags": ["demo"]},
+    )
+
+    json_text = dump_conversion_spec_document(document)
+    yaml_text = dump_conversion_spec_document(document, format="yaml")
+
+    loaded_from_json = load_conversion_spec_document(json_text)
+    loaded_from_yaml = load_conversion_spec_document(yaml_text)
+
+    assert loaded_from_json == document
+    assert loaded_from_yaml == document
+
+
+def test_conversion_spec_document_loads_raw_spec_payload():
+    spec = build_doom_ros_train_py_compatible()
+    payload = spec.model_dump(by_alias=True)
+
+    document = load_conversion_spec_document(payload)
+
+    assert isinstance(document, ConversionSpecDocument)
+    assert document.spec == spec
+    assert document.spec_version == 1
+
+
+def test_conversion_spec_payload_migration_normalizes_schema_aliases():
+    payload = {
+        "schema_name": "example",
+        "schema_version": 3,
+        "input": {},
+        "decoding": {},
+        "output": {"format": "tfrecord"},
+    }
+
+    migrated = migrate_conversion_spec_payload(payload)
+
+    assert migrated["schema"] == {"name": "example", "version": 3}
+    assert "schema_name" not in migrated
+    assert "schema_version" not in migrated
+
+
+def test_conversion_spec_document_migration_noops_on_current_version():
+    document = build_conversion_spec_document(build_doom_ros_train_py_compatible())
+
+    migrated = migrate_conversion_spec_document(document)
+
+    assert migrated == document
+

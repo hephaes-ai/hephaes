@@ -16,6 +16,7 @@ from .layout import (
     render_output_filename,
 )
 from .report import build_conversion_report, report_path_for_dataset, write_conversion_report
+from .capabilities import ConversionCapabilities, build_conversion_capabilities
 from .decoding import MessageDecoder, build_message_decoder
 from .discovery import (
     discover_input_paths,
@@ -24,6 +25,17 @@ from .discovery import (
     filter_topics_from_spec,
 )
 from .features import FeatureBuilder, resolve_field_path, resolve_source_value
+from .spec_io import (
+    CONVERSION_SPEC_DOCUMENT_VERSION,
+    ConversionSpecDocument,
+    build_conversion_spec_document,
+    dump_conversion_spec,
+    dump_conversion_spec_document,
+    load_conversion_spec,
+    load_conversion_spec_document,
+    migrate_conversion_spec_document,
+    migrate_conversion_spec_payload,
+)
 from .transforms import apply_transform, apply_transform_chain
 from .validation import ValidationSummary, validate_trigger_records
 
@@ -44,6 +56,8 @@ __all__ = [
     "build_conversion_report",
     "report_path_for_dataset",
     "write_conversion_report",
+    "ConversionCapabilities",
+    "build_conversion_capabilities",
     "MessageDecoder",
     "build_message_decoder",
     "discover_input_paths",
@@ -53,6 +67,15 @@ __all__ = [
     "FeatureBuilder",
     "resolve_field_path",
     "resolve_source_value",
+    "CONVERSION_SPEC_DOCUMENT_VERSION",
+    "ConversionSpecDocument",
+    "build_conversion_spec_document",
+    "dump_conversion_spec",
+    "dump_conversion_spec_document",
+    "load_conversion_spec",
+    "load_conversion_spec_document",
+    "migrate_conversion_spec_document",
+    "migrate_conversion_spec_payload",
     "apply_transform",
     "apply_transform_chain",
     "ValidationSummary",

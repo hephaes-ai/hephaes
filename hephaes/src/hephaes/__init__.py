@@ -29,6 +29,18 @@ def configure_logging(
 
 from .converter import Converter
 from .mappers import build_mapping_template, build_mapping_template_from_json
+from .conversion.capabilities import ConversionCapabilities, build_conversion_capabilities
+from .conversion.spec_io import (
+    CONVERSION_SPEC_DOCUMENT_VERSION,
+    ConversionSpecDocument,
+    build_conversion_spec_document,
+    dump_conversion_spec,
+    dump_conversion_spec_document,
+    load_conversion_spec,
+    load_conversion_spec_document,
+    migrate_conversion_spec_document,
+    migrate_conversion_spec_payload,
+)
 from .models import (
     AssemblySpec,
     ConversionSpec,
@@ -60,8 +72,11 @@ __all__ = [
     "__version__",
     "configure_logging",
     "Converter",
+    "CONVERSION_SPEC_DOCUMENT_VERSION",
+    "ConversionCapabilities",
     "AssemblySpec",
     "ConversionSpec",
+    "ConversionSpecDocument",
     "DecodingSpec",
     "FieldSourceSpec",
     "FeatureSpec",
@@ -86,8 +101,16 @@ __all__ = [
     "RosReader",
     "build_mapping_template",
     "build_mapping_template_from_json",
+    "build_conversion_capabilities",
+    "build_conversion_spec_document",
     "build_doom_ros_train_py_compatible",
     "build_legacy_conversion_spec",
+    "dump_conversion_spec",
+    "dump_conversion_spec_document",
+    "load_conversion_spec",
+    "load_conversion_spec_document",
+    "migrate_conversion_spec_document",
+    "migrate_conversion_spec_payload",
     "build_single_trigger_sensor_log_template",
     "stream_wide_parquet_rows",
     "stream_tfrecord_rows",
