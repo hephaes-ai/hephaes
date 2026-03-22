@@ -67,7 +67,6 @@ import {
   useAssets,
   useBackendCache,
   useConversion,
-  useConversionAuthoringCapabilities,
   useSavedConversionConfig,
   useSavedConversionConfigs,
 } from "@/hooks/use-backend"
@@ -503,7 +502,6 @@ export function ConversionAuthoringWorkspace() {
   } = useBackendCache()
   const { isSubmitting, submit: submitConversion } = useCreateConversion()
   const assetsResponse = useAssets()
-  const capabilitiesResponse = useConversionAuthoringCapabilities()
   const savedConfigsResponse = useSavedConversionConfigs()
   const [createdConversion, setCreatedConversion] = React.useState<NonNullable<ReturnType<typeof useConversion>["data"]> | null>(null)
   const [requestMessage, setRequestMessage] = React.useState<NoticeState>(null)
@@ -560,7 +558,6 @@ export function ConversionAuthoringWorkspace() {
     selectedAssets.find((asset) => asset.id === sourceAssetId) ?? selectedAssets[0] ?? null
   const selectedSavedConfig = selectedSavedConfigResponse.data ?? null
   const savedConfigs = React.useMemo(() => savedConfigsResponse.data ?? [], [savedConfigsResponse.data])
-  const capabilities = capabilitiesResponse.data?.hephaes ?? null
   const selectedConfigSummary = React.useMemo(
     () => savedConfigs.find((config) => config.id === selectedSavedConfigId) ?? null,
     [savedConfigs, selectedSavedConfigId],
@@ -2158,64 +2155,6 @@ export function ConversionAuthoringWorkspace() {
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Capabilities</CardTitle>
-              <CardDescription>Render controls from the backend contract instead of hard-coding them locally.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {capabilities ? (
-                <div className="space-y-4">
-                  <div className="space-y-2">
-                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Row strategies</p>
-                    <div className="flex flex-wrap gap-2">
-                      {capabilities.authoring_row_strategies.map((strategy) => (
-                        <Badge key={strategy} variant="outline">
-                          {formatSentenceCase(strategy)}
-                        </Badge>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Source kinds</p>
-                    <div className="flex flex-wrap gap-2">
-                      {capabilities.authoring_feature_source_kinds.map((kind) => (
-                        <Badge key={kind} variant="outline">
-                          {formatSentenceCase(kind)}
-                        </Badge>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Transforms</p>
-                    <div className="flex flex-wrap gap-2">
-                      {capabilities.transform_kinds.slice(0, 10).map((kind) => (
-                        <Badge key={kind} variant="outline">
-                          {formatSentenceCase(kind)}
-                        </Badge>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <div className="space-y-1">
-                      <p className="text-xs uppercase tracking-wide text-muted-foreground">Formats</p>
-                      <p className="text-sm font-medium">{capabilities.output_formats.join(", ")}</p>
-                    </div>
-                    <div className="space-y-1">
-                      <p className="text-xs uppercase tracking-wide text-muted-foreground">Spec version</p>
-                      <p className="text-sm font-medium">{capabilities.spec_version}</p>
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <EmptyState
-                  variant="card"
-                  description="The backend capability payload is still loading."
-                  title="No capabilities yet"
-                />
-              )}
-            </CardContent>
-          </Card>
         </div>
       </div>
 
