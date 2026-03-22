@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -53,12 +54,12 @@ def resolve_field_path(payload: Any, field_path: str | None) -> Any:
 
     current = payload
     for segment in field_path.split("."):
-        if isinstance(current, dict):
+        if isinstance(current, Mapping):
             if segment not in current:
                 raise KeyError(f"missing field segment: {segment}")
             current = current[segment]
             continue
-        if isinstance(current, list):
+        if isinstance(current, (list, tuple)):
             if not segment.isdigit():
                 raise KeyError(f"list segment must be numeric: {segment}")
             index = int(segment)
@@ -67,7 +68,13 @@ def resolve_field_path(payload: Any, field_path: str | None) -> Any:
             except IndexError as exc:
                 raise KeyError(f"list index out of range: {segment}") from exc
             continue
-        raise KeyError(f"cannot resolve segment '{segment}' from payload type {type(current).__name__}")
+        try:
+            current = getattr(current, segment)
+            continue
+        except AttributeError as exc:
+            raise KeyError(
+                f"cannot resolve segment '{segment}' from payload type {type(current).__name__}"
+            ) from exc
 
     return current
 
