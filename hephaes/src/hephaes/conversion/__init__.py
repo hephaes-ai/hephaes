@@ -17,6 +17,7 @@ from .layout import (
 )
 from .report import build_conversion_report, report_path_for_dataset, write_conversion_report
 from .capabilities import ConversionCapabilities, build_conversion_capabilities
+from .draft_spec import DraftSpecRequest, DraftSpecResult, build_draft_conversion_spec
 from .decoding import MessageDecoder, build_message_decoder
 from .discovery import (
     discover_input_paths,
@@ -24,7 +25,17 @@ from .discovery import (
     filter_topics,
     filter_topics_from_spec,
 )
+from .introspection import (
+    FieldCandidate,
+    InspectionRequest,
+    InspectionResult,
+    SampledMessage,
+    TopicInspectionResult,
+    inspect_bag,
+    inspect_reader,
+)
 from .features import FeatureBuilder, resolve_field_path, resolve_source_value
+from .preview import PreviewResult, PreviewRow, preview_conversion_spec
 from .spec_io import (
     CONVERSION_SPEC_DOCUMENT_VERSION,
     ConversionSpecDocument,
@@ -58,15 +69,25 @@ __all__ = [
     "write_conversion_report",
     "ConversionCapabilities",
     "build_conversion_capabilities",
+    "DraftSpecRequest",
+    "DraftSpecResult",
+    "build_draft_conversion_spec",
     "MessageDecoder",
     "build_message_decoder",
     "discover_input_paths",
     "discover_input_paths_from_spec",
     "filter_topics",
     "filter_topics_from_spec",
+    "FieldCandidate",
+    "InspectionRequest",
+    "InspectionResult",
     "FeatureBuilder",
+    "SampledMessage",
     "resolve_field_path",
     "resolve_source_value",
+    "TopicInspectionResult",
+    "inspect_bag",
+    "inspect_reader",
     "CONVERSION_SPEC_DOCUMENT_VERSION",
     "ConversionSpecDocument",
     "build_conversion_spec_document",
@@ -76,6 +97,9 @@ __all__ = [
     "load_conversion_spec_document",
     "migrate_conversion_spec_document",
     "migrate_conversion_spec_payload",
+    "PreviewResult",
+    "PreviewRow",
+    "preview_conversion_spec",
     "apply_transform",
     "apply_transform_chain",
     "ValidationSummary",

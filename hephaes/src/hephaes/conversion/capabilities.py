@@ -39,6 +39,11 @@ class ConversionCapabilities(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     spec_version: int = Field(default=1, ge=1)
+    supports_spec_documents: bool = True
+    supports_inspection: bool = True
+    supports_draft_generation: bool = True
+    supports_preview: bool = True
+    supports_migration: bool = True
     row_strategies: list[RowStrategyKind] = Field(default_factory=lambda: ["trigger", "per-message", "resample"])
     feature_source_kinds: list[FeatureSourceKind] = Field(
         default_factory=lambda: ["path", "constant", "metadata", "concat", "stack"]
@@ -62,10 +67,7 @@ class ConversionCapabilities(BaseModel):
     tfrecord_payload_encodings: list[TFRecordPayloadEncoding] = Field(default_factory=lambda: ["typed_features"])
     tfrecord_null_encodings: list[TFRecordNullEncoding] = Field(default_factory=lambda: ["presence_flag"])
     transform_kinds: list[str] = Field(default_factory=_supported_transform_kinds)
-    supports_preview: bool = True
-    supports_migration: bool = True
 
 
 def build_conversion_capabilities() -> ConversionCapabilities:
     return ConversionCapabilities()
-

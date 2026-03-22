@@ -26,6 +26,18 @@ class TestPublicExports:
         from hephaes import ConversionSpecDocument
         assert ConversionSpecDocument is not None
 
+    def test_build_draft_conversion_spec_exported(self):
+        from hephaes import build_draft_conversion_spec
+        assert callable(build_draft_conversion_spec)
+
+    def test_inspect_reader_exported(self):
+        from hephaes import inspect_reader
+        assert callable(inspect_reader)
+
+    def test_preview_conversion_spec_exported(self):
+        from hephaes import preview_conversion_spec
+        assert callable(preview_conversion_spec)
+
     def test_mapping_template_exported(self):
         from hephaes import MappingTemplate
         assert MappingTemplate is not None
@@ -105,10 +117,15 @@ class TestPublicExports:
             "Converter",
             "ConversionCapabilities",
             "ConversionSpecDocument",
+            "DraftSpecRequest",
+            "DraftSpecResult",
             "MappingTemplate",
             "ParquetOutputConfig",
             "ResampleConfig",
+            "FieldCandidate",
             "TFRecordOutputConfig",
+            "InspectionRequest",
+            "InspectionResult",
             "WideParquetWriter",
             "Profiler",
             "ROS1Reader",
@@ -116,14 +133,22 @@ class TestPublicExports:
             "RosReader",
             "build_conversion_capabilities",
             "build_conversion_spec_document",
+            "build_draft_conversion_spec",
             "build_mapping_template",
             "build_mapping_template_from_json",
             "dump_conversion_spec",
             "dump_conversion_spec_document",
+            "inspect_bag",
+            "inspect_reader",
             "load_conversion_spec",
             "load_conversion_spec_document",
             "migrate_conversion_spec_document",
             "migrate_conversion_spec_payload",
+            "preview_conversion_spec",
+            "PreviewResult",
+            "PreviewRow",
+            "SampledMessage",
+            "TopicInspectionResult",
             "stream_wide_parquet_rows",
             "stream_tfrecord_rows",
         }
