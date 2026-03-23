@@ -22,6 +22,14 @@ import { EmptyState } from "@/components/empty-state"
 import { WorkflowStatusBadge } from "@/components/workflow-status-badge"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from "@/components/ui/breadcrumb"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -273,7 +281,7 @@ function getTopicHintCount(rawJson: string) {
   return Object.keys(parsed.value).length
 }
 
-function CreateWizardStepper({
+function CreateWizardBreadcrumb({
   currentStep,
   onStepChange,
 }: {
@@ -286,29 +294,49 @@ function CreateWizardStepper({
 
   return (
     <Card>
-      <CardContent className="flex flex-wrap gap-2 p-4">
-        {CREATE_WIZARD_STEPS.map((step, index) => {
-          const isActive = index === currentStepIndex
-          const isComplete = index < currentStepIndex
-          const isReachable = index <= currentStepIndex
+      <CardContent className="px-4 py-3">
+        <Breadcrumb>
+          <BreadcrumbList>
+            {CREATE_WIZARD_STEPS.map((step, index) => {
+              const isActive = index === currentStepIndex
+              const isComplete = index < currentStepIndex
+              const canNavigateBack = index < currentStepIndex
 
-          return (
-            <Button
-              key={step.id}
-              className="gap-2"
-              disabled={!isReachable}
-              onClick={() => onStepChange(step.id)}
-              size="sm"
-              type="button"
-              variant={isActive ? "default" : "outline"}
-            >
-              <span className="flex size-5 items-center justify-center rounded-full border border-current/20 text-[11px] font-medium">
-                {isComplete ? <CheckCircle2 className="size-3.5" /> : index + 1}
-              </span>
-              <span>{step.label}</span>
-            </Button>
-          )
-        })}
+              return (
+                <React.Fragment key={step.id}>
+                  <BreadcrumbItem>
+                    {isActive ? (
+                      <BreadcrumbPage>{step.label}</BreadcrumbPage>
+                    ) : canNavigateBack ? (
+                      <BreadcrumbLink asChild>
+                        <button
+                          className="transition-colors hover:text-foreground"
+                          onClick={() => onStepChange(step.id)}
+                          type="button"
+                        >
+                          {step.label}
+                        </button>
+                      </BreadcrumbLink>
+                    ) : (
+                      <span
+                        className={
+                          isComplete
+                            ? "transition-colors hover:text-foreground"
+                            : "text-muted-foreground/60"
+                        }
+                      >
+                        {step.label}
+                      </span>
+                    )}
+                  </BreadcrumbItem>
+                  {index < CREATE_WIZARD_STEPS.length - 1 ? (
+                    <BreadcrumbSeparator />
+                  ) : null}
+                </React.Fragment>
+              )
+            })}
+          </BreadcrumbList>
+        </Breadcrumb>
       </CardContent>
     </Card>
   )
@@ -1608,7 +1636,7 @@ export function ConversionAuthoringWorkspace({
           </div>
         </section>
 
-        <CreateWizardStepper
+        <CreateWizardBreadcrumb
           currentStep={createStep}
           onStepChange={(step) => setCreateStep(step)}
         />
