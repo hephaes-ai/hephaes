@@ -1,4 +1,6 @@
 export default {
   index: 'Introduction',
-  design: 'Design',
+  hephaes: 'Hephaes',
+  backend: 'Backend',
+  frontend: 'Frontend',
 }
