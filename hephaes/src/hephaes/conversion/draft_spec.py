@@ -98,7 +98,7 @@ def _candidate_priority(candidate: FieldCandidate) -> tuple[int, int, float, int
     path_tail = candidate.path.rsplit(".", 1)[-1].lower() if candidate.path else ""
     metadata_names = {"width", "height", "encoding", "format", "step", "stride", "channels"}
 
-    if path_tail in {"data", "pixels", "frame"} and candidate.kind in {"bytes", "scalar", "sequence"}:
+    if path_tail in {"data", "pixels", "frame"} and candidate.kind in {"bytes", "scalar", "sequence", "image"}:
         base = 0
     elif candidate.path.endswith("buttons"):
         base = 1
