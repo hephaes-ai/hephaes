@@ -1637,9 +1637,12 @@ export function ConversionAuthoringWorkspace({
     : null
   const selectedConfigPreview = selectedSavedConfig?.latest_preview ?? null
   const inspectionWarnings = inspectionResponse?.inspection.warnings ?? []
-  const draftWarnings = draftResponse?.draft.warnings ?? []
-  const draftAssumptions = draftResponse?.draft.assumptions ?? []
-  const draftUnresolved = draftResponse?.draft.unresolved_fields ?? []
+  const draftCompleteIndicator = draftResponse ? (
+    <span className="inline-flex items-center gap-1 text-sm font-medium text-emerald-600">
+      <CheckCircle2 className="size-4" />
+      Draft complete
+    </span>
+  ) : null
 
   if (isCreateMode) {
     return (
@@ -1894,7 +1897,7 @@ export function ConversionAuthoringWorkspace({
                 </AccordionItem>
               </Accordion>
 
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <Button
                   disabled={isInspecting || !selectedSourceAsset}
                   onClick={runInspection}
@@ -2249,7 +2252,7 @@ export function ConversionAuthoringWorkspace({
                 />
               )}
 
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <Button
                   disabled={
                     isDrafting ||
@@ -2266,67 +2269,8 @@ export function ConversionAuthoringWorkspace({
                   )}
                   {isDrafting ? "Drafting..." : "Draft spec"}
                 </Button>
+                {draftCompleteIndicator}
               </div>
-
-              {draftResponse ? (
-                <div className="space-y-3 rounded-lg border bg-muted/20 px-3 py-3">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-medium text-foreground">
-                        Draft summary
-                      </p>
-                      <p className="text-sm text-muted-foreground">
-                        {draftResponse.draft.selected_topics.length} selected
-                        topic
-                        {draftResponse.draft.selected_topics.length === 1
-                          ? ""
-                          : "s"}{" "}
-                        and {draftResponse.draft.join_topics.length} joins.
-                      </p>
-                    </div>
-                    <Badge variant="outline">
-                      {draftResponse.draft.request.output_format.toUpperCase()}
-                    </Badge>
-                  </div>
-
-                  {draftAssumptions.length > 0 ? (
-                    <div className="space-y-1">
-                      <p className="text-xs tracking-wide text-muted-foreground uppercase">
-                        Assumptions
-                      </p>
-                      <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
-                        {draftAssumptions.map((assumption) => (
-                          <li key={assumption}>{assumption}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  ) : null}
-
-                  {draftWarnings.length > 0 ? (
-                    <div className="space-y-1">
-                      <p className="text-xs tracking-wide text-muted-foreground uppercase">
-                        Warnings
-                      </p>
-                      <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
-                        {draftWarnings.map((warning) => (
-                          <li key={warning}>{warning}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  ) : null}
-
-                  {draftUnresolved.length > 0 ? (
-                    <div className="space-y-1">
-                      <p className="text-xs tracking-wide text-muted-foreground uppercase">
-                        Unresolved fields
-                      </p>
-                      <p className="text-sm text-muted-foreground">
-                        {draftUnresolved.join(", ")}
-                      </p>
-                    </div>
-                  ) : null}
-                </div>
-              ) : null}
 
               <div className="flex justify-between gap-2">
                 <Button
@@ -3273,7 +3217,7 @@ export function ConversionAuthoringWorkspace({
                   />
                 )}
 
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <Button
                     disabled={
                       isDrafting ||
@@ -3290,6 +3234,7 @@ export function ConversionAuthoringWorkspace({
                     )}
                     {isDrafting ? "Drafting..." : "Draft spec"}
                   </Button>
+                  {draftCompleteIndicator}
                   <Button
                     disabled={
                       isPreviewing ||
@@ -3308,66 +3253,6 @@ export function ConversionAuthoringWorkspace({
                     {isPreviewing ? "Previewing..." : "Preview current spec"}
                   </Button>
                 </div>
-
-                {draftResponse ? (
-                  <div className="space-y-3 rounded-lg border bg-muted/20 px-3 py-3">
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                      <div>
-                        <p className="text-sm font-medium text-foreground">
-                          Draft summary
-                        </p>
-                        <p className="text-sm text-muted-foreground">
-                          {draftResponse.draft.selected_topics.length} selected
-                          topic
-                          {draftResponse.draft.selected_topics.length === 1
-                            ? ""
-                            : "s"}{" "}
-                          and {draftResponse.draft.join_topics.length} joins.
-                        </p>
-                      </div>
-                      <Badge variant="outline">
-                        {draftResponse.draft.request.output_format.toUpperCase()}
-                      </Badge>
-                    </div>
-
-                    {draftAssumptions.length > 0 ? (
-                      <div className="space-y-1">
-                        <p className="text-xs tracking-wide text-muted-foreground uppercase">
-                          Assumptions
-                        </p>
-                        <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
-                          {draftAssumptions.map((assumption) => (
-                            <li key={assumption}>{assumption}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    ) : null}
-
-                    {draftWarnings.length > 0 ? (
-                      <div className="space-y-1">
-                        <p className="text-xs tracking-wide text-muted-foreground uppercase">
-                          Warnings
-                        </p>
-                        <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
-                          {draftWarnings.map((warning) => (
-                            <li key={warning}>{warning}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    ) : null}
-
-                    {draftUnresolved.length > 0 ? (
-                      <div className="space-y-1">
-                        <p className="text-xs tracking-wide text-muted-foreground uppercase">
-                          Unresolved fields
-                        </p>
-                        <p className="text-sm text-muted-foreground">
-                          {draftUnresolved.join(", ")}
-                        </p>
-                      </div>
-                    ) : null}
-                  </div>
-                ) : null}
               </CardContent>
             </Card>
 
@@ -3392,7 +3277,7 @@ export function ConversionAuthoringWorkspace({
                         : ""}
                     </p>
                   </div>
-                  <div className="flex flex-wrap gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <Button
                       disabled={!draftResponse}
                       onClick={() => {
