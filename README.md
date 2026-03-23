@@ -40,6 +40,7 @@ If you are interested in being a design partner, please reach out to hello@hepha
 - `frontend/`: the Next.js UI
 - `backend/`: the FastAPI service
 - `hephaes/`: the shared Python package
+- `docs/`: project documentation site (Nextra)
 
 ## Python Setup
 
