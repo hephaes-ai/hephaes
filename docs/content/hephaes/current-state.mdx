@@ -1,0 +1,73 @@
+# Current State
+
+## Snapshot
+
+`hephaes` is in active use as the conversion core for the local data pipeline. The package supports profiling, schema authoring, spec lifecycle helpers, conversion execution, and output streaming for Parquet and TFRecord.
+
+## Implemented Capabilities
+
+### Input and Reading
+
+- ROS1 `.bag` and ROS2 `.mcap` file ingestion
+- Reader APIs (`RosReader`, `ROS1Reader`, `ROS2Reader`) for direct message access
+- Header iteration and topic-scoped reads for targeted inspection
+
+### Profiling and Inspection
+
+- `Profiler` for recording metadata (duration, timestamps, topic inventory)
+- Topic/message introspection helpers (`inspect_bag`, `inspect_reader`)
+- Structured inspection and sampled payload summaries for authoring workflows
+
+### Schema and Spec Authoring
+
+- Mapping template builders:
+  - `build_mapping_template`
+  - `build_mapping_template_from_json`
+- Rich conversion spec models for schema, row strategy, decoding, and validation
+- Draft-spec and preview helpers for authoring UX:
+  - `build_draft_conversion_spec`
+  - `preview_conversion_spec`
+  - `preflight_conversion_spec`
+
+### Conversion and Output
+
+- `Converter` pipeline for end-to-end conversion
+- Output targets:
+  - Parquet (wide table format)
+  - TFRecord (flattened typed feature format)
+- TFRecord image payload contracts:
+  - `bytes_v2` (default)
+  - `legacy_list_v1` (compatibility)
+- Sidecar manifest generation per episode (`.manifest.json`)
+
+### Spec I/O and Migration
+
+- Load/dump conversion spec payloads and documents
+- Spec migration helpers for versioned compatibility
+- Contract migration helper:
+  - `set_tfrecord_image_payload_contract`
+
+## Package Surface
+
+Core exports are centered around:
+
+- Data access (`RosReader`, `Profiler`)
+- Authoring (`build_mapping_template*`, inspection, draft, preview)
+- Execution (`Converter`)
+- Output policy and compatibility (`TFRecordOutputConfig`, spec migration helpers)
+
+## Known Scope Boundaries
+
+- Library-first package; no dedicated CLI workflow documented in this repo
+- Input path support is file-based (not ROS bag directory bundles)
+- Focused on local/offline dataset preparation
+
+## Validation and Quality
+
+- Package includes a test suite under `hephaes/src/tests`
+- Backend integration tests validate conversion APIs and image payload contract behavior through the service layer
+
+## Related Docs
+
+- [Overview](./overview)
+- [How To Use](./how-to-use)

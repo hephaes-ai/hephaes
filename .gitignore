@@ -6,5 +6,5 @@
 /.venv/
 /env/
 
-# Planning docs
-design/
+# Planning docs (legacy, now in docs/content/design/)
+# design/

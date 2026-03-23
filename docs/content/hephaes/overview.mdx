@@ -1,0 +1,47 @@
+# Hephaes Overview
+
+## Goal
+
+The `hephaes` Python package turns ROS logs into standardized, ML-ready datasets with stable schemas across runs, robots, and recording variations.
+
+It is the core data-conversion engine used by the backend and frontend, but it is also usable directly as a standalone Python library.
+
+## What The Package Solves
+
+- Ingest ROS1 `.bag` and ROS2 `.mcap` logs
+- Profile recordings to understand topics, rates, and time bounds
+- Map variable source topic names into a canonical output schema
+- Synchronize asynchronous streams onto a shared timeline
+- Convert episodes into Parquet or TFRecord outputs
+- Emit sidecar manifests with provenance and metadata
+
+## Design Principles
+
+1. Keep conversion semantics explicit and versioned
+2. Preserve source fidelity while producing practical ML features
+3. Support schema standardization across heterogeneous fleets
+4. Keep outputs deterministic and reproducible for training pipelines
+
+## Where It Fits
+
+```
+ROS/MCAP logs -> hephaes (profile + map + convert) -> Parquet/TFRecord + manifest
+```
+
+In the full local stack:
+
+```
+Frontend (Next.js) <-> Backend (FastAPI) <-> hephaes (Python package)
+```
+
+## Current Scope
+
+- Python 3.11+
+- Local filesystem inputs and outputs
+- One output dataset file per input log
+- Library-first interface (no separate CLI in this repo)
+
+## Related Docs
+
+- [Current State](./current-state)
+- [How To Use](./how-to-use)

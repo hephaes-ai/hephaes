@@ -1,0 +1,158 @@
+# How To Use
+
+## Installation
+
+From PyPI:
+
+```bash
+pip install hephaes
+```
+
+From source:
+
+```bash
+cd hephaes
+python -m pip install .
+```
+
+For local development:
+
+```bash
+cd hephaes
+python -m pip install -e ".[dev]"
+```
+
+## Typical Workflow
+
+The standard flow is:
+
+1. Profile a log
+2. Build a stable mapping template
+3. Configure conversion output and row strategy
+4. Convert to dataset files
+5. Optionally stream rows for validation
+
+## 1) Profile a Log
+
+```python
+from hephaes import Profiler
+
+profile = Profiler(["data/run_001.mcap"], max_workers=1).profile()[0]
+
+print(profile.ros_version)
+print(profile.duration_seconds)
+print(profile.start_time_iso, profile.end_time_iso)
+print([(topic.name, topic.message_type, topic.rate_hz) for topic in profile.topics])
+```
+
+Use this step to verify what topics exist and which ones should map into your canonical fields.
+
+## 2) Build a Mapping Template
+
+Auto-build from discovered topics:
+
+```python
+from hephaes import build_mapping_template
+
+mapping = build_mapping_template(profile.topics)
+```
+
+Or explicitly define canonical fields with topic fallbacks:
+
+```python
+from hephaes import build_mapping_template_from_json
+
+mapping = build_mapping_template_from_json(
+    profile.topics,
+    {
+        "front_camera": ["/camera/front/image_raw", "/sensors/front_cam"],
+        "imu": ["/imu/data", "/sensors/imu"],
+        "vehicle_twist": ["/cmd_vel", "/vehicle/twist"],
+    },
+    strict_unknown_topics=False,
+)
+```
+
+This keeps downstream schema stable even when source topic names differ between robots or runs.
+
+## 3) Configure Conversion
+
+```python
+from hephaes import Converter, ResampleConfig, TFRecordOutputConfig
+
+converter = Converter(
+    ["data/run_001.mcap"],
+    mapping,
+    output_dir="dataset/processed",
+    output=TFRecordOutputConfig(image_payload_contract="bytes_v2"),
+    resample=ResampleConfig(freq_hz=10.0, method="interpolate"),
+    robot_context={"robot_id": "alpha-01", "platform": "spot"},
+    max_workers=1,
+)
+```
+
+### Resampling Modes
+
+- `resample=None`: preserve observed timestamps
+- `method="downsample"`: fixed-rate buckets, latest sample per bucket
+- `method="interpolate"`: fixed-rate numeric interpolation
+
+### Image Payload Contract
+
+For TFRecord output:
+
+- `bytes_v2` (default): image bytes in raw bytes features with metadata fields
+- `legacy_list_v1`: list-based compatibility mode for migration windows
+
+## 4) Convert
+
+```python
+dataset_paths = converter.convert()
+print(dataset_paths[0])
+print(dataset_paths[0].with_suffix(".manifest.json"))
+```
+
+Each input log produces one output data file plus one manifest sidecar.
+
+## 5) Stream Rows For Verification
+
+TFRecord:
+
+```python
+from hephaes import stream_tfrecord_rows
+
+for row in stream_tfrecord_rows(dataset_paths[0]):
+    print(row)
+    break
+```
+
+Parquet:
+
+```python
+from hephaes import stream_wide_parquet_rows
+
+for row in stream_wide_parquet_rows(dataset_paths[0]):
+    print(row)
+    break
+```
+
+## Additional APIs You Can Use
+
+- Direct reading: `RosReader.open(...)`
+- Inspection: `inspect_bag(...)`, `inspect_reader(...)`
+- Drafting/preview: `build_draft_conversion_spec(...)`, `preview_conversion_spec(...)`
+- Spec lifecycle: `load_conversion_spec(...)`, `dump_conversion_spec(...)`
+- Contract migration: `set_tfrecord_image_payload_contract(...)`
+
+## What Is Implemented Today
+
+- End-to-end conversion from ROS logs to Parquet/TFRecord
+- Topic-to-field schema normalization
+- Resampling and interpolation strategies
+- TFRecord image payload contract modes (`bytes_v2`, `legacy_list_v1`)
+- Manifest generation and output row streaming helpers
+
+## Related Docs
+
+- [Overview](./overview)
+- [Current State](./current-state)

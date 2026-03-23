@@ -1,0 +1,29 @@
+# Planned Features
+
+## Worker Queue for Jobs
+
+- [ ] Offload long-running conversion jobs to a dedicated worker/queue system
+- [ ] Support concurrent job execution with resource limits
+- [ ] Job cancellation and retry support
+
+## Custom Computation Scripts
+
+- [ ] Accept user-defined computation scripts as a conversion option
+- [ ] Script validation and sandboxed execution
+- [ ] Surface script results in job and output records
+
+## Expanded Output Actions
+
+- [ ] End-to-end VLM tagging workflow (currently stub only)
+- [ ] Additional post-processing action types beyond `refresh_metadata`
+
+## Backend-Side Filtering
+
+- [ ] Move remaining client-side filters (file size, registration date) to backend queries
+- [ ] Pagination support for large asset and output listings
+
+## Test Coverage
+
+- [ ] Expand integration test coverage for authoring edge cases
+- [ ] Add websocket replay tests
+- [ ] Add performance benchmarks for conversion execution

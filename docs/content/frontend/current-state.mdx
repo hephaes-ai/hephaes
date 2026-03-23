@@ -1,0 +1,98 @@
+# Current State
+
+## Snapshot
+
+The frontend is a Next.js App Router application built on React 19 with SWR for data fetching. It provides a complete UI for the local data pipeline: dashboard, inventory management, conversion authoring, job monitoring, output browsing, and episode replay.
+
+All primary workflows are functional end-to-end.
+
+## Route Map
+
+### Primary Navigation
+
+| Route | Description |
+|---|---|
+| `/dashboard` | Summary cards, trend views, blockers, drill-through links to inventory/jobs/outputs |
+| `/inventory` | Asset listing with search, tag, file type, indexing status, duration, size, and sort filters. Upload, directory scan, bulk indexing, and tag management |
+| `/outputs` | Output listing with filters for format, role, asset, conversion, and availability. Presets for ready datasets and active compute |
+| `/jobs` | Job history with type/status filters and polling for active jobs |
+
+### Contextual Routes
+
+| Route | Description |
+|---|---|
+| `/assets/[assetId]` | Asset summary, indexed metadata, topic table, tag management, episode list, related jobs/conversions, index/reindex actions, links to convert/outputs/replay |
+| `/convert` | Routes to `/convert/use` when saved configs exist, `/convert/new` otherwise |
+| `/convert/new` | Sequential create wizard: source selection, inspect, draft, spec editing, preview. Breadcrumb stepper navigation |
+| `/convert/use` | Saved config flow with dropdown selection, config details, and run action |
+| `/jobs/[jobId]` | Job detail with links to related assets and outputs |
+| `/outputs/[outputId]` | Output detail with source links, file/content links, action history, and metadata refresh |
+| `/replay` | Episode replay with timeline scrubber, lane selection, playback controls, speed adjustment, websocket streaming with REST fallback |
+| `/visualize` | Compatibility redirect to `/replay` |
+
+### Root Redirect
+
+`/` redirects to `/dashboard` by default, or `/inventory` when query params are present.
+
+## Conversion Authoring Workflow
+
+The conversion workflow is split into two paths:
+
+**Create new** (`/convert/new`):
+- Source asset selection
+- Topic inspection with collapsible accordions
+- Spec drafting with Use/Trigger checkbox columns for inline topic selection
+- Spec editing
+- Preview with scrollable timestamp rows and field data
+- Save to create a reusable config
+
+**Use saved config** (`/convert/use`):
+- Top-level config dropdown
+- Selected config details
+- Run action using saved config
+- Post-submission status polling with job status, output path, and reported files
+- Deep-link support via `saved_config_id`, `source_asset_id`, and `conversion_id` query params
+
+Image payload contract selection is surfaced throughout — authoring shows training-first defaults and legacy compatibility warnings, and status/output pages display the effective contract for post-run verification.
+
+## Replay
+
+- Episode selection from query params
+- Timeline lane selection and timestamp scrubber
+- Playback controls with variable speed
+- Websocket-based realtime replay streaming
+- REST sample fallback when websocket is unavailable
+- URL state persistence for asset, episode, lanes, speed, and timestamp
+
+## Data Layer
+
+| File | Purpose |
+|---|---|
+| `lib/api.ts` | Backend request/response types and fetch helpers (~1,260 lines) |
+| `hooks/use-backend.ts` | SWR hooks for all entities and cache invalidation |
+| `lib/conversion-authoring.ts` | JSON parsing, spec summaries, and inspection helpers |
+| `hooks/use-index-asset.ts` | Indexing mutations and pending-state tracking |
+| `hooks/use-upload-assets.ts` | Upload flow with bounded parallel requests |
+| `hooks/use-scan-directory.ts` | Directory scan flow |
+| `hooks/use-create-conversion.ts` | Conversion submit helper |
+| `hooks/use-episode-replay.ts` | Websocket replay with REST fallback |
+
+## Tests
+
+Test infrastructure is in place using Vitest with React Testing Library and jsdom. Current test coverage is minimal with three test files:
+
+- `components/output-detail-content.test.ts` — output preview building
+- `lib/conversion-representation.test.ts` — representation policy utilities
+- `lib/outputs.test.ts` — output formatting utilities
+
+## Dormant Code
+
+- `components/conversion-dialog.tsx` — older modal-style conversion UI, not used by active routes
+- `app/convert/conversion-page.tsx` — legacy execution-first conversion page, retained but not routed
+- `components/rerun-viewer.tsx` — Rerun web viewer wrapper, not used by the active replay route
+
+## Known Limitations
+
+- VLM tagging is a stub in the UI — `OutputActionType` includes it but only `refresh_metadata` works end-to-end
+- Some backend hooks in `use-backend.ts` (authoring capabilities, viewer-source, prepare-visualization) exist in typed client code but are not consumed by the routed UI
+- Replay uses timeline + sample data, not the backend viewer-source / cached `.rrd` flow
