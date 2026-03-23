@@ -127,6 +127,8 @@ def _infer_feature_dtype(candidate: FieldCandidate) -> str:
             return "float32"
         if candidate.path.endswith("buttons") and "int64" in candidate.candidate_dtypes:
             return "int64"
+        if preferred == "bytes" and len(candidate.candidate_dtypes) > 1:
+            return "json"
         return preferred
     if candidate.kind == "bytes":
         return "bytes"
