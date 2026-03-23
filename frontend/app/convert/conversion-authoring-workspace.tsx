@@ -1021,6 +1021,18 @@ export function ConversionAuthoringWorkspace({
     })
   }
 
+  function getNextTriggerTopic(
+    nextTopics: string[],
+    currentTrigger: string | null | undefined
+  ) {
+    const normalizedTrigger = currentTrigger?.trim() ?? ""
+    if (normalizedTrigger && nextTopics.includes(normalizedTrigger)) {
+      return normalizedTrigger
+    }
+
+    return nextTopics[0] ?? ""
+  }
+
   function toggleSelectedTopic(topic: string) {
     setSpecForm((current) => {
       const baseTopics =
@@ -1030,13 +1042,44 @@ export function ConversionAuthoringWorkspace({
       const nextTopics = baseTopics.includes(topic)
         ? baseTopics.filter((item) => item !== topic)
         : normalizeTopicList([...baseTopics, topic])
-      const nextTrigger = nextTopics.includes(current.triggerTopic)
-        ? current.triggerTopic
-        : (nextTopics[0] ?? "")
 
       return {
         ...current,
         selectedTopics: nextTopics,
+        triggerTopic: getNextTriggerTopic(nextTopics, current.triggerTopic),
+      }
+    })
+  }
+
+  function selectTriggerTopic(topic: string) {
+    setSpecForm((current) => {
+      const baseTopics =
+        current.selectedTopics.length > 0
+          ? current.selectedTopics
+          : inspectionTopicNames
+      const nextTopics = baseTopics.includes(topic)
+        ? baseTopics
+        : normalizeTopicList([...baseTopics, topic])
+
+      return {
+        ...current,
+        selectedTopics: nextTopics,
+        triggerTopic: topic,
+      }
+    })
+  }
+
+  function clearTriggerTopic(topic: string) {
+    setSpecForm((current) => {
+      const baseTopics =
+        current.selectedTopics.length > 0
+          ? current.selectedTopics
+          : inspectionTopicNames
+      const nextTrigger =
+        baseTopics.find((item) => item !== topic) ?? baseTopics[0] ?? ""
+
+      return {
+        ...current,
         triggerTopic: nextTrigger,
       }
     })
@@ -2128,40 +2171,21 @@ export function ConversionAuthoringWorkspace({
 
               {inspectionResponse ? (
                 <div className="space-y-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <p className="text-xs tracking-wide text-muted-foreground uppercase">
-                        Selected topics
-                      </p>
-                      <p className="text-sm text-muted-foreground">
-                        {effectiveSelectedTopics.length} topic
-                        {effectiveSelectedTopics.length === 1 ? "" : "s"} will
-                        drive the draft. The trigger topic is always part of
-                        that set.
-                      </p>
-                    </div>
-                    <NativeSelect
-                      className="max-w-xs"
-                      onChange={(event) =>
-                        setSpecForm((current) => ({
-                          ...current,
-                          triggerTopic: event.target.value,
-                        }))
-                      }
-                      value={effectiveTriggerTopic}
-                    >
-                      {effectiveSelectedTopics.map((topicName) => (
-                        <option key={topicName} value={topicName}>
-                          {topicName}
-                        </option>
-                      ))}
-                    </NativeSelect>
+                  <div className="space-y-1">
+                    <p className="text-xs tracking-wide text-muted-foreground uppercase">
+                      Selected topics
+                    </p>
+                    <p className="text-sm text-muted-foreground">
+                      Use picks the topics that will drive the draft. Trigger
+                      marks the one topic that should anchor it.
+                    </p>
                   </div>
 
                   <Table>
                     <TableHeader>
                       <TableRow>
                         <TableHead className="w-12">Use</TableHead>
+                        <TableHead className="w-16">Trigger</TableHead>
                         <TableHead>Topic</TableHead>
                         <TableHead>Type</TableHead>
                         <TableHead>Samples</TableHead>
@@ -2175,6 +2199,7 @@ export function ConversionAuthoringWorkspace({
                         const summary = summarizeInspectionTopic(topic)
                         const checked =
                           effectiveSelectedTopics.includes(topicName)
+                        const isTrigger = effectiveTriggerTopic === topicName
 
                         return (
                           <TableRow key={topicName}>
@@ -2184,6 +2209,18 @@ export function ConversionAuthoringWorkspace({
                                 onCheckedChange={() =>
                                   toggleSelectedTopic(topicName)
                                 }
+                              />
+                            </TableCell>
+                            <TableCell>
+                              <Checkbox
+                                checked={isTrigger}
+                                onCheckedChange={(nextChecked) => {
+                                  if (nextChecked) {
+                                    selectTriggerTopic(topicName)
+                                  } else {
+                                    clearTriggerTopic(topicName)
+                                  }
+                                }}
                               />
                             </TableCell>
                             <TableCell className="font-medium">
@@ -3158,40 +3195,21 @@ export function ConversionAuthoringWorkspace({
 
                 {inspectionResponse ? (
                   <div className="space-y-3">
-                    <div className="flex items-center justify-between gap-3">
-                      <div>
-                        <p className="text-xs tracking-wide text-muted-foreground uppercase">
-                          Selected topics
-                        </p>
-                        <p className="text-sm text-muted-foreground">
-                          {effectiveSelectedTopics.length} topic
-                          {effectiveSelectedTopics.length === 1 ? "" : "s"} will
-                          drive the draft. The trigger topic is always part of
-                          that set.
-                        </p>
-                      </div>
-                      <NativeSelect
-                        className="max-w-xs"
-                        onChange={(event) =>
-                          setSpecForm((current) => ({
-                            ...current,
-                            triggerTopic: event.target.value,
-                          }))
-                        }
-                        value={effectiveTriggerTopic}
-                      >
-                        {effectiveSelectedTopics.map((topicName) => (
-                          <option key={topicName} value={topicName}>
-                            {topicName}
-                          </option>
-                        ))}
-                      </NativeSelect>
+                    <div className="space-y-1">
+                      <p className="text-xs tracking-wide text-muted-foreground uppercase">
+                        Selected topics
+                      </p>
+                      <p className="text-sm text-muted-foreground">
+                        Use picks the topics that will drive the draft. Trigger
+                        marks the one topic that should anchor it.
+                      </p>
                     </div>
 
                     <Table>
                       <TableHeader>
                         <TableRow>
                           <TableHead className="w-12">Use</TableHead>
+                          <TableHead className="w-16">Trigger</TableHead>
                           <TableHead>Topic</TableHead>
                           <TableHead>Type</TableHead>
                           <TableHead>Samples</TableHead>
@@ -3205,6 +3223,7 @@ export function ConversionAuthoringWorkspace({
                           const summary = summarizeInspectionTopic(topic)
                           const checked =
                             effectiveSelectedTopics.includes(topicName)
+                          const isTrigger = effectiveTriggerTopic === topicName
 
                           return (
                             <TableRow key={topicName}>
@@ -3214,6 +3233,18 @@ export function ConversionAuthoringWorkspace({
                                   onCheckedChange={() =>
                                     toggleSelectedTopic(topicName)
                                   }
+                                />
+                              </TableCell>
+                              <TableCell>
+                                <Checkbox
+                                  checked={isTrigger}
+                                  onCheckedChange={(nextChecked) => {
+                                    if (nextChecked) {
+                                      selectTriggerTopic(topicName)
+                                    } else {
+                                      clearTriggerTopic(topicName)
+                                    }
+                                  }}
                                 />
                               </TableCell>
                               <TableCell className="font-medium">
