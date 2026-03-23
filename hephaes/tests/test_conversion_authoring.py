@@ -2,9 +2,17 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import numpy as np
+
 from hephaes import build_doom_ros_train_py_compatible, dump_conversion_spec, load_conversion_spec
-from hephaes.conversion.draft_spec import DraftSpecRequest, build_draft_conversion_spec
-from hephaes.conversion.introspection import inspect_reader
+from hephaes.conversion.draft_spec import (
+    DraftSpecRequest,
+    _candidate_priority,
+    _infer_feature_dtype,
+    build_draft_conversion_spec,
+)
+from hephaes.conversion.features import _coerce_bytes_feature
+from hephaes.conversion.introspection import FieldCandidate, inspect_reader
 from hephaes.conversion.preview import preflight_conversion_spec, preview_conversion_spec
 from hephaes.models import ConversionSpec, FeatureSpec, FieldSourceSpec, LabelSpec, Message, OutputSpec, SchemaSpec
 
@@ -265,3 +273,120 @@ def test_config_first_authoring_flow_can_go_from_inspection_to_preflight():
     assert preflight.bad_records == 0
     assert preflight.rows[0].field_data["row_timestamp"] == 100
     assert preflight.rows[0].field_data["dataset_tag"] == "authoring-test"
+
+
+def test_candidate_priority_gives_image_kind_base_zero():
+    image_data = FieldCandidate(
+        path="data", kind="image", image_like=True, candidate_dtypes=["bytes"],
+    )
+    scalar_data = FieldCandidate(
+        path="data", kind="scalar", image_like=False, candidate_dtypes=["bytes"],
+    )
+    metadata_field = FieldCandidate(
+        path="height", kind="scalar", image_like=False, candidate_dtypes=["int64"],
+    )
+    assert _candidate_priority(image_data)[0] == 0
+    assert _candidate_priority(scalar_data)[0] == 0
+    assert _candidate_priority(metadata_field)[0] > 0
+
+
+def test_infer_feature_dtype_returns_json_for_string_candidates():
+    string_candidate = FieldCandidate(
+        path="encoding", kind="bytes", candidate_dtypes=["bytes", "json"],
+    )
+    actual_bytes_candidate = FieldCandidate(
+        path="raw", kind="bytes", candidate_dtypes=["bytes"],
+    )
+    image_candidate = FieldCandidate(
+        path="data", kind="image", image_like=True, candidate_dtypes=["bytes"],
+    )
+    assert _infer_feature_dtype(string_candidate) == "json"
+    assert _infer_feature_dtype(actual_bytes_candidate) == "bytes"
+    assert _infer_feature_dtype(image_candidate) == "bytes"
+
+
+def test_coerce_bytes_feature_handles_numpy_uint8():
+    arr = np.array([0, 128, 255], dtype=np.uint8)
+    result = _coerce_bytes_feature(arr)
+    assert isinstance(result, bytes)
+    assert result == bytes([0, 128, 255])
+
+
+def test_coerce_bytes_feature_handles_int_list():
+    result = _coerce_bytes_feature([0, 128, 255])
+    assert isinstance(result, bytes)
+    assert result == bytes([0, 128, 255])
+
+
+def test_coerce_bytes_feature_passes_through_bytes():
+    original = b"\x00\x80\xff"
+    result = _coerce_bytes_feature(original)
+    assert result is original
+
+
+def test_coerce_bytes_feature_leaves_non_uint8_list_unchanged():
+    mixed = [0, 300, -1]
+    result = _coerce_bytes_feature(mixed)
+    assert result == mixed
+
+
+def _build_image_reader_with_numpy() -> FakeAuthoringReader:
+    """Reader with numpy uint8 image data, mimicking real MCAP decoding."""
+    return FakeAuthoringReader(
+        topics={
+            "/camera": "sensor_msgs/msg/Image",
+            "/joy": "sensor_msgs/msg/Joy",
+        },
+        messages=[
+            ("/joy", 90, {"buttons": [1, 0, 0], "axes": []}),
+            ("/camera", 100, {
+                "data": np.zeros(48, dtype=np.uint8),
+                "height": 4,
+                "width": 4,
+                "encoding": "rgb8",
+                "step": 12,
+                "is_bigendian": 0,
+            }),
+            ("/joy", 190, {"buttons": [0, 1, 0], "axes": []}),
+            ("/camera", 200, {
+                "data": np.ones(48, dtype=np.uint8),
+                "height": 4,
+                "width": 4,
+                "encoding": "rgb8",
+                "step": 12,
+                "is_bigendian": 0,
+            }),
+        ],
+    )
+
+
+def test_draft_with_numpy_image_data_produces_zero_bad_records():
+    reader = _build_image_reader_with_numpy()
+    inspection = inspect_reader(reader, sample_n=2)
+
+    draft = build_draft_conversion_spec(
+        inspection,
+        request=DraftSpecRequest(
+            trigger_topic="/camera",
+            selected_topics=["/camera", "/joy"],
+            max_features_per_topic=2,
+            include_preview=True,
+            preview_rows=2,
+        ),
+        reader=reader,
+    )
+
+    assert draft.preview is not None
+    assert draft.preview.bad_records == 0
+    assert draft.preview.checked_records == 2
+
+    image_feature = draft.spec.features.get("image")
+    assert image_feature is not None
+    assert image_feature.dtype == "bytes"
+    assert image_feature.required is True
+    assert image_feature.source.field_path == "data"
+
+    for row in draft.preview.rows:
+        assert row.presence_data["image"] == 1
+        assert isinstance(row.field_data["image"], bytes)
+        assert len(row.field_data["image"]) == 48
