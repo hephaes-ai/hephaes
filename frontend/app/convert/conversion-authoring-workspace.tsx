@@ -111,7 +111,6 @@ import {
   formatDateTime,
   formatFileSize,
   formatSentenceCase,
-  getWorkflowStatusClasses,
   isWorkflowActiveStatus,
 } from "@/lib/format"
 import { buildOutputsHref } from "@/lib/outputs"
@@ -349,21 +348,22 @@ function ConversionStatusCard({
   isRefreshing: boolean
   onNewConversion: () => void
 }) {
+  const hasShownCreatedToast = React.useRef<string | null>(null)
+
+  React.useEffect(() => {
+    if (hasShownCreatedToast.current === activeConversion.id) {
+      return
+    }
+
+    hasShownCreatedToast.current = activeConversion.id
+
+    toast.success("Conversion created", {
+      description: `The backend created conversion ${activeConversion.id} with status ${activeConversion.status}.`,
+    })
+  }, [activeConversion.id, activeConversion.status])
+
   return (
     <div className="space-y-4">
-      <Alert
-        className={getWorkflowStatusClasses(activeConversion.status)}
-        variant="default"
-      >
-        <CheckCircle2 className="size-4" />
-        <AlertTitle>Conversion created</AlertTitle>
-        <AlertDescription>
-          The backend created conversion{" "}
-          <span className="font-mono text-xs">{activeConversion.id}</span> with
-          status {activeConversion.status}.
-        </AlertDescription>
-      </Alert>
-
       <Card>
         <CardHeader>
           <CardTitle>Conversion status</CardTitle>
@@ -1605,15 +1605,9 @@ export function ConversionAuthoringWorkspace({
         <section className="space-y-2">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="space-y-2">
-              <div className="flex flex-wrap items-center gap-3">
-                <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-tight">
-                  <ArrowRight className="size-5" />
-                  Conversion status
-                </h1>
-                <span className="rounded-full border px-2 py-0.5 text-xs text-muted-foreground">
-                  {selectedAssets.length} selected
-                </span>
-              </div>
+              <h1 className="text-2xl font-semibold tracking-tight">
+                Conversion status
+              </h1>
               <p className="max-w-3xl text-sm text-muted-foreground">
                 The final conversion is now running. Stay on this page to watch
                 the backend-managed status update.
