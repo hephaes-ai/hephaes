@@ -84,3 +84,18 @@ Filter conversion history by representation mode:
 curl "http://127.0.0.1:8000/conversions?image_payload_contract=bytes_v2"
 curl "http://127.0.0.1:8000/conversions?legacy_compatible=true"
 ```
+
+## Rollout Checklist
+
+- Validate `GET /conversions/capabilities` exposes output-contract defaults expected by frontend.
+- Validate new conversions return `representation_policy` in both conversion and embedded job payloads.
+- Verify manifest summaries in `GET /outputs` include `payload_representation` for TFRecord runs.
+- Verify compatibility filtering works for historical runs (`legacy_compatible=true`).
+- Confirm no existing client breaks from additive fields in conversion and authoring responses.
+
+## Monitoring Notes
+
+- Track count of conversions by `representation_policy.image_payload_contract`.
+- Track share of legacy-compatible runs via `legacy_list_image_payload` compatibility marker.
+- Alert on validation failures related to invalid payload contract combinations.
+- During rollout, sample output artifacts and compare conversion policy contract with manifest payload representation.
