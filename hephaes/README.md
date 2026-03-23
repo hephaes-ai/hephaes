@@ -119,6 +119,37 @@ for row in stream_tfrecord_rows(dataset_paths[0]):
     break
 ```
 
+### 5. Choose image payload contract mode
+
+TFRecord defaults to `image_payload_contract="bytes_v2"`, which writes image `data` fields as raw bytes features while keeping image metadata fields.
+
+```python
+from hephaes import TFRecordOutputConfig
+
+output = TFRecordOutputConfig(
+    image_payload_contract="bytes_v2",  # default
+)
+```
+
+For backwards-compatible reads/writes during migration windows, use legacy list-based behavior:
+
+```python
+from hephaes import TFRecordOutputConfig
+
+legacy_output = TFRecordOutputConfig(
+    image_payload_contract="legacy_list_v1",
+)
+```
+
+To migrate an existing loaded spec between modes:
+
+```python
+from hephaes import load_conversion_spec, set_tfrecord_image_payload_contract
+
+spec = load_conversion_spec("conversion-spec.yaml")
+spec = set_tfrecord_image_payload_contract(spec, contract="bytes_v2")
+```
+
 ## Synchronization Modes
 
 `hephaes` supports three practical ways to align asynchronous topics:

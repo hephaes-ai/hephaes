@@ -10,6 +10,7 @@ from hephaes.conversion.spec_io import (
     load_conversion_spec_document,
     migrate_conversion_spec_document,
     migrate_conversion_spec_payload,
+    set_tfrecord_image_payload_contract,
 )
 
 
@@ -81,6 +82,20 @@ def test_conversion_spec_payload_migration_adds_row_strategy_and_source_kinds():
     assert migrated["row_strategy"]["kind"] == "trigger"
     assert migrated["row_strategy"]["trigger_topic"] == "/camera"
     assert migrated["features"]["image"]["source"]["kind"] == "path"
+    assert migrated["output"]["image_payload_contract"] == "legacy_list_v1"
+
+
+def test_set_tfrecord_image_payload_contract_updates_spec_output_mode():
+    spec = build_doom_ros_train_py_compatible()
+
+    updated = set_tfrecord_image_payload_contract(
+        spec,
+        contract="legacy_list_v1",
+    )
+
+    assert updated.output.format == "tfrecord"
+    assert updated.output.image_payload_contract == "legacy_list_v1"
+    assert spec.output.image_payload_contract == "bytes_v2"
 
 
 def test_conversion_spec_document_migration_noops_on_current_version():

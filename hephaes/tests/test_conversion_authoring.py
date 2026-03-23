@@ -153,6 +153,41 @@ def test_preview_conversion_spec_raises_for_invalid_label_primary():
         raise AssertionError("expected label validation to fail")
 
 
+def test_preflight_warns_on_ambiguous_image_like_payload_shape():
+    reader = FakeAuthoringReader(
+        topics={"/camera": "sensor_msgs/msg/Image"},
+        messages=[
+            (
+                "/camera",
+                100,
+                {
+                    "height": 1,
+                    "encoding": "mono8",
+                    "data": [1, 2, 3],
+                },
+            )
+        ],
+    )
+    spec = ConversionSpec(
+        schema=SchemaSpec(name="ambiguous_image_warning_demo", version=1),
+        row_strategy={"kind": "per-message", "topic": "/camera"},
+        features={
+            "camera": FeatureSpec(
+                source=FieldSourceSpec(topic="/camera"),
+                dtype="json",
+                required=True,
+            )
+        },
+        output=OutputSpec(format="tfrecord"),
+    )
+
+    preview = preflight_conversion_spec(reader, spec, sample_n=1)
+
+    assert len(preview.warnings) == 1
+    assert "ambiguous image-like payload" in preview.warnings[0]
+    assert "camera" in preview.warnings[0]
+
+
 def test_draft_generation_can_return_preview_and_label_metadata():
     reader = _build_authoring_reader()
     inspection = inspect_reader(reader, sample_n=2)

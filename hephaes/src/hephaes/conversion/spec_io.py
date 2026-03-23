@@ -9,7 +9,7 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .._converter_helpers import _json_default
-from ..models import ConversionSpec
+from ..models import ConversionSpec, TFRecordImagePayloadContract
 
 CONVERSION_SPEC_DOCUMENT_VERSION = 2
 
@@ -132,6 +132,16 @@ def migrate_conversion_spec_payload(
     if "row_strategy" in normalized:
         normalized["row_strategy"] = _migrate_row_strategy_payload(normalized["row_strategy"])
 
+    output = normalized.get("output")
+    if (
+        source_version is not None
+        and source_version < CONVERSION_SPEC_DOCUMENT_VERSION
+        and isinstance(output, dict)
+        and output.get("format", "tfrecord") == "tfrecord"
+        and "image_payload_contract" not in output
+    ):
+        output["image_payload_contract"] = "legacy_list_v1"
+
     features = normalized.get("features")
     if isinstance(features, dict):
         for feature_payload in features.values():
@@ -163,7 +173,23 @@ def build_conversion_spec_document(
     )
 
 
-def load_conversion_spec(payload: ConversionSpec | dict[str, Any] | str | Path) -> ConversionSpec:
+def set_tfrecord_image_payload_contract(
+    spec: ConversionSpec,
+    *,
+    contract: TFRecordImagePayloadContract,
+) -> ConversionSpec:
+    if spec.output.format != "tfrecord":
+        return spec
+
+    updated_output = spec.output.model_copy(update={"image_payload_contract": contract})
+    return spec.model_copy(update={"output": updated_output})
+
+
+def load_conversion_spec(
+    payload: ConversionSpec | dict[str, Any] | str | Path,
+    *,
+    source_version: int | None = None,
+) -> ConversionSpec:
     if isinstance(payload, ConversionSpec):
         return payload
 
@@ -176,7 +202,7 @@ def load_conversion_spec(payload: ConversionSpec | dict[str, Any] | str | Path) 
     if "spec" in payload:
         return load_conversion_spec_document(payload).spec
 
-    normalized = migrate_conversion_spec_payload(payload)
+    normalized = migrate_conversion_spec_payload(payload, source_version=source_version)
     return ConversionSpec.model_validate(normalized)
 
 
@@ -204,7 +230,7 @@ def load_conversion_spec_document(
         raise TypeError("conversion spec document metadata must be a mapping")
 
     spec_version = payload.get("spec_version", CONVERSION_SPEC_DOCUMENT_VERSION)
-    spec = load_conversion_spec(spec_payload)
+    spec = load_conversion_spec(spec_payload, source_version=int(spec_version))
     return ConversionSpecDocument(
         spec_version=int(spec_version),
         spec=spec,

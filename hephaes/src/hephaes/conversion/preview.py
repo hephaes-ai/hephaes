@@ -10,6 +10,40 @@ from .validation import validate_constructed_rows
 from ..models import ConversionSpec
 
 
+def _looks_like_raw_image_payload(value: Any) -> bool:
+    return (
+        isinstance(value, dict)
+        and "data" in value
+        and "height" in value
+        and "width" in value
+        and "encoding" in value
+    )
+
+
+def _looks_like_compressed_image_payload(value: Any) -> bool:
+    return isinstance(value, dict) and "data" in value and "format" in value
+
+
+def _contains_ambiguous_image_payload(value: Any) -> bool:
+    if isinstance(value, dict):
+        if "data" in value:
+            image_hint_keys = {"height", "width", "encoding", "format", "step", "is_bigendian"}
+            has_image_hints = any(key in value for key in image_hint_keys)
+            if (
+                has_image_hints
+                and not _looks_like_raw_image_payload(value)
+                and not _looks_like_compressed_image_payload(value)
+            ):
+                return True
+
+        return any(_contains_ambiguous_image_payload(child) for child in value.values())
+
+    if isinstance(value, (list, tuple)):
+        return any(_contains_ambiguous_image_payload(child) for child in value)
+
+    return False
+
+
 class PreviewRow(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -62,6 +96,11 @@ def preflight_conversion_spec(
     feature_builder = FeatureBuilder()
     rows: list[PreviewRow] = []
     warnings: list[str] = []
+    warned_ambiguous_features: set[str] = set()
+    warn_ambiguous_image_payloads = (
+        spec.output.format == "tfrecord"
+        and spec.output.image_payload_contract == "bytes_v2"
+    )
 
     for record in row_result.records[:preview_sample_n]:
         row_values: dict[str, Any | None] = {}
@@ -88,6 +127,17 @@ def preflight_conversion_spec(
 
             row_values[feature_name] = extracted_value
             row_presence[feature_name] = 1
+            if (
+                warn_ambiguous_image_payloads
+                and feature_name not in warned_ambiguous_features
+                and _contains_ambiguous_image_payload(extracted_value)
+            ):
+                warnings.append(
+                    "ambiguous image-like payload detected for feature "
+                    f"'{feature_name}'; expected raw image keys "
+                    "(height,width,encoding,data) or compressed image keys (format,data)"
+                )
+                warned_ambiguous_features.add(feature_name)
 
         rows.append(
             PreviewRow(
