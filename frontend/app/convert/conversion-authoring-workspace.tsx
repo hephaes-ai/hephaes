@@ -505,9 +505,13 @@ function ConversionStatusCard({
 }
 
 function RepresentationPolicyCallout({
+  hasContractMetadata,
+  metadataError,
   outputContractLegacyMarker,
   policy,
 }: {
+  hasContractMetadata: boolean
+  metadataError: unknown
   outputContractLegacyMarker: string
   policy: ConversionRepresentationPolicy | null
 }) {
@@ -569,6 +573,29 @@ function RepresentationPolicyCallout({
             </dd>
           </div>
         </dl>
+
+        {metadataError ? (
+          <Alert variant="destructive">
+            <TriangleAlert className="size-4" />
+            <AlertTitle>Schema metadata unavailable</AlertTitle>
+            <AlertDescription>
+              The backend capabilities endpoint is currently unavailable, so
+              contract defaults may be stale until metadata is reachable.
+            </AlertDescription>
+          </Alert>
+        ) : null}
+
+        {!metadataError && !policy && !hasContractMetadata ? (
+          <Alert>
+            <TriangleAlert className="size-4" />
+            <AlertTitle>Waiting for schema metadata</AlertTitle>
+            <AlertDescription>
+              This backend response did not include representation policy
+              metadata yet. The UI is showing safe defaults for mixed-version
+              rollout compatibility.
+            </AlertDescription>
+          </Alert>
+        ) : null}
 
         {isLegacyContract ? (
           <Alert>
@@ -1738,6 +1765,8 @@ export function ConversionAuthoringWorkspace({
         </section>
 
         <RepresentationPolicyCallout
+          hasContractMetadata={Boolean(capabilitiesResponse.data?.output_contract)}
+          metadataError={capabilitiesResponse.error}
           outputContractLegacyMarker={outputContract.legacy_compatibility_marker}
           policy={statusRepresentationPolicy}
         />
@@ -1821,6 +1850,8 @@ export function ConversionAuthoringWorkspace({
         ) : null}
 
         <RepresentationPolicyCallout
+          hasContractMetadata={Boolean(capabilitiesResponse.data?.output_contract)}
+          metadataError={capabilitiesResponse.error}
           outputContractLegacyMarker={outputContract.legacy_compatibility_marker}
           policy={authoringRepresentationPolicy}
         />
@@ -2814,6 +2845,8 @@ export function ConversionAuthoringWorkspace({
       ) : null}
 
       <RepresentationPolicyCallout
+        hasContractMetadata={Boolean(capabilitiesResponse.data?.output_contract)}
+        metadataError={capabilitiesResponse.error}
         outputContractLegacyMarker={outputContract.legacy_compatibility_marker}
         policy={authoringRepresentationPolicy}
       />
