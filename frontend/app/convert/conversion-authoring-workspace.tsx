@@ -81,6 +81,7 @@ import {
   useAssets,
   useBackendCache,
   useConversion,
+  useConversionAuthoringCapabilities,
   useSavedConversionConfig,
   useSavedConversionConfigs,
 } from "@/hooks/use-backend"
@@ -96,15 +97,14 @@ import {
   BackendApiError,
   type ConversionCreateRequest,
   type ConversionDraftRequest,
+  type ConversionDraftResponse,
   type ConversionFormat,
   type ConversionInspectionRequest,
   type ConversionInspectionResponse,
   type ConversionPreviewRequest,
   type ConversionPreviewResponse,
-  type ConversionSpec,
+  type ConversionRepresentationPolicy,
   type DecodeFailurePolicy,
-  type DraftSpecRequest,
-  type PreviewResult,
   type SavedConversionConfigSummaryResponse,
 } from "@/lib/api"
 import {
@@ -129,6 +129,13 @@ import {
   summarizeConversionSpec,
   summarizeInspectionTopic,
 } from "@/lib/conversion-authoring"
+import {
+  getImagePayloadContract,
+  getPolicyVersion,
+  getPolicyWarnings,
+  isLegacyImagePayloadPolicy,
+  normalizeOutputContractCapabilities,
+} from "@/lib/conversion-representation"
 
 type NoticeState = {
   description?: string
@@ -488,6 +495,106 @@ function ConversionStatusCard({
   )
 }
 
+function RepresentationPolicyCallout({
+  outputContractLegacyMarker,
+  policy,
+}: {
+  outputContractLegacyMarker: string
+  policy: ConversionRepresentationPolicy | null
+}) {
+  const imagePayloadContract = getImagePayloadContract(policy)
+  const isLegacyContract =
+    isLegacyImagePayloadPolicy(policy) ||
+    Boolean(
+      policy?.compatibility_markers.includes(outputContractLegacyMarker)
+    )
+  const warnings = getPolicyWarnings(policy)
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Image payload contract</CardTitle>
+        <CardDescription>
+          TFRecord runs are training-first by default and use bytes-backed
+          image payload features.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge variant="outline">
+            Policy v{getPolicyVersion(policy)}
+          </Badge>
+          <Badge variant={isLegacyContract ? "secondary" : "default"}>
+            {imagePayloadContract === "legacy_list_v1"
+              ? "Legacy list image payload"
+              : "Training-ready bytes payload"}
+          </Badge>
+          <Badge variant="outline">
+            {policy?.output_format === "parquet" ? "Parquet" : "TFRecord"}
+          </Badge>
+        </div>
+
+        <dl className="grid gap-3 sm:grid-cols-3">
+          <div className="space-y-1">
+            <dt className="text-xs tracking-wide text-muted-foreground uppercase">
+              Image payload
+            </dt>
+            <dd className="text-sm font-medium text-foreground">
+              {imagePayloadContract}
+            </dd>
+          </div>
+          <div className="space-y-1">
+            <dt className="text-xs tracking-wide text-muted-foreground uppercase">
+              Payload encoding
+            </dt>
+            <dd className="text-sm font-medium text-foreground">
+              {policy?.payload_encoding ?? "typed_features"}
+            </dd>
+          </div>
+          <div className="space-y-1">
+            <dt className="text-xs tracking-wide text-muted-foreground uppercase">
+              Null encoding
+            </dt>
+            <dd className="text-sm font-medium text-foreground">
+              {policy?.null_encoding ?? "presence_flag"}
+            </dd>
+          </div>
+        </dl>
+
+        {isLegacyContract ? (
+          <Alert>
+            <TriangleAlert className="size-4" />
+            <AlertTitle>Legacy compatibility mode detected</AlertTitle>
+            <AlertDescription>
+              This run uses list-based image payload compatibility. Training
+              pipelines expecting bytes features may need fallback logic.
+            </AlertDescription>
+          </Alert>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            This contract is optimized for training loaders that expect image
+            bytes in TFRecord features.
+          </p>
+        )}
+
+        {warnings.length > 0 ? (
+          <Alert>
+            <TriangleAlert className="size-4" />
+            <AlertTitle>Contract warnings</AlertTitle>
+            <AlertDescription>
+              <ul className="mt-2 list-disc space-y-1 pl-5">
+                {warnings.map((warning) => (
+                  <li key={warning}>{warning}</li>
+                ))}
+              </ul>
+            </AlertDescription>
+          </Alert>
+        ) : null}
+      </CardContent>
+    </Card>
+  )
+}
+
 export function ConversionAuthoringWorkspaceFallback() {
   return (
     <div className="space-y-6">
@@ -683,6 +790,7 @@ export function ConversionAuthoringWorkspace({
   const { isSubmitting, submit: submitConversion } = useCreateConversion()
   const assetsResponse = useAssets()
   const savedConfigsResponse = useSavedConversionConfigs()
+  const capabilitiesResponse = useConversionAuthoringCapabilities()
   const [createdConversion, setCreatedConversion] = React.useState<NonNullable<
     ReturnType<typeof useConversion>["data"]
   > | null>(null)
@@ -695,20 +803,8 @@ export function ConversionAuthoringWorkspace({
   )
   const [inspectionResponse, setInspectionResponse] =
     React.useState<ConversionInspectionResponse | null>(null)
-  const [draftResponse, setDraftResponse] = React.useState<{
-    asset_id: string
-    draft: {
-      preview: PreviewResult | null
-      spec: ConversionSpec
-      assumptions: string[]
-      join_topics: string[]
-      request: DraftSpecRequest
-      selected_topics: string[]
-      trigger_topic: string | null
-      unresolved_fields: string[]
-      warnings: string[]
-    }
-  } | null>(null)
+  const [draftResponse, setDraftResponse] =
+    React.useState<ConversionDraftResponse | null>(null)
   const [previewResponse, setPreviewResponse] =
     React.useState<ConversionPreviewResponse | null>(null)
   const [specText, setSpecText] = React.useState("")
@@ -820,6 +916,22 @@ export function ConversionAuthoringWorkspace({
   )
   const missingAssetCount = Math.max(assetIds.length - selectedAssets.length, 0)
   const activeConversion = createdConversion ?? conversionResponse.data ?? null
+  const outputContract = React.useMemo(
+    () =>
+      normalizeOutputContractCapabilities(
+        capabilitiesResponse.data?.output_contract
+      ),
+    [capabilitiesResponse.data?.output_contract]
+  )
+  const authoringRepresentationPolicy =
+    previewResponse?.representation_policy ??
+    draftResponse?.representation_policy ??
+    inspectionResponse?.representation_policy ??
+    null
+  const statusRepresentationPolicy =
+    activeConversion?.representation_policy ??
+    activeConversion?.job.representation_policy ??
+    null
   const isPendingConversionRoute =
     Boolean(queryConversionId) &&
     !createdConversion &&
@@ -1616,6 +1728,11 @@ export function ConversionAuthoringWorkspace({
           </div>
         </section>
 
+        <RepresentationPolicyCallout
+          outputContractLegacyMarker={outputContract.legacy_compatibility_marker}
+          policy={statusRepresentationPolicy}
+        />
+
         <ConversionStatusCard
           activeConversion={activeConversion}
           currentHref={currentHref}
@@ -1693,6 +1810,11 @@ export function ConversionAuthoringWorkspace({
             </AlertDescription>
           </Alert>
         ) : null}
+
+        <RepresentationPolicyCallout
+          outputContractLegacyMarker={outputContract.legacy_compatibility_marker}
+          policy={authoringRepresentationPolicy}
+        />
 
         {createStep === "source" ? (
           <Card>
@@ -2682,6 +2804,11 @@ export function ConversionAuthoringWorkspace({
         </Alert>
       ) : null}
 
+      <RepresentationPolicyCallout
+        outputContractLegacyMarker={outputContract.legacy_compatibility_marker}
+        policy={authoringRepresentationPolicy}
+      />
+
       <div
         className={
           isCreateMode
@@ -3398,6 +3525,35 @@ export function ConversionAuthoringWorkspace({
                         </p>
                         <p className="text-sm font-medium text-foreground">
                           {previewResponse.preview.rows.length}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="grid gap-4 sm:grid-cols-3">
+                      <div className="space-y-1">
+                        <p className="text-xs tracking-wide text-muted-foreground uppercase">
+                          Image payload contract
+                        </p>
+                        <p className="text-sm font-medium text-foreground">
+                          {getImagePayloadContract(authoringRepresentationPolicy)}
+                        </p>
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-xs tracking-wide text-muted-foreground uppercase">
+                          Payload encoding
+                        </p>
+                        <p className="text-sm font-medium text-foreground">
+                          {authoringRepresentationPolicy?.payload_encoding ??
+                            "typed_features"}
+                        </p>
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-xs tracking-wide text-muted-foreground uppercase">
+                          Null encoding
+                        </p>
+                        <p className="text-sm font-medium text-foreground">
+                          {authoringRepresentationPolicy?.null_encoding ??
+                            "presence_flag"}
                         </p>
                       </div>
                     </div>
