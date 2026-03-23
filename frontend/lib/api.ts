@@ -17,6 +17,7 @@ export type OutputActionType = "refresh_metadata" | "vlm_tagging" | string
 export type OutputActionStatus = "queued" | "running" | "succeeded" | "failed"
 export type ResampleMethod = "interpolate" | "downsample"
 export type DecodeFailurePolicy = "skip" | "warn" | "fail"
+export type TFRecordImagePayloadContract = "bytes_v2" | "legacy_list_v1"
 export type ConversionRowStrategyKind = "trigger" | "per-message" | "resample"
 export type ConversionFeatureSourceKind = "path" | "constant" | "metadata" | "concat" | "stack"
 export type ConversionTransformKind =
@@ -436,6 +437,7 @@ export interface ParquetConversionOutputRequest {
 export interface TFRecordConversionOutputRequest {
   compression?: "none" | "gzip"
   format: "tfrecord"
+  image_payload_contract?: TFRecordImagePayloadContract
   null_encoding?: "presence_flag"
   payload_encoding?: "typed_features"
 }
@@ -447,6 +449,17 @@ export type ConversionOutputRequest =
 export interface ConversionResampleRequest {
   freq_hz: number
   method: ResampleMethod
+}
+
+export interface ConversionRepresentationPolicy {
+  compatibility_markers: string[]
+  image_payload_contract: TFRecordImagePayloadContract | null
+  null_encoding: "presence_flag" | null
+  output_format: ConversionFormat
+  payload_encoding: "typed_features" | null
+  policy_version: number
+  requested_image_payload_contract: TFRecordImagePayloadContract | null
+  warnings: string[]
 }
 
 export interface ConversionCreateRequest {
@@ -496,9 +509,17 @@ export interface ConversionAuthoringPersistenceCapabilities {
   spec_document_version: number
 }
 
+export interface ConversionOutputContractCapabilities {
+  default_image_payload_contract: TFRecordImagePayloadContract
+  legacy_compatibility_marker: string
+  policy_version: number
+  supported_image_payload_contracts: TFRecordImagePayloadContract[]
+}
+
 export interface ConversionAuthoringCapabilitiesResponse {
   authoring_api_version: number
   hephaes: ConversionCapabilities
+  output_contract: ConversionOutputContractCapabilities
   persistence: ConversionAuthoringPersistenceCapabilities
 }
 
@@ -556,6 +577,7 @@ export interface ConversionInspectionResponse {
   asset_id: string
   request: ConversionInspectionRequest
   inspection: InspectionResult
+  representation_policy?: ConversionRepresentationPolicy | null
 }
 
 export interface DraftSpecRequest {
@@ -607,6 +629,7 @@ export interface ConversionDraftResponse {
   inspection: InspectionResult
   draft: DraftSpecResult
   draft_revision_id: string | null
+  representation_policy?: ConversionRepresentationPolicy | null
 }
 
 export interface ConversionPreviewRequest {
@@ -620,6 +643,7 @@ export interface ConversionPreviewResponse {
   asset_id: string
   request: ConversionPreviewRequest
   preview: PreviewResult
+  representation_policy?: ConversionRepresentationPolicy | null
 }
 
 export interface SavedConversionConfigCreateRequest {
@@ -710,6 +734,7 @@ export interface JobSummary {
   finished_at: string | null
   id: string
   output_path: string | null
+  representation_policy?: ConversionRepresentationPolicy | null
   started_at: string | null
   status: JobStatus
   target_asset_ids_json: string[]
@@ -725,6 +750,7 @@ export interface ConversionSummary {
   id: string
   job_id: string
   output_path: string | null
+  representation_policy?: ConversionRepresentationPolicy | null
   status: ConversionStatus
   updated_at: string
 }
