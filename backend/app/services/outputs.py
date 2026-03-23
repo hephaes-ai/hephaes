@@ -121,6 +121,7 @@ def _summarize_manifest_payload(payload: dict[str, Any]) -> dict[str, Any]:
     dataset = payload.get("dataset")
     source = payload.get("source")
     temporal = payload.get("temporal")
+    conversion = payload.get("conversion")
 
     summary: dict[str, Any] = {
         "manifest_version": payload.get("manifest_version"),
@@ -147,6 +148,15 @@ def _summarize_manifest_payload(payload: dict[str, Any]) -> dict[str, Any]:
             "start_time_iso": temporal.get("start_time_iso"),
             "end_time_iso": temporal.get("end_time_iso"),
         }
+
+    if isinstance(conversion, dict):
+        payload_representation = conversion.get("payload_representation")
+        if isinstance(payload_representation, dict):
+            summary["payload_representation"] = {
+                "image_payload_contract": payload_representation.get("image_payload_contract"),
+                "payload_encoding": payload_representation.get("payload_encoding"),
+                "null_encoding": payload_representation.get("null_encoding"),
+            }
 
     return summary
 

@@ -138,6 +138,7 @@ def test_create_conversion_success(
     assert body["job"]["target_asset_ids_json"] == [asset_id]
     assert body["job"]["output_path"] == body["output_path"]
     assert body["job"]["error_message"] is None
+    assert body["job"]["representation_policy"]["output_format"] == "parquet"
     assert captured["file_paths"] == [str(sample_asset_file)]
     assert Path(captured["output_dir"]) == backend_outputs_dir / "conversions" / body["id"]
     assert captured["spec"].schema.name == "legacy_mapping"
@@ -402,3 +403,55 @@ def test_list_conversions_orders_newest_first(
     list_response = client.get("/conversions")
     assert list_response.status_code == 200
     assert [item["asset_ids"] for item in list_response.json()] == [[second_id], [first_id]]
+
+
+def test_list_conversions_can_filter_by_image_payload_contract(
+    client: TestClient,
+    monkeypatch,
+    tmp_path: Path,
+):
+    first_asset = tmp_path / "bytes.mcap"
+    second_asset = tmp_path / "legacy.mcap"
+    first_asset.write_bytes(b"one")
+    second_asset.write_bytes(b"two")
+
+    first_id = index_registered_asset(client, monkeypatch, first_asset)
+    second_id = index_registered_asset(client, monkeypatch, second_asset)
+
+    class FakeConverter:
+        def __init__(self, **kwargs):
+            self.output_dir = Path(kwargs["output_dir"])
+
+        def convert(self) -> list[Path]:
+            self.output_dir.mkdir(parents=True, exist_ok=True)
+            dataset_path = self.output_dir / "episode_0001.tfrecord"
+            dataset_path.write_bytes(b"tfrecord-data")
+            return [dataset_path]
+
+    monkeypatch.setattr(conversion_service, "Converter", FakeConverter)
+
+    bytes_response = client.post(
+        "/conversions",
+        json={"asset_ids": [first_id], "output": {"format": "tfrecord"}},
+    )
+    legacy_response = client.post(
+        "/conversions",
+        json={
+            "asset_ids": [second_id],
+            "output": {
+                "format": "tfrecord",
+                "image_payload_contract": "legacy_list_v1",
+            },
+        },
+    )
+
+    assert bytes_response.status_code == 201
+    assert legacy_response.status_code == 201
+
+    only_bytes = client.get("/conversions", params={"image_payload_contract": "bytes_v2"})
+    assert only_bytes.status_code == 200
+    assert [item["asset_ids"] for item in only_bytes.json()] == [[first_id]]
+
+    only_legacy = client.get("/conversions", params={"legacy_compatible": "true"})
+    assert only_legacy.status_code == 200
+    assert [item["asset_ids"] for item in only_legacy.json()] == [[second_id]]

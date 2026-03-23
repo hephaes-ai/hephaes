@@ -95,6 +95,13 @@ def install_fake_converter(monkeypatch, *, with_report: bool = False) -> None:
                             "start_time_iso": "2026-03-16T10:00:00Z",
                             "end_time_iso": "2026-03-16T10:00:05Z",
                         },
+                        "conversion": {
+                            "payload_representation": {
+                                "image_payload_contract": "bytes_v2",
+                                "payload_encoding": "typed_features",
+                                "null_encoding": "presence_flag",
+                            }
+                        },
                     }
                 ),
                 encoding="utf-8",
@@ -187,6 +194,11 @@ def test_outputs_are_registered_and_filterable_after_conversion(
     assert dataset["size_bytes"] == len(b"parquet-data")
     assert dataset["content_url"] == f"/outputs/{dataset['id']}/content"
     assert dataset["metadata"]["manifest"]["episode_id"] == "episode_0001"
+    assert dataset["metadata"]["manifest"]["payload_representation"] == {
+        "image_payload_contract": "bytes_v2",
+        "payload_encoding": "typed_features",
+        "null_encoding": "presence_flag",
+    }
 
     assert manifest["format"] == "json"
     assert manifest["role"] == "manifest"

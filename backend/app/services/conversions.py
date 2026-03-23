@@ -63,6 +63,36 @@ def list_conversions(session: Session) -> list[Conversion]:
     return list(session.scalars(statement).all())
 
 
+def list_conversions_filtered(
+    session: Session,
+    *,
+    image_payload_contract: str | None = None,
+    legacy_compatible: bool | None = None,
+) -> list[Conversion]:
+    conversions = list_conversions(session)
+    if image_payload_contract is None and legacy_compatible is None:
+        return conversions
+
+    filtered: list[Conversion] = []
+    for conversion in conversions:
+        policy = conversion.config_json.get("representation_policy")
+        if not isinstance(policy, dict):
+            continue
+
+        effective_contract = policy.get("effective_image_payload_contract")
+        markers = policy.get("compatibility_markers")
+        is_legacy_compatible = isinstance(markers, list) and "legacy_list_image_payload" in markers
+
+        if image_payload_contract is not None and effective_contract != image_payload_contract:
+            continue
+        if legacy_compatible is not None and is_legacy_compatible != legacy_compatible:
+            continue
+
+        filtered.append(conversion)
+
+    return filtered
+
+
 def get_conversion(session: Session, conversion_id: str) -> Conversion | None:
     statement = (
         select(Conversion)

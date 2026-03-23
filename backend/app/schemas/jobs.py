@@ -19,6 +19,7 @@ class JobResponse(BaseModel):
     status: JobStatus
     target_asset_ids_json: list[str] = Field(default_factory=list)
     config_json: dict[str, Any] = Field(default_factory=dict)
+    representation_policy: dict[str, Any] | None = None
     output_path: str | None = None
     error_message: str | None = None
     created_at: datetime

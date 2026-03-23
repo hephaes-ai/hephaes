@@ -74,6 +74,7 @@ def test_index_asset_creates_succeeded_job(client: TestClient, monkeypatch, samp
     assert job["status"] == "succeeded"
     assert job["target_asset_ids_json"] == [asset_id]
     assert job["config_json"] == {"execution": "inline", "trigger": "index_asset"}
+    assert job["representation_policy"] is None
     assert job["output_path"] is None
     assert job["error_message"] is None
     assert job["started_at"] is not None

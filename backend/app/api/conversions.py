@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.api._status import HTTP_422_UNPROCESSABLE_CONTENT
@@ -40,7 +40,7 @@ from app.services.conversions import (
     ConversionService,
     ConversionValidationError,
     get_conversion_or_raise,
-    list_conversions,
+    list_conversions_filtered,
 )
 
 router = APIRouter(prefix="/conversions", tags=["conversions"])
@@ -111,10 +111,15 @@ def build_conversion_detail_response(conversion: Conversion) -> ConversionDetail
     if conversion.job is None:  # pragma: no cover - defensive integrity guard
         raise ValueError(f"conversion is missing linked job: {conversion.id}")
 
+    job_payload = JobResponse.model_validate(conversion.job).model_dump()
+    config_payload = job_payload.get("config_json")
+    if isinstance(config_payload, dict):
+        job_payload["representation_policy"] = config_payload.get("representation_policy")
+
     return ConversionDetailResponse(
         **build_conversion_summary_response(conversion).model_dump(),
         output_files=list(conversion.output_files_json),
-        job=JobResponse.model_validate(conversion.job),
+        job=JobResponse.model_validate(job_payload),
     )
 
 
@@ -235,10 +240,18 @@ def preview_conversion_route(
 
 
 @router.get("", response_model=list[ConversionSummaryResponse])
-def list_conversions_route(session: DbSession) -> list[ConversionSummaryResponse]:
+def list_conversions_route(
+    session: DbSession,
+    image_payload_contract: Annotated[str | None, Query()] = None,
+    legacy_compatible: Annotated[bool | None, Query()] = None,
+) -> list[ConversionSummaryResponse]:
     return [
         build_conversion_summary_response(conversion)
-        for conversion in list_conversions(session)
+        for conversion in list_conversions_filtered(
+            session,
+            image_payload_contract=image_payload_contract,
+            legacy_compatible=legacy_compatible,
+        )
     ]
 
 

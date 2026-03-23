@@ -15,9 +15,17 @@ router = APIRouter(prefix="/jobs", tags=["jobs"])
 DbSession = Annotated[Session, Depends(get_db_session)]
 
 
+def _build_job_response(job) -> JobResponse:
+    payload = JobResponse.model_validate(job).model_dump()
+    config_payload = payload.get("config_json")
+    if isinstance(config_payload, dict):
+        payload["representation_policy"] = config_payload.get("representation_policy")
+    return JobResponse.model_validate(payload)
+
+
 @router.get("", response_model=list[JobResponse])
 def list_jobs_route(session: DbSession) -> list[JobResponse]:
-    return [JobResponse.model_validate(job) for job in list_jobs(session)]
+    return [_build_job_response(job) for job in list_jobs(session)]
 
 
 @router.get("/{job_id}", response_model=JobResponse)
@@ -27,4 +35,4 @@ def get_job_route(job_id: str, session: DbSession) -> JobResponse:
     except JobNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
-    return JobResponse.model_validate(job)
+    return _build_job_response(job)
