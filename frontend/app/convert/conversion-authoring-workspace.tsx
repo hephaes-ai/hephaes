@@ -1661,9 +1661,6 @@ export function ConversionAuthoringWorkspace({
                 <Sparkles className="size-5" />
                 Create conversion config
               </h1>
-              <span className="rounded-full border px-2 py-0.5 text-xs text-muted-foreground">
-                {selectedAssets.length} selected
-              </span>
             </div>
             <CreateWizardBreadcrumb
               currentStep={createStep}
