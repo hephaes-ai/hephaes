@@ -46,6 +46,12 @@ def build_conversion_report(
     )
     if conversion.get("row_strategy") is not None:
         lines.append(f"- row strategy: {conversion['row_strategy'].get('kind', 'unknown')}")
+    if conversion.get("payload_representation") is not None:
+        payload_representation = conversion["payload_representation"]
+        lines.append(
+            "- payload representation: "
+            f"{payload_representation.get('image_payload_contract', 'unknown')}"
+        )
 
     if dataset.get("split_name") is not None:
         lines.append(f"- split: {dataset['split_name']}")
@@ -60,6 +66,8 @@ def build_conversion_report(
     lines.extend(_format_block("Source Metadata", source))
     lines.extend(_format_block("Temporal Metadata", manifest.temporal.model_dump()))
     lines.extend(_format_block("Output Config", conversion["output"]))
+    if conversion.get("payload_representation") is not None:
+        lines.extend(_format_block("Payload Representation", conversion["payload_representation"]))
 
     if conversion.get("row_strategy") is not None:
         lines.extend(_format_block("Row Strategy", conversion["row_strategy"]))

@@ -251,6 +251,11 @@ def test_converter_spec_path_shards_trigger_outputs_with_default_layout(tmp_bag_
 
     manifest = json.loads(manifest_path.read_text())
     assert manifest["conversion"]["schema"] == {"name": "sharded_trigger_demo", "version": 1}
+    assert manifest["conversion"]["payload_representation"] == {
+        "payload_encoding": "typed_features",
+        "null_encoding": "presence_flag",
+        "image_payload_contract": "bytes_v2",
+    }
     assert manifest["dataset"]["split_name"] == "all"
     assert manifest["dataset"]["shard_index"] == 0
     assert manifest["dataset"]["num_shards"] == 2
@@ -260,6 +265,8 @@ def test_converter_spec_path_shards_trigger_outputs_with_default_layout(tmp_bag_
     assert "# conversion report" in report_text
     assert "Preview" in report_text
     assert "rows written: 2" in report_text
+    assert "payload representation: bytes_v2" in report_text
+    assert "Payload Representation" in report_text
 
 
 def test_converter_spec_validation_enforces_bad_record_budget(tmp_bag_file, tmp_path):
