@@ -1,0 +1,266 @@
+# Backend Current State
+
+## Purpose
+
+Use this file as the quick implementation map for the backend. It describes what is actually shipped today, where it lives in code, and which parts are still planned rather than implemented.
+
+## Snapshot
+
+The backend is a FastAPI app with SQLite-backed persistence and inline execution for indexing, conversion, output metadata refresh, and visualization preparation.
+
+It already supports:
+
+- asset registration, upload, directory scan, indexing, tagging, and filtered listing
+- episode detail, timeline, sample windows, and realtime replay websocket updates
+- conversion execution backed by `hephaes`
+- durable job, conversion, output artifact, and output action records
+- dashboard summary, trend, and blocker rollups
+- cached Rerun `.rrd` artifact generation plus viewer-source manifests
+
+It now has the persistence and schema foundation for reusable-config authoring, including saved-config and draft-revision rows plus backend capability contracts.
+
+It now exposes the authoring HTTP surface for inspection, draft generation, preview, capabilities, saved-config CRUD, duplication, migration-on-load, and execute-from-saved-config flows.
+
+Recent contract updates:
+
+- Conversion list/detail responses now expose a backend-owned `representation_policy` object.
+- Response contract now includes a policy version plus effective output format and image payload representation details for TFRecord runs.
+- Legacy image payload compatibility is surfaced via explicit compatibility markers aligned to `hephaes` contract names (`bytes_v2` / `legacy_list_v1`).
+- Conversion execution now persists a backend-resolved representation policy snapshot into each conversion/job config payload.
+- Legacy image-contract requests now include explicit policy warnings in API responses.
+- Invalid non-TFRecord image-contract combinations fail fast at validation time.
+- Conversion query APIs now support filtering runs by image payload representation contract and legacy compatibility mode.
+- Job detail payloads now include the effective representation policy for conversion jobs.
+- Output artifact manifest summaries now retain payload representation compatibility details for downstream consumers.
+- Authoring capabilities now expose backend output-contract metadata (policy version, defaults, supported contracts).
+- Inspect/draft/preview authoring responses now include representation policy metadata alongside existing payloads.
+- Backend README now documents bytes-default and legacy-mode conversion API examples plus compatibility query patterns.
+
+Rollout and monitoring notes:
+
+- Rollout checks now include representation policy visibility on conversion/job responses and payload-representation consistency checks against output manifests.
+- Monitoring focus includes conversion distribution by image payload contract, legacy compatibility marker rates, and contract-validation failures.
+- Backend validation for this rollout path is currently green with the full backend test suite passing.
+
+## Primary Entry Points
+
+- `backend/app/main.py`: FastAPI app creation, CORS, router registration, lifespan setup, and static mount for `/visualizations`
+- `backend/app/config.py`: repo-relative paths for data, raw uploads, outputs, SQLite DB, and Rerun version settings
+- `backend/app/db/models.py`: SQLAlchemy models for `Asset`, `AssetMetadata`, `Tag`, `Job`, `Conversion`, `ConversionConfig`, `ConversionConfigRevision`, `ConversionDraftRevision`, `OutputArtifact`, and `OutputAction`
+- `backend/app/api/`: thin HTTP route layer
+- `backend/app/services/`: implementation logic
+- `backend/tests/`: API test coverage for the shipped routes
+
+## API Surface That Exists Today
+
+### Health
+
+- `backend/app/api/health.py`
+- `GET /health`
+
+### Assets, registration, indexing, and tags
+
+- `backend/app/api/assets.py`
+- `backend/app/services/assets.py`
+- `backend/app/services/indexing.py`
+- `backend/app/services/tags.py`
+
+Implemented routes:
+
+- `POST /assets/register`
+- `POST /assets/upload`
+- `POST /assets/register-dialog`
+- `POST /assets/scan-directory`
+- `POST /assets/{asset_id}/index`
+- `POST /assets/reindex-all`
+- `GET /assets`
+- `GET /assets/{asset_id}`
+- `GET /assets/{asset_id}/episodes`
+- `POST /assets/{asset_id}/tags`
+- `DELETE /assets/{asset_id}/tags/{tag_id}`
+- `GET /tags`
+- `POST /tags`
+
+Behavior that is implemented:
+
+- file-path registration and raw-body upload
+- native file dialog registration on supported local environments
+- directory scanning for supported asset files
+- indexing through `hephaes.Profiler`, with persisted topic summaries, raw metadata, default episode metadata, and visualization readiness summaries
+- asset list filters for search, tag, file type, indexing status, duration range, and start-time range
+- tag creation plus asset/tag attach and detach
+
+### Episodes and replay data
+
+- `backend/app/api/episodes.py`
+- `backend/app/services/episodes.py`
+
+Implemented routes:
+
+- `GET /assets/{asset_id}/episodes/{episode_id}`
+- `GET /assets/{asset_id}/episodes/{episode_id}/timeline`
+- `GET /assets/{asset_id}/episodes/{episode_id}/samples`
+- `WS  /assets/{asset_id}/episodes/{episode_id}/replay`
+
+Behavior that is implemented:
+
+- episode detail from indexed metadata
+- stream-level lane metadata for replay
+- bucketed timeline data for the scrubber
+- sample windows around a requested timestamp
+- websocket messages for `hello`, `seek`, `play`, `pause`, `set_speed`, `set_streams`, and scalar window updates
+
+### Conversions and jobs
+
+- `backend/app/api/conversions.py`
+- `backend/app/services/conversions.py`
+- `backend/app/services/conversion_authoring.py`
+- `backend/app/api/jobs.py`
+- `backend/app/services/jobs.py`
+- `backend/app/schemas/conversions.py`
+- `backend/app/schemas/conversion_authoring.py`
+
+Implemented routes:
+
+- `POST /conversions`
+- `GET /conversions`
+- `GET /conversions/capabilities`
+- `POST /conversions/inspect`
+- `POST /conversions/draft`
+- `POST /conversions/preview`
+- `GET /conversion-configs`
+- `POST /conversion-configs`
+- `GET /conversion-configs/{config_id}`
+- `PATCH /conversion-configs/{config_id}`
+- `POST /conversion-configs/{config_id}/duplicate`
+- `GET /conversions/{conversion_id}`
+- `GET /jobs`
+- `GET /jobs/{job_id}`
+
+Behavior that is implemented:
+
+- conversion requests may use legacy-style `mapping` + `output` + `resample` fields or a full inline `spec`
+- conversion requests may also reference a saved config via `saved_config_id`
+- execution creates durable `Job` and `Conversion` rows, writes outputs under the backend outputs directory, and syncs output artifact records after success
+- backend conversion config snapshots persist the resolved mapping, output config, resample config, `write_manifest`, and serialized spec payload
+- authoring routes delegate inspection, draft generation, and preview work to `hephaes`
+- saved-config routes persist JSON-backed config rows, revision history, draft revisions, migration notes, and invalid-state markers
+- saved configs migrate on load through `hephaes` and surface upgrade notes in the detail/list payloads
+
+Important current behavior:
+
+- jobs are durable records, but conversion execution still runs inline inside the request path rather than through a separate worker queue
+- saved-config CRUD, draft-revision lifecycle management, and migration-on-load are still future work
+
+### Dashboard
+
+- `backend/app/api/dashboard.py`
+- `backend/app/services/dashboard.py`
+
+Implemented routes:
+
+- `GET /dashboard/summary`
+- `GET /dashboard/trends`
+- `GET /dashboard/blockers`
+
+Behavior that is implemented:
+
+- aggregate counts for assets, indexing, jobs, conversions, and outputs
+- freshness timestamps
+- per-day trend buckets
+- blocker counts for failed and missing states
+
+### Outputs and output actions
+
+- `backend/app/api/outputs.py`
+- `backend/app/services/outputs.py`
+- `backend/app/services/output_actions.py`
+
+Implemented routes:
+
+- `GET /outputs`
+- `GET /outputs/{output_id}`
+- `GET /outputs/{output_id}/content`
+- `POST /outputs/{output_id}/actions`
+- `GET /outputs/{output_id}/actions`
+- `GET /outputs/actions/{action_id}`
+- `GET /output-actions/{action_id}`
+
+Behavior that is implemented:
+
+- first-class output artifact records for datasets, manifests, reports, and sidecars
+- artifact filtering by search, format, role, asset, conversion, and availability
+- parquet metadata inspection via `pyarrow` when available
+- manifest summary extraction from `.manifest.json`
+- content serving for ready files
+
+Current output action support:
+
+- only `refresh_metadata` is implemented end-to-end
+- action execution is synchronous in the request path and writes a small `result.json` sidecar under the backend outputs directory
+- other future action types are not supported by the backend today
+
+### Visualization preparation and viewer source
+
+- `backend/app/api/visualization.py`
+- `backend/app/services/visualization.py`
+
+Implemented routes:
+
+- `POST /assets/{asset_id}/episodes/{episode_id}/prepare-visualization`
+- `GET /assets/{asset_id}/episodes/{episode_id}/viewer-source`
+- static serving under `/visualizations/...`
+
+Behavior that is implemented:
+
+- cached Rerun `.rrd` generation for an episode
+- cache reuse when a matching artifact already exists
+- cache invalidation when viewer or recording versions change
+- viewer-source manifest responses that point the frontend at a ready `.rrd` URL
+
+## Persistence Model In Use
+
+The backend already persists the following resource types in SQLite:
+
+- assets and indexed asset metadata
+- tags and asset/tag relationships
+- jobs
+- conversions
+- reusable conversion configs
+- conversion config revisions
+- draft revisions
+- output artifacts
+- output actions
+
+The current schema does not include:
+
+- templates
+- a separate normalized spec-migration event table
+
+## Upstream Library Fixes (hephaes Phase 6)
+
+Three bugs in the hephaes library's draft spec generation and feature validation pipeline caused schema-aware conversion to mark 100% of rows as bad for image-bearing MCAP files. All three were fixed in the library (candidate priority, dtype inference, bytes coercion). The backend delegates inspection, drafting, preview, and conversion entirely to hephaes public APIs (`inspect_reader`, `build_draft_conversion_spec`, `preview_conversion_spec`, `Converter`). The fixes flow through automatically.
+
+One backend-side fix was required: `_open_asset_reader` in `conversion_authoring.py` had a `contextmanager` exception-handling bug where its generic `except Exception` block caught re-raised service exceptions from the yielded code (e.g., draft generation failures), wrapping them as a misleading `"failed to open asset reader"` error. Fixed by letting `ConversionAuthoringServiceError` subclasses propagate instead of only `ConversionAuthoringNotFoundError`.
+
+## Current Limitations And Gotchas
+
+- Conversion authoring is backend-complete for saved configs, but the richer frontend reusable-config editor and lifecycle UI still need wiring.
+- Job records are durable, but the work itself is still inline. Long-running requests are not offloaded to a dedicated queue/worker system.
+- Output action support is intentionally narrow right now: `refresh_metadata` only.
+- Visualization preparation is implemented in the backend, but the current frontend replay route does not yet use the viewer-source flow.
+- Asset list filtering is split between backend and frontend today: the backend handles search/tag/type/status/duration/start-time filters, while some UI-only filters such as file size and registration date are still applied client-side.
+
+## Where To Start For Common Tasks
+
+- Add or change an HTTP contract: `backend/app/api/`
+- Change business logic: `backend/app/services/`
+- Change persisted shape: `backend/app/db/models.py`
+- Change response payloads: `backend/app/schemas/`
+- Understand current behavior under test: `backend/tests/`
+
+## Related Root Docs
+
+- [Backend master plan](./master-plan)
+- [Backend implementation tasks](./implementation-tasks)
+- [Hephaes package master plan](../hephaes/master-plan)

@@ -1,0 +1,48 @@
+# Frontend Master Plan
+
+## Goal
+
+Deliver a conversion UX where users can trust that default outputs are training-ready, specifically that image payloads are represented as bytes features by default.
+
+## Product Objective
+
+Frontend should make schema intent visible, reduce ambiguity in conversion setup, and minimize post-conversion debugging for ML users.
+
+## Target UX Outcomes
+
+1. Users can understand image payload representation before starting conversion.
+2. Default settings are clearly marked as training-oriented.
+3. Compatibility or legacy modes are discoverable and explicitly explained.
+4. After conversion, users can quickly confirm what schema was produced.
+
+## Frontend Responsibilities
+
+1. Render backend-provided schema/policy metadata in authoring and execution UI.
+2. Provide concise guidance for bytes-default image outputs and expected training usage.
+3. Surface compatibility warnings for legacy list-based image payload outputs.
+4. Keep execution and results pages transparent about effective output schema.
+
+## UX Design Direction
+
+1. Prefer explicit schema badges/labels over hidden defaults.
+2. Keep advanced compatibility controls behind progressive disclosure.
+3. Use plain-language helper text oriented around model-training workflows.
+4. Ensure state survives refresh and deep links for schema-related context.
+
+## Cross-Package Boundary
+
+- `hephaes` defines encoding semantics and conversion behavior.
+- Backend exposes stable metadata and compatibility signaling.
+- Frontend communicates those contracts clearly and consistently to users.
+
+## Success Criteria
+
+1. Users can identify output image representation without reading raw TFRecords.
+2. Default conversion path requires minimal preprocessing knowledge.
+3. UI makes legacy behavior obvious when encountered.
+
+## Related Docs
+
+- [Frontend current state](./current-state)
+- [Frontend implementation tasks](./implementation-tasks)
+- [Hephaes package plan](../hephaes/master-plan)

@@ -1,0 +1,47 @@
+# Hephaes Master Plan
+
+## Goal
+
+Evolve `hephaes` conversion semantics so image payload defaults to TFRecord bytes features, making training pipelines faster to adopt and easier to reason about.
+
+## Architecture Objective
+
+`hephaes` should provide a canonical, versioned output contract for image modalities that is explicit, efficient, and backward-compatible with existing outputs.
+
+## Core Design Direction
+
+1. Define image payload representation at the semantic layer, not as an incidental outcome of generic normalization.
+2. Keep metadata and payload contract explicit for deterministic reconstruction and decoding.
+3. Ensure backward compatibility for previously generated list-based outputs.
+4. Keep conversion behavior observable through manifest/report metadata.
+
+## Conversion Contract Direction
+
+1. Image payload fields default to bytes features in TFRecord output.
+2. Associated metadata fields remain present (for example: dimensions, encoding, and related reconstruction fields).
+3. Contract versioning distinguishes bytes-default behavior from legacy representations.
+4. Reader/stream helpers continue to support both new and legacy outputs.
+
+## Ownership Boundary
+
+- `hephaes` owns payload normalization semantics, TFRecord field emission rules, and compatibility behavior.
+- Backend owns API exposure and persistence of effective schema policy.
+- Frontend owns user communication of schema behavior and compatibility states.
+
+## Quality And Safety Principles
+
+1. No silent representation drift for image modalities.
+2. Backward compatibility is explicit and test-protected.
+3. Performance implications are measured for large image datasets.
+4. Documentation and examples reflect the default training-first behavior.
+
+## Success Criteria
+
+1. Default conversion of ROS/MCAP image topics emits bytes-based image payload features.
+2. Existing legacy datasets remain readable and identifiable.
+3. Users can start model training with minimal custom decoding logic.
+
+## Related Docs
+
+- [Backend plan](../backend/master-plan)
+- [Frontend plan](../frontend/master-plan)
