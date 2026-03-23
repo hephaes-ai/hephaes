@@ -8,6 +8,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "test": "vitest run",
     "postinstall": "patch-package",
     "format": "prettier --write \"**/*.{ts,tsx}\"",
     "typecheck": "rm -f tsconfig.tsbuildinfo .next/cache/.tsbuildinfo && next typegen && tsc --noEmit"
@@ -31,16 +32,20 @@
   "devDependencies": {
     "@eslint/eslintrc": "^3",
     "@tailwindcss/postcss": "^4.1.18",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
     "@types/node": "^25.1.0",
     "@types/react": "^19.2.10",
     "@types/react-dom": "^19.2.3",
     "eslint": "^9.39.2",
     "eslint-config-next": "16.1.6",
+    "jsdom": "^29.0.1",
     "patch-package": "^8.0.1",
     "postcss": "^8",
     "prettier": "^3.8.1",
     "prettier-plugin-tailwindcss": "^0.7.2",
     "tailwindcss": "^4.1.18",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.0"
   }
 }
