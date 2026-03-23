@@ -10,14 +10,18 @@ export function buildOutputDetailHref(outputId: string, returnHref: string) {
   return `/outputs/${outputId}?from=${encodeURIComponent(returnHref)}`;
 }
 
-export function buildConversionHref({
+function buildConversionQuery({
   assetIds,
   conversionId,
   from,
+  savedConfigId,
+  sourceAssetId,
 }: {
   assetIds: string[];
   conversionId?: string | null;
   from?: string | null;
+  savedConfigId?: string | null;
+  sourceAssetId?: string | null;
 }) {
   const params = new URLSearchParams();
 
@@ -30,12 +34,82 @@ export function buildConversionHref({
     params.set("conversion_id", conversionId.trim());
   }
 
+  if (savedConfigId?.trim()) {
+    params.set("saved_config_id", savedConfigId.trim());
+  }
+
+  if (sourceAssetId?.trim()) {
+    params.set("source_asset_id", sourceAssetId.trim());
+  }
+
   if (from?.trim()) {
     params.set("from", from.trim());
   }
 
-  const query = params.toString();
+  return params.toString()
+}
+
+export function buildConversionHref({
+  assetIds,
+  conversionId,
+  from,
+  savedConfigId,
+  sourceAssetId,
+}: {
+  assetIds: string[];
+  conversionId?: string | null;
+  from?: string | null;
+  savedConfigId?: string | null;
+  sourceAssetId?: string | null;
+}) {
+  const query = buildConversionQuery({
+    assetIds,
+    conversionId,
+    from,
+    savedConfigId,
+    sourceAssetId,
+  })
   return query ? `/convert?${query}` : "/convert";
+}
+
+export function buildConversionCreateHref({
+  assetIds,
+  from,
+  sourceAssetId,
+}: {
+  assetIds: string[];
+  from?: string | null;
+  sourceAssetId?: string | null;
+}) {
+  const query = buildConversionQuery({
+    assetIds,
+    from,
+    sourceAssetId,
+  })
+  return query ? `/convert/new?${query}` : "/convert/new"
+}
+
+export function buildConversionUseHref({
+  assetIds,
+  conversionId,
+  from,
+  savedConfigId,
+  sourceAssetId,
+}: {
+  assetIds: string[];
+  conversionId?: string | null;
+  from?: string | null;
+  savedConfigId?: string | null;
+  sourceAssetId?: string | null;
+}) {
+  const query = buildConversionQuery({
+    assetIds,
+    conversionId,
+    from,
+    savedConfigId,
+    sourceAssetId,
+  })
+  return query ? `/convert/use?${query}` : "/convert/use"
 }
 
 export function buildHref(
