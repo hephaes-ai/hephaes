@@ -21,6 +21,12 @@ import {
 import { EmptyState } from "@/components/empty-state"
 import { WorkflowStatusBadge } from "@/components/workflow-status-badge"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion"
 import { Badge } from "@/components/ui/badge"
 import {
   Breadcrumb,
@@ -1730,112 +1736,120 @@ export function ConversionAuthoringWorkspace({
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-5">
-              <details className="group rounded-lg border bg-muted/20">
-                <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-3 [&::-webkit-details-marker]:hidden">
-                  <div className="space-y-1">
-                    <p className="text-sm font-medium text-foreground">
+              <Accordion
+                className="space-y-3"
+                defaultValue={["inspect-settings"]}
+                type="multiple"
+              >
+                <AccordionItem value="inspect-settings">
+                  <AccordionTrigger>
+                    <span className="text-sm font-medium text-foreground">
                       Inspect Settings
-                    </p>
-                    <p className="text-sm text-muted-foreground">
-                      Sample count, depth, and decode policy.
-                    </p>
-                  </div>
-                  <ChevronDown className="size-4 shrink-0 text-muted-foreground transition-transform duration-200 group-open:rotate-180" />
-                </summary>
-                <div className="border-t px-3 py-4">
-                  <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="sample-n">Sample count</Label>
-                      <Input
-                        id="sample-n"
-                        min="1"
-                        onChange={(event) =>
-                          setInspectionForm((current) => ({
-                            ...current,
-                            sampleN: event.target.value,
-                          }))
-                        }
-                        type="number"
-                        value={inspectionForm.sampleN}
-                      />
+                    </span>
+                  </AccordionTrigger>
+                  <AccordionContent className="space-y-4">
+                    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="sample-n">Sample count</Label>
+                        <Input
+                          id="sample-n"
+                          min="1"
+                          onChange={(event) =>
+                            setInspectionForm((current) => ({
+                              ...current,
+                              sampleN: event.target.value,
+                            }))
+                          }
+                          type="number"
+                          value={inspectionForm.sampleN}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="max-depth">Max depth</Label>
+                        <Input
+                          id="max-depth"
+                          min="0"
+                          onChange={(event) =>
+                            setInspectionForm((current) => ({
+                              ...current,
+                              maxDepth: event.target.value,
+                            }))
+                          }
+                          type="number"
+                          value={inspectionForm.maxDepth}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="max-sequence-items">
+                          Sequence items
+                        </Label>
+                        <Input
+                          id="max-sequence-items"
+                          min="1"
+                          onChange={(event) =>
+                            setInspectionForm((current) => ({
+                              ...current,
+                              maxSequenceItems: event.target.value,
+                            }))
+                          }
+                          type="number"
+                          value={inspectionForm.maxSequenceItems}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="on-failure">Decode failure</Label>
+                        <NativeSelect
+                          id="on-failure"
+                          onChange={(event) =>
+                            setInspectionForm((current) => ({
+                              ...current,
+                              onFailure: event.target
+                                .value as DecodeFailurePolicy,
+                            }))
+                          }
+                          value={inspectionForm.onFailure}
+                        >
+                          <option value="skip">Skip</option>
+                          <option value="warn">Warn</option>
+                          <option value="fail">Fail</option>
+                        </NativeSelect>
+                      </div>
                     </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="max-depth">Max depth</Label>
-                      <Input
-                        id="max-depth"
-                        min="0"
-                        onChange={(event) =>
-                          setInspectionForm((current) => ({
-                            ...current,
-                            maxDepth: event.target.value,
-                          }))
-                        }
-                        type="number"
-                        value={inspectionForm.maxDepth}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="max-sequence-items">Sequence items</Label>
-                      <Input
-                        id="max-sequence-items"
-                        min="1"
-                        onChange={(event) =>
-                          setInspectionForm((current) => ({
-                            ...current,
-                            maxSequenceItems: event.target.value,
-                          }))
-                        }
-                        type="number"
-                        value={inspectionForm.maxSequenceItems}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="on-failure">Decode failure</Label>
-                      <NativeSelect
-                        id="on-failure"
-                        onChange={(event) =>
-                          setInspectionForm((current) => ({
-                            ...current,
-                            onFailure: event.target
-                              .value as DecodeFailurePolicy,
-                          }))
-                        }
-                        value={inspectionForm.onFailure}
-                      >
-                        <option value="skip">Skip</option>
-                        <option value="warn">Warn</option>
-                        <option value="fail">Fail</option>
-                      </NativeSelect>
-                    </div>
-                  </div>
-                </div>
-              </details>
+                  </AccordionContent>
+                </AccordionItem>
 
-              <div className="space-y-2">
-                <div className="flex items-center justify-between gap-3">
-                  <Label htmlFor="topic-type-hints">Topic type hints</Label>
-                  <span className="text-xs text-muted-foreground">
-                    {getTopicHintCount(inspectionForm.topicTypeHints) ?? 0}{" "}
-                    hints
-                  </span>
-                </div>
-                <Textarea
-                  id="topic-type-hints"
-                  onChange={(event) =>
-                    setInspectionForm((current) => ({
-                      ...current,
-                      topicTypeHints: event.target.value,
-                    }))
-                  }
-                  placeholder='{"\/camera/front/image_raw": "sensor_msgs/msg/Image"}'
-                  value={inspectionForm.topicTypeHints}
-                />
-                {topicHintsParse.error ? (
-                  <p className="text-sm text-destructive">
-                    {topicHintsParse.error}
-                  </p>
-                ) : null}
-              </div>
+                <AccordionItem value="topic-type-hints">
+                  <AccordionTrigger>
+                    <span className="flex min-w-0 flex-1 items-center justify-between gap-3">
+                      <span className="text-sm font-medium text-foreground">
+                        Topic type hints
+                      </span>
+                      <span className="text-xs text-muted-foreground">
+                        {getTopicHintCount(inspectionForm.topicTypeHints) ?? 0}{" "}
+                        hints
+                      </span>
+                    </span>
+                  </AccordionTrigger>
+                  <AccordionContent className="space-y-2">
+                    <Textarea
+                      id="topic-type-hints"
+                      onChange={(event) =>
+                        setInspectionForm((current) => ({
+                          ...current,
+                          topicTypeHints: event.target.value,
+                        }))
+                      }
+                      placeholder='{"\/camera/front/image_raw": "sensor_msgs/msg/Image"}'
+                      value={inspectionForm.topicTypeHints}
+                    />
+                    {topicHintsParse.error ? (
+                      <p className="text-sm text-destructive">
+                        {topicHintsParse.error}
+                      </p>
+                    ) : null}
+                  </AccordionContent>
+                </AccordionItem>
+              </Accordion>
 
               <div className="flex flex-wrap gap-2">
                 <Button
