@@ -10,7 +10,7 @@
     "lint": "eslint",
     "postinstall": "patch-package",
     "format": "prettier --write \"**/*.{ts,tsx}\"",
-    "typecheck": "next typegen && tsc --noEmit"
+    "typecheck": "rm -f tsconfig.tsbuildinfo && next typegen && tsc --noEmit"
   },
   "dependencies": {
     "@rerun-io/web-viewer": "^0.22.1",

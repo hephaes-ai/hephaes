@@ -158,32 +158,26 @@ export type ConversionWorkspaceMode = "create" | "use"
 type CreateWizardStep = "source" | "inspect" | "draft" | "spec" | "preview"
 
 const CREATE_WIZARD_STEPS: Array<{
-  description: string
   id: CreateWizardStep
   label: string
 }> = [
   {
-    description: "Pick the asset to inspect.",
     id: "source",
     label: "Source",
   },
   {
-    description: "Inspect the selected asset.",
     id: "inspect",
     label: "Inspect",
   },
   {
-    description: "Generate a draft spec.",
     id: "draft",
     label: "Draft",
   },
   {
-    description: "Edit the JSON spec directly.",
     id: "spec",
     label: "Spec",
   },
   {
-    description: "Preview the final spec before saving.",
     id: "preview",
     label: "Preview",
   },
@@ -293,52 +287,48 @@ function CreateWizardBreadcrumb({
   )
 
   return (
-    <Card>
-      <CardContent className="px-4 py-3">
-        <Breadcrumb>
-          <BreadcrumbList>
-            {CREATE_WIZARD_STEPS.map((step, index) => {
-              const isActive = index === currentStepIndex
-              const isComplete = index < currentStepIndex
-              const canNavigateBack = index < currentStepIndex
+    <Breadcrumb>
+      <BreadcrumbList>
+        {CREATE_WIZARD_STEPS.map((step, index) => {
+          const isActive = index === currentStepIndex
+          const isComplete = index < currentStepIndex
+          const canNavigateBack = index < currentStepIndex
 
-              return (
-                <React.Fragment key={step.id}>
-                  <BreadcrumbItem>
-                    {isActive ? (
-                      <BreadcrumbPage>{step.label}</BreadcrumbPage>
-                    ) : canNavigateBack ? (
-                      <BreadcrumbLink asChild>
-                        <button
-                          className="transition-colors hover:text-foreground"
-                          onClick={() => onStepChange(step.id)}
-                          type="button"
-                        >
-                          {step.label}
-                        </button>
-                      </BreadcrumbLink>
-                    ) : (
-                      <span
-                        className={
-                          isComplete
-                            ? "transition-colors hover:text-foreground"
-                            : "text-muted-foreground/60"
-                        }
-                      >
-                        {step.label}
-                      </span>
-                    )}
-                  </BreadcrumbItem>
-                  {index < CREATE_WIZARD_STEPS.length - 1 ? (
-                    <BreadcrumbSeparator />
-                  ) : null}
-                </React.Fragment>
-              )
-            })}
-          </BreadcrumbList>
-        </Breadcrumb>
-      </CardContent>
-    </Card>
+          return (
+            <React.Fragment key={step.id}>
+              <BreadcrumbItem>
+                {isActive ? (
+                  <BreadcrumbPage>{step.label}</BreadcrumbPage>
+                ) : canNavigateBack ? (
+                  <BreadcrumbLink asChild>
+                    <button
+                      className="transition-colors hover:text-foreground"
+                      onClick={() => onStepChange(step.id)}
+                      type="button"
+                    >
+                      {step.label}
+                    </button>
+                  </BreadcrumbLink>
+                ) : (
+                  <span
+                    className={
+                      isComplete
+                        ? "transition-colors hover:text-foreground"
+                        : "text-muted-foreground/60"
+                    }
+                  >
+                    {step.label}
+                  </span>
+                )}
+              </BreadcrumbItem>
+              {index < CREATE_WIZARD_STEPS.length - 1 ? (
+                <BreadcrumbSeparator />
+              ) : null}
+            </React.Fragment>
+          )
+        })}
+      </BreadcrumbList>
+    </Breadcrumb>
   )
 }
 
@@ -1603,12 +1593,6 @@ export function ConversionAuthoringWorkspace({
   const draftUnresolved = draftResponse?.draft.unresolved_fields ?? []
 
   if (isCreateMode) {
-    const currentWizardStep =
-      CREATE_WIZARD_STEPS.find((step) => step.id === createStep) ??
-      CREATE_WIZARD_STEPS[0]
-    const createStepNumber =
-      CREATE_WIZARD_STEPS.findIndex((step) => step.id === createStep) + 1
-
     return (
       <div className="space-y-6">
         <Button asChild size="sm" variant="ghost">
@@ -1629,17 +1613,12 @@ export function ConversionAuthoringWorkspace({
                 {selectedAssets.length} selected
               </span>
             </div>
-            <p className="max-w-3xl text-sm text-muted-foreground">
-              Step {createStepNumber} of {CREATE_WIZARD_STEPS.length}:{" "}
-              {currentWizardStep.description}
-            </p>
+            <CreateWizardBreadcrumb
+              currentStep={createStep}
+              onStepChange={(step) => setCreateStep(step)}
+            />
           </div>
         </section>
-
-        <CreateWizardBreadcrumb
-          currentStep={createStep}
-          onStepChange={(step) => setCreateStep(step)}
-        />
 
         {requestMessage ? (
           <Alert
