@@ -356,6 +356,10 @@ function ConversionStatusCard({
   onNewConversion: () => void
 }) {
   const hasShownCreatedToast = React.useRef<string | null>(null)
+  const effectiveRepresentationPolicy =
+    activeConversion.representation_policy ??
+    activeConversion.job.representation_policy ??
+    null
 
   React.useEffect(() => {
     if (hasShownCreatedToast.current === activeConversion.id) {
@@ -483,7 +487,12 @@ function ConversionStatusCard({
             </Button>
             <Button asChild type="button" variant="outline">
               <Link
-                href={buildOutputsHref({ conversionId: activeConversion.id })}
+                href={buildOutputsHref({
+                  conversionId: activeConversion.id,
+                  imagePayloadContract: getImagePayloadContract(
+                    effectiveRepresentationPolicy
+                  ),
+                })}
               >
                 View outputs
               </Link>
