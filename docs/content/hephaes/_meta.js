@@ -1,3 +1,5 @@
 export default {
-  'master-plan': 'Master Plan',
+  overview: 'Overview',
+  'current-state': 'Current State',
+  'how-to-use': 'How To Use',
 }

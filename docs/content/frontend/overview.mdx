@@ -1,0 +1,50 @@
+# Frontend Overview
+
+## What It Does
+
+The Hephaes frontend is a local-use web application for managing robotics data assets and converting them into ML-ready formats. It runs alongside the backend on a user's local machine and provides a UI for the full data pipeline workflow.
+
+Users can:
+
+- **Manage local assets** — register, upload, scan directories, tag, and browse MCAP files stored on disk
+- **Create conversion specs** — inspect asset topics, draft conversion configurations, preview sample output, and save reusable configs
+- **Run conversions** — convert MCAP files into TFRecord or Parquet output with a guided authoring workflow
+- **Monitor jobs** — track conversion job progress, view results, and inspect output metadata
+- **Replay episodes** — scrub through episode timelines with websocket-based realtime replay
+
+## Local-Only Design
+
+The open source frontend is designed for **local use only**. It connects to a locally running backend server and operates on assets stored on the user's filesystem. There is no authentication, multi-user support, or cloud deployment model in the current release.
+
+## Stack
+
+| Layer | Technology |
+|---|---|
+| Framework | Next.js 16 (App Router, Turbopack) |
+| UI | React 19, Tailwind CSS 4, shadcn/Radix UI |
+| Data fetching | SWR with typed fetch helpers |
+| Notifications | Sonner (toast) |
+| Visualization | @rerun-io/web-viewer |
+| Testing | Vitest, React Testing Library |
+| Language | TypeScript 5.9 |
+
+## Navigation
+
+The app shell provides four primary navigation sections:
+
+1. **Dashboard** — summary cards, trend views, and blockers with drill-through links
+2. **Inventory** — asset listing with filters, upload, directory scan, bulk indexing, and tagging
+3. **Outputs** — browse and inspect converted output datasets
+4. **Jobs** — job history with status tracking and detail views
+
+Additional routes are accessed contextually from within these sections:
+
+- `/assets/[assetId]` — asset detail with metadata, episodes, and related jobs
+- `/convert` — conversion authoring workspace (create new or use saved configs)
+- `/replay` — episode timeline replay with playback controls
+
+## Future Direction
+
+- Custom computation scripts as an option in conversion jobs
+- Cloud-hosted deployment model beyond local use
+- Enhanced visualization and replay capabilities

@@ -1,5 +1,5 @@
 export default {
-  'master-plan': 'Master Plan',
+  overview: 'Overview',
   'current-state': 'Current State',
-  'implementation-tasks': 'Implementation Tasks',
+  'planned-features': 'Planned Features',
 }

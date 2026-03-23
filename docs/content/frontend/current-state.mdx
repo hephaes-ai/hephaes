@@ -1,217 +1,98 @@
-# Frontend Current State
-
-## Purpose
-
-Use this file as the quick implementation map for the frontend. It describes what is actually wired today, where the active routes and data hooks live, and which code paths are still only placeholders or future-work scaffolding.
+# Current State
 
 ## Snapshot
 
-The frontend is a Next.js App Router app built around the current backend APIs for dashboard, inventory, conversion execution, outputs, jobs, and replay.
+The frontend is a Next.js App Router application built on React 19 with SWR for data fetching. It provides a complete UI for the local data pipeline: dashboard, inventory management, conversion authoring, job monitoring, output browsing, and episode replay.
 
-It already supports:
+All primary workflows are functional end-to-end.
 
-- dashboard rollups and trend views
-- inventory management with upload, directory scan, filters, bulk indexing, and tag editing
-- asset detail pages with metadata, topics, episodes, jobs, conversions, convert links, and replay links
-- a dedicated `/convert` authoring workspace for inspection, draft generation, preview, saved-config management, and backend-managed execution handoff
-- jobs history and detail pages
-- outputs catalog and output detail pages with metadata refresh actions
-- replay timeline and sample browsing with websocket replay plus REST fallback
+## Route Map
 
-The conversion authoring workflow is now wired through the frontend. The remaining work is mostly visual polish and optional product decisions such as import/export affordances.
+### Primary Navigation
 
-Recent contract integration updates:
+| Route | Description |
+|---|---|
+| `/dashboard` | Summary cards, trend views, blockers, drill-through links to inventory/jobs/outputs |
+| `/inventory` | Asset listing with search, tag, file type, indexing status, duration, size, and sort filters. Upload, directory scan, bulk indexing, and tag management |
+| `/outputs` | Output listing with filters for format, role, asset, conversion, and availability. Presets for ready datasets and active compute |
+| `/jobs` | Job history with type/status filters and polling for active jobs |
 
-- Frontend API types now model backend representation policy metadata on conversion, job, and authoring responses.
-- Conversion request typing now includes explicit TFRecord image payload contract selection support (`bytes_v2` and `legacy_list_v1`).
-- Frontend helper utilities now provide policy-version defaults, legacy-compatibility marker checks, and guarded output-contract normalization for mixed backend rollouts.
-- Conversion authoring now shows explicit image payload contract callouts, training-first defaults, legacy compatibility warnings, and preview-time representation fields.
-- Conversion status, job detail, outputs list, and output detail pages now surface effective image payload contract details for faster post-run verification.
-- Outputs deep links now preserve schema context via query params (including image payload contract) across refresh/navigation.
-- Authoring policy callouts now include explicit empty/error states for missing backend schema metadata to support mixed-version rollout resilience.
-- Frontend now has Vitest coverage for representation-policy helpers, schema callout rendering, output preview payload facts, and deep-link schema context helpers.
-- Frontend README now documents the user-facing image payload contract experience and screenshot checklist for release readiness.
+### Contextual Routes
 
-## Stack And Global Structure
+| Route | Description |
+|---|---|
+| `/assets/[assetId]` | Asset summary, indexed metadata, topic table, tag management, episode list, related jobs/conversions, index/reindex actions, links to convert/outputs/replay |
+| `/convert` | Routes to `/convert/use` when saved configs exist, `/convert/new` otherwise |
+| `/convert/new` | Sequential create wizard: source selection, inspect, draft, spec editing, preview. Breadcrumb stepper navigation |
+| `/convert/use` | Saved config flow with dropdown selection, config details, and run action |
+| `/jobs/[jobId]` | Job detail with links to related assets and outputs |
+| `/outputs/[outputId]` | Output detail with source links, file/content links, action history, and metadata refresh |
+| `/replay` | Episode replay with timeline scrubber, lane selection, playback controls, speed adjustment, websocket streaming with REST fallback |
+| `/visualize` | Compatibility redirect to `/replay` |
 
-- `frontend/package.json`: Next.js 16, React 19, SWR, shadcn/Radix, Sonner, Tailwind CSS, and `@rerun-io/web-viewer`
-- `frontend/app/layout.tsx`: root layout and global providers
-- `frontend/components/app-shell.tsx`: top-level app shell and nav for Dashboard, Inventory, Outputs, and Jobs
-- `frontend/lib/api.ts`: typed backend client contracts and request helpers
-- `frontend/hooks/use-backend.ts`: central SWR hooks and cache invalidation helpers
-- `frontend/components/ui/`: shared primitives
+### Root Redirect
 
-There is no dedicated frontend test suite in the repository right now.
+`/` redirects to `/dashboard` by default, or `/inventory` when query params are present.
 
-## Route Map That Exists Today
+## Conversion Authoring Workflow
 
-### Root and compatibility redirects
+The conversion workflow is split into two paths:
 
-- `frontend/app/page.tsx`: redirects to `/dashboard` by default and to `/inventory` when query params are present
-- `frontend/app/visualize/page.tsx`: compatibility redirect to `/replay`
+**Create new** (`/convert/new`):
+- Source asset selection
+- Topic inspection with collapsible accordions
+- Spec drafting with Use/Trigger checkbox columns for inline topic selection
+- Spec editing
+- Preview with scrollable timestamp rows and field data
+- Save to create a reusable config
 
-### Dashboard
+**Use saved config** (`/convert/use`):
+- Top-level config dropdown
+- Selected config details
+- Run action using saved config
+- Post-submission status polling with job status, output path, and reported files
+- Deep-link support via `saved_config_id`, `source_asset_id`, and `conversion_id` query params
 
-- `frontend/app/dashboard/page.tsx`
-- `frontend/app/dashboard/dashboard-page.tsx`
+Image payload contract selection is surfaced throughout — authoring shows training-first defaults and legacy compatibility warnings, and status/output pages display the effective contract for post-run verification.
 
-Implemented behavior:
+## Replay
 
-- summary cards from backend dashboard rollups
-- trends and blocker views from backend dashboard endpoints
-- drill-through links into inventory, jobs, and outputs
+- Episode selection from query params
+- Timeline lane selection and timestamp scrubber
+- Playback controls with variable speed
+- Websocket-based realtime replay streaming
+- REST sample fallback when websocket is unavailable
+- URL state persistence for asset, episode, lanes, speed, and timestamp
 
-### Inventory
+## Data Layer
 
-- `frontend/app/inventory/page.tsx`
-- `frontend/app/inventory/inventory-page.tsx`
-- `frontend/app/inventory/inventory-table.tsx`
-- `frontend/app/inventory/inventory-upload-dialog.tsx`
-- `frontend/app/inventory/inventory-scan-dialog.tsx`
+| File | Purpose |
+|---|---|
+| `lib/api.ts` | Backend request/response types and fetch helpers (~1,260 lines) |
+| `hooks/use-backend.ts` | SWR hooks for all entities and cache invalidation |
+| `lib/conversion-authoring.ts` | JSON parsing, spec summaries, and inspection helpers |
+| `hooks/use-index-asset.ts` | Indexing mutations and pending-state tracking |
+| `hooks/use-upload-assets.ts` | Upload flow with bounded parallel requests |
+| `hooks/use-scan-directory.ts` | Directory scan flow |
+| `hooks/use-create-conversion.ts` | Conversion submit helper |
+| `hooks/use-episode-replay.ts` | Websocket replay with REST fallback |
 
-Implemented behavior:
+## Tests
 
-- asset listing with search, tag, file type, indexing status, duration, size, registration date, and sort controls
-- asset upload with bounded parallel requests and per-file progress reporting
-- directory scan registration
-- single-asset and bulk indexing / reindexing
-- tag creation and bulk tag assignment
-- convert action gating so selected assets must all be indexed before navigation to `/convert`
-- quick links into asset detail and conversion
+Test infrastructure is in place using Vitest with React Testing Library and jsdom. Current test coverage is minimal with three test files:
 
-Implementation note:
+- `components/output-detail-content.test.ts` — output preview building
+- `lib/conversion-representation.test.ts` — representation policy utilities
+- `lib/outputs.test.ts` — output formatting utilities
 
-- some filters are server-backed through `GET /assets`, while others remain client-side only
-- there is no hard backend cap in the inventory listing route; visible rows can be lower than registered count when filters are active or when uploads are skipped (duplicate/invalid)
+## Dormant Code
 
-### Asset detail
+- `components/conversion-dialog.tsx` — older modal-style conversion UI, not used by active routes
+- `app/convert/conversion-page.tsx` — legacy execution-first conversion page, retained but not routed
+- `components/rerun-viewer.tsx` — Rerun web viewer wrapper, not used by the active replay route
 
-- `frontend/app/assets/[assetId]/page.tsx`
-- `frontend/app/assets/[assetId]/asset-detail-page.tsx`
+## Known Limitations
 
-Implemented behavior:
-
-- asset summary and indexing status
-- indexed metadata and topic table
-- tag management
-- episode list
-- related jobs and conversions
-- index / reindex actions
-- links to `/convert`, `/outputs`, and `/replay`
-
-### Conversion execution
-
-- `frontend/app/convert/page.tsx`
-- `frontend/app/convert/new/page.tsx`
-- `frontend/app/convert/use/page.tsx`
-- `frontend/app/convert/conversion-authoring-workspace.tsx`
-- `frontend/lib/conversion-authoring.ts`
-
-Implemented behavior:
-
-- root `/convert` now resolves to `/convert/use` when saved configs exist and `/convert/new` when they do not
-- `/convert/new` is a sequential create wizard that starts with source selection, then reveals inspect, draft, spec editing, and preview one step at a time
-- the create wizard uses a breadcrumb trail in the header area for step navigation, keeps source selection lean, avoids a selected-count chip in the title area, starts the inspect accordions collapsed, and places `Include preview` inline with the label feature field
-- the draft table uses `Use` and `Trigger` checkbox columns so the trigger topic is chosen inline instead of through a dropdown, and checking `Trigger` promotes that row into the selected-use set if needed
-- after drafting completes, the page shows a compact green checkmark next to the `Draft spec` button instead of a larger draft summary card
-- the preview step keeps the card within the viewport and scrolls the timestamp rows, field data, and presence blocks inside the preview area
-- saving a new config returns the user to `/convert/use` with that config selected so it can be run immediately
-- `/convert/use` is the saved-config flow with a top-level dropdown, selected-config details, and a `Run` action that uses the selected config
-- selected assets are passed in via the `asset_ids` query param
-- persist `saved_config_id`, `source_asset_id`, and `conversion_id` in the route so the page can deep-link and resume state
-- after submit, the page shows conversion status, linked job status, output path, and reported output files, and the handoff confirmation is surfaced with a sonner toast instead of a status card
-- active conversions are polled while the page stays open
-
-Important limitation:
-
-- the legacy execution-first surface still exists in `frontend/app/convert/conversion-page.tsx`, but the routed convert entry now points at the split create/use pages
-
-### Jobs
-
-- `frontend/app/jobs/page.tsx`
-- `frontend/app/jobs/jobs-page.tsx`
-- `frontend/app/jobs/[jobId]/page.tsx`
-- `frontend/app/jobs/[jobId]/job-detail-page.tsx`
-
-Implemented behavior:
-
-- job history list
-- filtering by job type and status
-- polling while active jobs exist
-- detail page navigation into related assets and outputs
-
-### Outputs
-
-- `frontend/app/outputs/page.tsx`
-- `frontend/app/outputs/outputs-page.tsx`
-- `frontend/app/outputs/[outputId]/page.tsx`
-- `frontend/app/outputs/[outputId]/output-detail-page.tsx`
-- `frontend/components/output-table.tsx`
-- `frontend/components/output-detail-content.tsx`
-
-Implemented behavior:
-
-- output list filters for search, format, role, asset, conversion, and availability
-- convenience presets such as ready datasets and active compute
-- artifact preview cards based on backend metadata and manifest summaries
-- output detail page with source links, file/content links, and action history
-- metadata refresh action wired to backend `refresh_metadata`
-
-Important limitation:
-
-- VLM tagging is only a stub in the UI today; it is not implemented end-to-end
-
-### Replay
-
-- `frontend/app/replay/page.tsx`
-- `frontend/app/replay/visualization-page.tsx`
-- `frontend/app/replay/visualization-controls.tsx`
-- `frontend/app/replay/visualization-scrubber.tsx`
-- `frontend/hooks/use-episode-replay.ts`
-
-Implemented behavior:
-
-- episode selection from query params
-- timeline lane selection
-- timestamp scrubber
-- playback controls and speed changes
-- websocket replay to stream sample windows from the backend
-- REST sample fallback when websocket replay is unavailable
-
-## Data Layer And Shared Hooks
-
-- `frontend/lib/api.ts`: backend request/response types plus fetch helpers
-- `frontend/hooks/use-backend.ts`: SWR hooks for assets, dashboard, conversions, saved configs, jobs, outputs, tags, episodes, replay data, and cache revalidation helpers
-- `frontend/lib/conversion-authoring.ts`: JSON parsing, spec summary helpers, and inspection summaries for the authoring UI
-- `frontend/hooks/use-index-asset.ts`: indexing mutations and pending-state tracking
-- `frontend/hooks/use-upload-assets.ts`: upload mutation flow
-- `frontend/hooks/use-scan-directory.ts`: directory scan flow
-- `frontend/hooks/use-create-conversion.ts`: conversion submit helper
-
-## Dormant Or Partially Wired Code Paths
-
-- `frontend/components/conversion-dialog.tsx`: older modal-style conversion UI that is not used by the active routed workflow
-- `frontend/app/convert/conversion-page.tsx`: legacy execution-first conversion page, retained but no longer routed
-- `frontend/components/rerun-viewer.tsx`: wrapper for the official Rerun web viewer, currently not used by the active replay route
-- `frontend/hooks/use-backend.ts`: includes hooks for authoring capabilities, viewer-source, and prepare-visualization flows that are not currently consumed by the routed UI
-
-## Current Limitations And Gotchas
-
-- The conversion authoring workspace is functional, but there is still room for visual polish and future import/export affordances.
-- Some backend concepts already exist in typed client code before they exist in the actual backend implementation. Example: `OutputActionType` includes `vlm_tagging`, but only `refresh_metadata` works today.
-- Replay currently centers on timeline + sample data, not the backend viewer-source / cached `.rrd` flow.
-- There is some duplication from earlier iterations, especially around conversion UI and viewer integration. The routed versions under `frontend/app/` are the active surfaces.
-
-## Where To Start For Common Tasks
-
-- Add or change a route: `frontend/app/`
-- Change a backend contract or fetch helper: `frontend/lib/api.ts`
-- Add or change a shared data hook: `frontend/hooks/use-backend.ts`
-- Change shared layout or nav: `frontend/components/app-shell.tsx`
-- Change shared UI primitives: `frontend/components/ui/`
-
-## Related Root Docs
-
-- [Frontend master plan](./master-plan)
-- [Frontend implementation tasks](./implementation-tasks)
-- [Hephaes package master plan](../hephaes/master-plan)
+- VLM tagging is a stub in the UI — `OutputActionType` includes it but only `refresh_metadata` works end-to-end
+- Some backend hooks in `use-backend.ts` (authoring capabilities, viewer-source, prepare-visualization) exist in typed client code but are not consumed by the routed UI
+- Replay uses timeline + sample data, not the backend viewer-source / cached `.rrd` flow

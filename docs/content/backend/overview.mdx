@@ -1,0 +1,76 @@
+# Backend Overview
+
+## Goal
+
+The Hephaes backend is the API and orchestration layer for the local data pipeline. It manages asset registration, indexing, conversion execution, job tracking, and output cataloging — connecting the frontend UI to the `hephaes` conversion library.
+
+## Local-Only Design
+
+The backend is designed for **local use only**. It runs on the user's machine, stores data on the local filesystem, and uses SQLite for persistence. There is no authentication, multi-tenancy, or cloud deployment model in the current release.
+
+## What It Does
+
+- **Asset management** — register, upload, scan directories, index MCAP files, and manage tags
+- **Conversion authoring** — inspect asset topics, draft conversion specs, preview sample output, and persist reusable configs with revision history
+- **Conversion execution** — run conversions via the `hephaes` library to produce TFRecord or Parquet output
+- **Job tracking** — durable job records for indexing, conversion, and visualization preparation
+- **Output catalog** — track output artifacts with metadata, filtering, content serving, and post-processing actions
+- **Episode replay** — serve timeline data, sample windows, and realtime websocket streaming for episode playback
+- **Dashboard** — aggregate metrics, trend views, and blocker rollups
+- **Visualization** — generate and cache Rerun `.rrd` artifacts for episode visualization
+
+## Architecture
+
+```
+Frontend (Next.js) ←→ Backend (FastAPI) ←→ hephaes (Python library)
+                           ↕
+                     SQLite + Filesystem
+```
+
+The backend is a thin orchestration layer:
+- **`hephaes`** owns conversion semantics, encoding behavior, spec validation, and data processing
+- **Backend** owns HTTP contracts, persistence, policy exposure, job lifecycle, and migration signaling
+- **Frontend** owns presentation and guided user workflows based on backend contracts
+
+## Stack
+
+| Layer | Technology |
+|---|---|
+| Framework | FastAPI (Python 3.11+) |
+| Server | Uvicorn (ASGI) |
+| Database | SQLite via SQLAlchemy 2.0 |
+| Realtime | websockets (episode replay) |
+| Visualization | Rerun SDK 0.22 |
+| Conversion | hephaes (internal library) |
+| Testing | pytest, httpx |
+
+## Configuration
+
+The backend is configured via environment variables:
+
+| Variable | Purpose | Default |
+|---|---|---|
+| `HEPHAES_BACKEND_DATA_DIR` | Local data directory | `backend/data` |
+| `HEPHAES_BACKEND_RAW_DATA_DIR` | Raw asset storage | `data/raw` |
+| `HEPHAES_BACKEND_OUTPUTS_DIR` | Conversion outputs | `data/outputs` |
+| `HEPHAES_BACKEND_DB_PATH` | SQLite database file | `data/app.db` |
+| `HEPHAES_BACKEND_DEBUG` | Debug mode | `false` |
+
+## Code Organization
+
+| Directory | Purpose |
+|---|---|
+| `app/api/` | HTTP route handlers (thin layer) |
+| `app/services/` | Business logic and orchestration |
+| `app/db/models.py` | SQLAlchemy ORM models |
+| `app/schemas/` | Request/response Pydantic models |
+| `app/config.py` | Environment-based configuration |
+| `app/main.py` | App creation, CORS, router registration, lifespan |
+| `tests/` | API test suite (17 test modules) |
+
+## Future Direction
+
+- Worker queue for long-running conversion jobs (currently inline)
+- Custom computation scripts as a conversion option
+- Cloud-hosted deployment model beyond local use
+- Expanded output action support beyond `refresh_metadata`
