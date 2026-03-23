@@ -320,3 +320,60 @@ class TestTFRecordDatasetWriter:
                         },
                     )
                 )
+
+    def test_bytes_contract_reduces_image_payload_file_size_vs_legacy(self, tmp_path):
+        rows = 64
+        image_row = {
+            "height": 8,
+            "width": 8,
+            "encoding": "mono8",
+            "step": 8,
+            "data": list(range(64)),
+        }
+
+        bytes_context = EpisodeContext(
+            episode_id="ep_image_size_bytes",
+            source_path=tmp_path / "source.mcap",
+            ros_version="ROS2",
+            field_names=["camera"],
+            resample=None,
+            output=TFRecordOutputConfig(image_payload_contract="bytes_v2"),
+        )
+        with TFRecordDatasetWriter(
+            output_dir=tmp_path,
+            context=bytes_context,
+            config=TFRecordOutputConfig(image_payload_contract="bytes_v2"),
+        ) as writer:
+            writer.write_batch(
+                RecordBatch(
+                    timestamps=list(range(1, rows + 1)),
+                    field_data={"camera": [image_row for _ in range(rows)]},
+                )
+            )
+
+        legacy_context = EpisodeContext(
+            episode_id="ep_image_size_legacy",
+            source_path=tmp_path / "source.mcap",
+            ros_version="ROS2",
+            field_names=["camera"],
+            resample=None,
+            output=TFRecordOutputConfig(image_payload_contract="legacy_list_v1"),
+        )
+        with TFRecordDatasetWriter(
+            output_dir=tmp_path,
+            context=legacy_context,
+            config=TFRecordOutputConfig(image_payload_contract="legacy_list_v1"),
+        ) as writer:
+            writer.write_batch(
+                RecordBatch(
+                    timestamps=list(range(1, rows + 1)),
+                    field_data={"camera": [image_row for _ in range(rows)]},
+                )
+            )
+
+        bytes_size = (tmp_path / "ep_image_size_bytes.tfrecord").stat().st_size
+        legacy_size = (tmp_path / "ep_image_size_legacy.tfrecord").stat().st_size
+
+        assert bytes_size > 0
+        assert legacy_size > 0
+        assert bytes_size < legacy_size
