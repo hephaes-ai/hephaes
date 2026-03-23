@@ -188,6 +188,10 @@ def _flatten_value(
         features[prefix] = ("bytes", [_decode_encoded_bytes(value)])
         return
 
+    if isinstance(value, (bytes, bytearray)):
+        features[prefix] = ("bytes", [bytes(value)])
+        return
+
     if isinstance(value, bool):
         features[prefix] = ("int64", [int(value)])
         return
