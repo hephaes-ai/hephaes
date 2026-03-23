@@ -48,6 +48,14 @@ DbSession = Annotated[Session, Depends(get_db_session)]
 
 
 def _build_representation_policy(config: dict[str, object]) -> ConversionRepresentationPolicy | None:
+    persisted_policy = config.get("representation_policy")
+    if isinstance(persisted_policy, dict):
+        policy_payload = dict(persisted_policy)
+        if "effective_image_payload_contract" in policy_payload and "image_payload_contract" not in policy_payload:
+            policy_payload["image_payload_contract"] = policy_payload["effective_image_payload_contract"]
+        policy_payload.pop("effective_image_payload_contract", None)
+        return ConversionRepresentationPolicy.model_validate(policy_payload)
+
     output_payload: dict[str, object] | None = None
     spec_payload = config.get("spec")
     if isinstance(spec_payload, dict):
@@ -74,10 +82,12 @@ def _build_representation_policy(config: dict[str, object]) -> ConversionReprese
 
     return ConversionRepresentationPolicy(
         output_format="tfrecord",
+        requested_image_payload_contract=None,
         image_payload_contract=image_payload_contract,  # type: ignore[arg-type]
         payload_encoding=output_payload.get("payload_encoding", "typed_features"),  # type: ignore[arg-type]
         null_encoding=output_payload.get("null_encoding", "presence_flag"),  # type: ignore[arg-type]
         compatibility_markers=compatibility_markers,
+        warnings=[],
     )
 
 

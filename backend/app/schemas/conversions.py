@@ -24,10 +24,12 @@ class ConversionRepresentationPolicy(BaseModel):
 
     policy_version: int = Field(default=1, ge=1)
     output_format: Literal["parquet", "tfrecord"]
+    requested_image_payload_contract: TFRecordImagePayloadContract | None = None
     image_payload_contract: TFRecordImagePayloadContract | None = None
     payload_encoding: TFRecordPayloadEncoding | None = None
     null_encoding: TFRecordNullEncoding | None = None
     compatibility_markers: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
 
 
 class ParquetConversionOutputRequest(BaseModel):
@@ -131,6 +133,14 @@ class ConversionCreateRequest(BaseModel):
 
         if self.spec is None:
             return self
+
+        if (
+            self.spec.output.format != "tfrecord"
+            and self.spec.output.image_payload_contract != "bytes_v2"
+        ):
+            raise ValueError(
+                "spec.output.image_payload_contract can only be customized for tfrecord output"
+            )
 
         if self.mapping is not None or self.output is not None or self.resample is not None:
             raise ValueError(
