@@ -66,7 +66,7 @@ class ConversionAuthoringService:
         try:
             with open_asset_reader(asset.file_path) as reader:
                 yield asset, reader
-        except ConversionAuthoringNotFoundError:
+        except ConversionAuthoringServiceError:
             raise
         except Exception as exc:  # pragma: no cover - defensive guard around reader opening
             raise ConversionAuthoringInspectionError(
