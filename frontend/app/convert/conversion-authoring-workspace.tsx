@@ -1779,11 +1779,7 @@ export function ConversionAuthoringWorkspace({
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-5">
-              <Accordion
-                className="space-y-3"
-                defaultValue={["inspect-settings"]}
-                type="multiple"
-              >
+              <Accordion className="space-y-3" type="multiple">
                 <AccordionItem value="inspect-settings">
                   <AccordionTrigger>
                     <span className="text-sm font-medium text-foreground">
