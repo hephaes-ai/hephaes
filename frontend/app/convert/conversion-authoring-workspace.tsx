@@ -19,7 +19,6 @@ import {
 } from "lucide-react"
 
 import { EmptyState } from "@/components/empty-state"
-import { RepresentationPolicyCallout } from "@/components/representation-policy-callout"
 import { WorkflowStatusBadge } from "@/components/workflow-status-badge"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import {
@@ -1634,13 +1633,6 @@ export function ConversionAuthoringWorkspace({
           </div>
         </section>
 
-        <RepresentationPolicyCallout
-          hasContractMetadata={Boolean(capabilitiesResponse.data?.output_contract)}
-          metadataError={capabilitiesResponse.error}
-          outputContractLegacyMarker={outputContract.legacy_compatibility_marker}
-          policy={statusRepresentationPolicy}
-        />
-
         <ConversionStatusCard
           activeConversion={activeConversion}
           currentHref={currentHref}
@@ -1718,13 +1710,6 @@ export function ConversionAuthoringWorkspace({
             </AlertDescription>
           </Alert>
         ) : null}
-
-        <RepresentationPolicyCallout
-          hasContractMetadata={Boolean(capabilitiesResponse.data?.output_contract)}
-          metadataError={capabilitiesResponse.error}
-          outputContractLegacyMarker={outputContract.legacy_compatibility_marker}
-          policy={authoringRepresentationPolicy}
-        />
 
         {createStep === "source" ? (
           <Card>
@@ -2713,13 +2698,6 @@ export function ConversionAuthoringWorkspace({
           </AlertDescription>
         </Alert>
       ) : null}
-
-      <RepresentationPolicyCallout
-        hasContractMetadata={Boolean(capabilitiesResponse.data?.output_contract)}
-        metadataError={capabilitiesResponse.error}
-        outputContractLegacyMarker={outputContract.legacy_compatibility_marker}
-        policy={authoringRepresentationPolicy}
-      />
 
       <div
         className={
