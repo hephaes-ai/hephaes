@@ -2439,7 +2439,7 @@ export function ConversionAuthoringWorkspace({
         ) : null}
 
         {createStep === "preview" ? (
-          <Card>
+          <Card className="flex max-h-[calc(100vh-10rem)] flex-col">
             <CardHeader>
               <CardTitle>Preview</CardTitle>
               <CardDescription>
@@ -2447,7 +2447,7 @@ export function ConversionAuthoringWorkspace({
                 the use page.
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden">
               <div className="flex flex-wrap gap-2">
                 <Button
                   disabled={
@@ -2469,7 +2469,7 @@ export function ConversionAuthoringWorkspace({
               </div>
 
               {previewResponse ? (
-                <div className="space-y-4">
+                <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden">
                   <div className="grid gap-4 sm:grid-cols-3">
                     <div className="space-y-1">
                       <p className="text-xs tracking-wide text-muted-foreground uppercase">
@@ -2497,7 +2497,7 @@ export function ConversionAuthoringWorkspace({
                     </div>
                   </div>
 
-                  <div className="space-y-3">
+                  <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
                     {previewResponse.preview.rows.map((row) => (
                       <div
                         key={row.timestamp_ns}
@@ -2534,11 +2534,13 @@ export function ConversionAuthoringWorkspace({
                   </div>
                 </div>
               ) : (
-                <EmptyState
-                  variant="card"
-                  description="Preview the current spec to see example rows here."
-                  title="No preview yet"
-                />
+                <div className="flex min-h-0 flex-1 items-center">
+                  <EmptyState
+                    variant="card"
+                    description="Preview the current spec to see example rows here."
+                    title="No preview yet"
+                  />
+                </div>
               )}
 
               <div className="flex justify-between gap-2">
@@ -3375,7 +3377,7 @@ export function ConversionAuthoringWorkspace({
               </CardContent>
             </Card>
 
-            <Card>
+            <Card className="flex max-h-[calc(100vh-12rem)] flex-col">
               <CardHeader>
                 <CardTitle>Preview</CardTitle>
                 <CardDescription>
@@ -3383,9 +3385,9 @@ export function ConversionAuthoringWorkspace({
                   directly.
                 </CardDescription>
               </CardHeader>
-              <CardContent className="space-y-4">
+              <CardContent className="flex min-h-0 flex-col gap-4">
                 {previewResponse ? (
-                  <div className="space-y-4">
+                  <div className="flex min-h-0 flex-1 flex-col gap-4">
                     <div className="grid gap-4 sm:grid-cols-3">
                       <div className="space-y-1">
                         <p className="text-xs tracking-wide text-muted-foreground uppercase">
@@ -3413,7 +3415,7 @@ export function ConversionAuthoringWorkspace({
                       </div>
                     </div>
 
-                    <div className="space-y-3">
+                    <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
                       {previewResponse.preview.rows.map((row) => (
                         <div
                           key={row.timestamp_ns}
@@ -3450,11 +3452,13 @@ export function ConversionAuthoringWorkspace({
                     </div>
                   </div>
                 ) : (
-                  <EmptyState
-                    variant="card"
-                    description="Preview a draft or the current spec to see example rows here."
-                    title="No preview yet"
-                  />
+                  <div className="flex min-h-0 flex-1 items-center">
+                    <EmptyState
+                      variant="card"
+                      description="Preview a draft or the current spec to see example rows here."
+                      title="No preview yet"
+                    />
+                  </div>
                 )}
               </CardContent>
             </Card>
