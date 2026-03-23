@@ -438,6 +438,11 @@ export function InventoryPage() {
   const hasAppliedFilters = activeFilterChips.length > 0;
   const selectedCount = selectedAssetIds.size;
   const selectedVisibleAssets = visibleAssets.filter((asset) => selectedAssetIds.has(asset.id));
+  const isSelectionFullyIndexed =
+    selectedVisibleAssets.length > 0 &&
+    selectedVisibleAssets.every(
+      (asset) => asset.indexing_status === "indexed" && !pendingAssetIds.has(asset.id),
+    );
   const actionableSelectedAssets = selectedVisibleAssets.filter(
     (asset) => asset.indexing_status !== "indexing" && !pendingAssetIds.has(asset.id),
   );
@@ -726,12 +731,25 @@ export function InventoryPage() {
                 </Button>
               ) : null}
               {selectedCount > 0 ? (
-                <Button asChild size="sm" variant="outline">
-                  <Link href={convertHref}>
+                isSelectionFullyIndexed ? (
+                  <Button asChild size="sm" variant="outline">
+                    <Link href={convertHref}>
+                      <ArrowRightLeft className="size-3.5" />
+                      Convert
+                    </Link>
+                  </Button>
+                ) : (
+                  <Button
+                    disabled
+                    size="sm"
+                    title="All selected assets must be indexed before conversion."
+                    type="button"
+                    variant="outline"
+                  >
                     <ArrowRightLeft className="size-3.5" />
                     Convert
-                  </Link>
-                </Button>
+                  </Button>
+                )
               ) : null}
               {selectedCount > 0 ? (
                 <Button onClick={() => setIsTagDialogOpen(true)} size="sm" type="button" variant="outline">

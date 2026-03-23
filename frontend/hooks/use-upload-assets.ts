@@ -13,6 +13,8 @@ export interface UploadProgressState {
   total: number;
 }
 
+const UPLOAD_CONCURRENCY = 4;
+
 function summarizeSkipped(skipped: AssetRegistrationSkip[]) {
   if (skipped.length === 0) {
     return "";
@@ -85,23 +87,35 @@ export function useUploadAssets() {
       const registeredAssets: AssetSummary[] = [];
       const skipped: AssetRegistrationSkip[] = [];
       const unexpectedErrors: string[] = [];
+      let completed = 0;
 
       try {
-        for (const [index, file] of files.entries()) {
-          try {
-            const asset = await uploadAssetFile(file);
-            registeredAssets.push(asset);
-          } catch (uploadError) {
-            const classifiedSkip = classifyUploadedFileSkip(file, uploadError);
-            if (classifiedSkip) {
-              skipped.push(classifiedSkip);
-            } else {
-              unexpectedErrors.push(`${file.name}: ${getErrorMessage(uploadError)}`);
+        let nextIndex = 0;
+        const workerCount = Math.min(UPLOAD_CONCURRENCY, files.length);
+
+        async function runWorker() {
+          while (nextIndex < files.length) {
+            const file = files[nextIndex];
+            nextIndex += 1;
+
+            try {
+              const asset = await uploadAssetFile(file);
+              registeredAssets.push(asset);
+            } catch (uploadError) {
+              const classifiedSkip = classifyUploadedFileSkip(file, uploadError);
+              if (classifiedSkip) {
+                skipped.push(classifiedSkip);
+              } else {
+                unexpectedErrors.push(`${file.name}: ${getErrorMessage(uploadError)}`);
+              }
+            } finally {
+              completed += 1;
+              setProgress({ completed, total: files.length });
             }
-          } finally {
-            setProgress({ completed: index + 1, total: files.length });
           }
         }
+
+        await Promise.all(Array.from({ length: workerCount }, () => runWorker()));
 
         if (registeredAssets.length > 0) {
           await revalidateAssetLists();
