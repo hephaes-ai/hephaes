@@ -13,6 +13,8 @@ from .base import BaseDatasetWriter, EpisodeContext, RecordBatch
 
 _FeatureValue = tuple[str, list[bytes] | list[int] | list[float]]
 _SEQUENCE_LENGTH_PREFIX = "__sequence_length__"
+_IMAGE_PAYLOAD_CONTRACT_BYTES_V2 = "bytes_v2"
+_IMAGE_PAYLOAD_CONTRACT_LEGACY = "legacy_list_v1"
 
 
 def _encode_varint(value: int) -> bytes:
@@ -94,6 +96,44 @@ def _decode_encoded_bytes(value: dict[str, Any]) -> bytes:
     return base64.b64decode(value["value"])
 
 
+def _looks_like_raw_image_payload(value: Any) -> bool:
+    return (
+        isinstance(value, dict)
+        and "data" in value
+        and "height" in value
+        and "width" in value
+        and "encoding" in value
+    )
+
+
+def _looks_like_compressed_image_payload(value: Any) -> bool:
+    return isinstance(value, dict) and "data" in value and "format" in value
+
+
+def _looks_like_image_payload(value: Any) -> bool:
+    return _looks_like_raw_image_payload(value) or _looks_like_compressed_image_payload(value)
+
+
+def _coerce_image_data_to_bytes(value: Any) -> bytes:
+    if _is_encoded_bytes_object(value):
+        return _decode_encoded_bytes(value)
+
+    if isinstance(value, (bytes, bytearray)):
+        return bytes(value)
+
+    if isinstance(value, (list, tuple)):
+        encoded = bytearray()
+        for item in value:
+            if isinstance(item, bool) or not isinstance(item, int):
+                raise ValueError("image data sequence must only contain integer uint8 values")
+            if item < 0 or item > 255:
+                raise ValueError("image data sequence values must be in uint8 range [0, 255]")
+            encoded.append(item)
+        return bytes(encoded)
+
+    raise ValueError("image data must be bytes, base64 bytes payload, or uint8 sequence")
+
+
 def _sequence_length_key(prefix: str) -> str:
     return f"{_SEQUENCE_LENGTH_PREFIX}{prefix}"
 
@@ -138,6 +178,8 @@ def _flatten_value(
     prefix: str,
     value: Any,
     features: dict[str, _FeatureValue],
+    *,
+    image_payload_contract: str = _IMAGE_PAYLOAD_CONTRACT_BYTES_V2,
 ) -> None:
     if value is None:
         return
@@ -171,10 +213,36 @@ def _flatten_value(
             features[prefix] = ("bytes", [_json_fallback_bytes(value)])
             return
 
+        if (
+            image_payload_contract == _IMAGE_PAYLOAD_CONTRACT_BYTES_V2
+            and _looks_like_image_payload(value)
+        ):
+            for child_key, child_value in value.items():
+                if child_key.startswith("__") and child_key.endswith("__"):
+                    continue
+
+                child_prefix = f"{prefix}__{child_key}"
+                if child_key == "data":
+                    features[child_prefix] = ("bytes", [_coerce_image_data_to_bytes(child_value)])
+                    continue
+
+                _flatten_value(
+                    child_prefix,
+                    child_value,
+                    features,
+                    image_payload_contract=image_payload_contract,
+                )
+            return
+
         for child_key, child_value in value.items():
             if child_key.startswith("__") and child_key.endswith("__"):
                 continue
-            _flatten_value(f"{prefix}__{child_key}", child_value, features)
+            _flatten_value(
+                f"{prefix}__{child_key}",
+                child_value,
+                features,
+                image_payload_contract=image_payload_contract,
+            )
         return
 
     features[prefix] = ("bytes", [_json_fallback_bytes(value)])
@@ -186,6 +254,7 @@ def _row_to_example(
     row_values: dict[str, Any | None],
     field_names: list[str],
     presence_flags: dict[str, int | None] | None = None,
+    image_payload_contract: str = _IMAGE_PAYLOAD_CONTRACT_BYTES_V2,
 ) -> bytes:
     features: dict[str, _FeatureValue] = {
         "timestamp_ns": ("int64", [timestamp_ns]),
@@ -204,7 +273,12 @@ def _row_to_example(
                 raise ValueError(
                     f"feature '{field_name}' marked present but no value was supplied"
                 )
-            _flatten_value(field_name, value, features)
+            _flatten_value(
+                field_name,
+                value,
+                features,
+                image_payload_contract=image_payload_contract,
+            )
             continue
 
         if value is None:
@@ -212,7 +286,12 @@ def _row_to_example(
             continue
 
         features[present_key] = ("int64", [1])
-        _flatten_value(field_name, value, features)
+        _flatten_value(
+            field_name,
+            value,
+            features,
+            image_payload_contract=image_payload_contract,
+        )
 
     return _encode_example(features)
 
@@ -232,6 +311,7 @@ class TFRecordDatasetWriter(BaseDatasetWriter):
         file_name = context.output_filename or f"{context.episode_id}.tfrecord"
         self.path = output_path / file_name
         self._field_names = list(context.field_names)
+        self._image_payload_contract = config.image_payload_contract
         self._handle: BinaryIO
         if config.compression == "gzip":
             self._handle = gzip.open(self.path, "wb")
@@ -258,6 +338,7 @@ class TFRecordDatasetWriter(BaseDatasetWriter):
                 row_values=row_values,
                 field_names=self._field_names,
                 presence_flags=row_presence,
+                image_payload_contract=self._image_payload_contract,
             )
             self._write_record(payload)
 

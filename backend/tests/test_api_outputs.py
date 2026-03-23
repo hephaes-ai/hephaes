@@ -95,6 +95,13 @@ def install_fake_converter(monkeypatch, *, with_report: bool = False) -> None:
                             "start_time_iso": "2026-03-16T10:00:00Z",
                             "end_time_iso": "2026-03-16T10:00:05Z",
                         },
+                        "conversion": {
+                            "payload_representation": {
+                                "image_payload_contract": "bytes_v2",
+                                "payload_encoding": "typed_features",
+                                "null_encoding": "presence_flag",
+                            }
+                        },
                     }
                 ),
                 encoding="utf-8",
@@ -187,6 +194,11 @@ def test_outputs_are_registered_and_filterable_after_conversion(
     assert dataset["size_bytes"] == len(b"parquet-data")
     assert dataset["content_url"] == f"/outputs/{dataset['id']}/content"
     assert dataset["metadata"]["manifest"]["episode_id"] == "episode_0001"
+    assert dataset["metadata"]["manifest"]["payload_representation"] == {
+        "image_payload_contract": "bytes_v2",
+        "payload_encoding": "typed_features",
+        "null_encoding": "presence_flag",
+    }
 
     assert manifest["format"] == "json"
     assert manifest["role"] == "manifest"
@@ -346,6 +358,79 @@ def test_output_actions_refresh_metadata_updates_latest_action_and_detail(
     refreshed_output = outputs_response.json()[0]
     assert refreshed_output["latest_action"]["id"] == action["id"]
     assert refreshed_output["latest_action"]["action_type"] == "refresh_metadata"
+
+
+def test_conversion_policy_is_consistent_with_manifest_payload_representation(
+    client: TestClient,
+    monkeypatch,
+    sample_asset_file: Path,
+):
+    asset_id = index_registered_asset(client, monkeypatch, sample_asset_file)
+
+    class FakeConverter:
+        def __init__(self, **kwargs):
+            self.output_dir = Path(kwargs["output_dir"])
+
+        def convert(self) -> list[Path]:
+            self.output_dir.mkdir(parents=True, exist_ok=True)
+            dataset_path = self.output_dir / "episode_0001.tfrecord"
+            dataset_path.write_bytes(b"tfrecord-data")
+            manifest_path = dataset_path.with_suffix(".manifest.json")
+            manifest_path.write_text(
+                json.dumps(
+                    {
+                        "manifest_version": 1,
+                        "episode_id": "episode_0001",
+                        "dataset": {
+                            "format": "tfrecord",
+                            "rows_written": 10,
+                            "field_names": ["camera"],
+                            "file_size_bytes": len(b"tfrecord-data"),
+                        },
+                        "source": {
+                            "file_path": "/tmp/source.mcap",
+                            "ros_version": "ROS2",
+                            "storage_format": "mcap",
+                        },
+                        "temporal": {
+                            "duration_seconds": 5.0,
+                            "message_count": 10,
+                            "start_time_iso": "2026-03-16T10:00:00Z",
+                            "end_time_iso": "2026-03-16T10:00:05Z",
+                        },
+                        "conversion": {
+                            "payload_representation": {
+                                "image_payload_contract": "bytes_v2",
+                                "payload_encoding": "typed_features",
+                                "null_encoding": "presence_flag",
+                            }
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            return [dataset_path]
+
+    monkeypatch.setattr(conversion_service, "Converter", FakeConverter)
+
+    conversion_response = client.post(
+        "/conversions",
+        json={"asset_ids": [asset_id], "output": {"format": "tfrecord"}},
+    )
+    assert conversion_response.status_code == 201
+    conversion = conversion_response.json()
+
+    outputs = client.get("/outputs", params={"conversion_id": conversion["id"]}).json()
+    dataset = next(item for item in outputs if item["role"] == "dataset")
+
+    policy_contract = conversion["representation_policy"]["image_payload_contract"]
+    manifest_contract = dataset["metadata"]["manifest"]["payload_representation"][
+        "image_payload_contract"
+    ]
+
+    assert policy_contract == "bytes_v2"
+    assert manifest_contract == "bytes_v2"
+    assert policy_contract == manifest_contract
 
 
 def test_output_actions_reject_unsupported_action_type(

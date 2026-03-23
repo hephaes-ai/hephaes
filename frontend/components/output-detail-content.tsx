@@ -68,6 +68,23 @@ function getStringList(value: unknown) {
   );
 }
 
+function getPayloadRepresentation(
+  output: OutputDetail,
+): {
+  imagePayloadContract: string | null;
+  nullEncoding: string | null;
+  payloadEncoding: string | null;
+} {
+  const manifest = getNestedRecord(output.metadata, "manifest");
+  const payloadRepresentation = getNestedRecord(manifest ?? undefined, "payload_representation");
+
+  return {
+    imagePayloadContract: getStringValue(payloadRepresentation?.image_payload_contract),
+    nullEncoding: getStringValue(payloadRepresentation?.null_encoding),
+    payloadEncoding: getStringValue(payloadRepresentation?.payload_encoding),
+  };
+}
+
 export function formatOutputActionSummary(action: OutputActionDetail) {
   if (action.error_message) {
     return action.error_message;
@@ -109,6 +126,7 @@ export function buildOutputPreview(output: OutputDetail) {
   const dataset = getNestedRecord(manifest ?? undefined, "dataset");
   const temporal = getNestedRecord(manifest ?? undefined, "temporal");
   const parquet = getNestedRecord(output.metadata, "parquet");
+  const payloadRepresentation = getPayloadRepresentation(output);
   const schemaFields = getStringList(parquet?.schema_fields);
   const facts: OutputPreviewFact[] = [
     {
@@ -152,6 +170,19 @@ export function buildOutputPreview(output: OutputDetail) {
       label: "Media type",
       value: output.media_type ?? "Not available",
     });
+    facts.push({
+      label: "Image payload",
+      value: payloadRepresentation.imagePayloadContract ?? "bytes_v2",
+    });
+
+    notes.push(
+      payloadRepresentation.imagePayloadContract === "legacy_list_v1"
+        ? "This TFRecord uses legacy list image payload compatibility."
+        : "This TFRecord uses training-ready bytes image payload features.",
+    );
+    notes.push(
+      `Loader expectation: payload=${payloadRepresentation.payloadEncoding ?? "typed_features"}, nulls=${payloadRepresentation.nullEncoding ?? "presence_flag"}.`,
+    );
   } else if (output.role === "manifest" || output.format === "json" || output.format === "jsonl") {
     facts.push({
       label: "Episode ID",
@@ -168,6 +199,12 @@ export function buildOutputPreview(output: OutputDetail) {
           ? `${getNumberValue(temporal?.duration_seconds)} s`
           : "Not available",
     });
+    if (payloadRepresentation.imagePayloadContract) {
+      facts.push({
+        label: "Image payload",
+        value: payloadRepresentation.imagePayloadContract,
+      });
+    }
   } else {
     facts.push({
       label: "Availability",

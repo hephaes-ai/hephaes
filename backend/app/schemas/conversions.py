@@ -15,7 +15,21 @@ ParquetCompression = Literal["none", "snappy", "gzip", "brotli", "lz4", "zstd"]
 TFRecordCompression = Literal["none", "gzip"]
 TFRecordNullEncoding = Literal["presence_flag"]
 TFRecordPayloadEncoding = Literal["typed_features"]
+TFRecordImagePayloadContract = Literal["bytes_v2", "legacy_list_v1"]
 ResampleStrategy = Literal["interpolate", "downsample"]
+
+
+class ConversionRepresentationPolicy(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    policy_version: int = Field(default=1, ge=1)
+    output_format: Literal["parquet", "tfrecord"]
+    requested_image_payload_contract: TFRecordImagePayloadContract | None = None
+    image_payload_contract: TFRecordImagePayloadContract | None = None
+    payload_encoding: TFRecordPayloadEncoding | None = None
+    null_encoding: TFRecordNullEncoding | None = None
+    compatibility_markers: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
 
 
 class ParquetConversionOutputRequest(BaseModel):
@@ -32,6 +46,7 @@ class TFRecordConversionOutputRequest(BaseModel):
     compression: TFRecordCompression = "none"
     payload_encoding: TFRecordPayloadEncoding = "typed_features"
     null_encoding: TFRecordNullEncoding = "presence_flag"
+    image_payload_contract: TFRecordImagePayloadContract = "bytes_v2"
 
 
 ConversionOutputRequest = Annotated[
@@ -119,6 +134,14 @@ class ConversionCreateRequest(BaseModel):
         if self.spec is None:
             return self
 
+        if (
+            self.spec.output.format != "tfrecord"
+            and self.spec.output.image_payload_contract != "bytes_v2"
+        ):
+            raise ValueError(
+                "spec.output.image_payload_contract can only be customized for tfrecord output"
+            )
+
         if self.mapping is not None or self.output is not None or self.resample is not None:
             raise ValueError(
                 "spec cannot be combined with legacy mapping, output, or resample fields"
@@ -137,6 +160,7 @@ class ConversionSummaryResponse(BaseModel):
     config: dict[str, Any] = Field(default_factory=dict)
     output_path: str | None = None
     error_message: str | None = None
+    representation_policy: ConversionRepresentationPolicy | None = None
     created_at: datetime
     updated_at: datetime
 

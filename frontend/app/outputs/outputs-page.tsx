@@ -163,6 +163,7 @@ export function OutputsPage() {
     [presetValue],
   );
   const selectedOutputId = searchParams.get("output")?.trim() ?? "";
+  const imagePayloadContract = searchParams.get("image_payload_contract")?.trim() ?? "";
   const selectedOutputIds = React.useMemo(
     () => parseOutputSelection(searchParams.get("selection")),
     [searchParams],
@@ -253,6 +254,14 @@ export function OutputsPage() {
     });
   }
 
+  if (imagePayloadContract) {
+    activeFilterChips.push({
+      key: "image_payload_contract",
+      label: `Image payload: ${imagePayloadContract}`,
+      updates: { image_payload_contract: null, output: null, selection: null },
+    });
+  }
+
   if (preset) {
     activeFilterChips.push({
       key: "preset",
@@ -302,6 +311,7 @@ export function OutputsPage() {
       availability: null,
       conversion_id: null,
       format: null,
+      image_payload_contract: null,
       output: null,
       preset: null,
       role: null,
@@ -505,6 +515,16 @@ export function OutputsPage() {
                     Clear selection
                   </Button>
                 </>
+              ) : null}
+              {imagePayloadContract ? (
+                <Alert>
+                  <AlertTitle>Conversion payload context</AlertTitle>
+                  <AlertDescription>
+                    These outputs were opened from a conversion using the
+                    <span className="mx-1 font-mono">{imagePayloadContract}</span>
+                    image payload contract. Use output previews to confirm loader expectations.
+                  </AlertDescription>
+                </Alert>
               ) : null}
               <Button
                 aria-expanded={isFiltersOpen}

@@ -93,6 +93,7 @@ class TestOutputConfigs:
         assert cfg.compression == "none"
         assert cfg.payload_encoding == "typed_features"
         assert cfg.null_encoding == "presence_flag"
+        assert cfg.image_payload_contract == "bytes_v2"
 
     def test_invalid_parquet_compression_rejected(self):
         with pytest.raises(ValidationError):

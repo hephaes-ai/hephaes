@@ -5,6 +5,7 @@ export function buildOutputsHref({
   availability,
   conversionId,
   format,
+  imagePayloadContract,
   outputId,
   role,
   search,
@@ -13,6 +14,7 @@ export function buildOutputsHref({
   availability?: string | null;
   conversionId?: string | null;
   format?: string | null;
+  imagePayloadContract?: string | null;
   outputId?: string | null;
   role?: string | null;
   search?: string | null;
@@ -33,6 +35,10 @@ export function buildOutputsHref({
 
   if (format?.trim()) {
     params.set("format", format.trim());
+  }
+
+  if (imagePayloadContract?.trim()) {
+    params.set("image_payload_contract", imagePayloadContract.trim());
   }
 
   if (outputId?.trim()) {

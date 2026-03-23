@@ -65,6 +65,7 @@ class ConversionManifest(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
     output: dict[str, Any]
+    payload_representation: dict[str, Any] | None = None
     row_strategy: dict[str, Any] | None = None
     resample: dict[str, Any] | None = None
     mapping_requested: dict[str, list[str]]
@@ -137,6 +138,14 @@ def build_episode_manifest(
     missing_topic_rates: dict[str, float] | None = None,
 ) -> EpisodeManifest:
     resolved_dataset_path = Path(dataset_path)
+    payload_representation: dict[str, Any] | None = None
+    if output.format == "tfrecord":
+        payload_representation = {
+            "payload_encoding": output.payload_encoding,
+            "null_encoding": output.null_encoding,
+            "image_payload_contract": output.image_payload_contract,
+        }
+
     return EpisodeManifest(
         episode_id=episode_id,
         dataset=DatasetArtifact(
@@ -154,6 +163,7 @@ def build_episode_manifest(
         temporal=temporal_metadata,
         conversion=ConversionManifest(
             output=output.model_dump(),
+            payload_representation=payload_representation,
             row_strategy=dict(row_strategy or {}) or None,
             resample=resample.model_dump() if resample is not None else None,
             mapping_requested={key: list(value) for key, value in mapping_requested.items()},

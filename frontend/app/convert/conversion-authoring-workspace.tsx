@@ -81,6 +81,7 @@ import {
   useAssets,
   useBackendCache,
   useConversion,
+  useConversionAuthoringCapabilities,
   useSavedConversionConfig,
   useSavedConversionConfigs,
 } from "@/hooks/use-backend"
@@ -96,15 +97,13 @@ import {
   BackendApiError,
   type ConversionCreateRequest,
   type ConversionDraftRequest,
+  type ConversionDraftResponse,
   type ConversionFormat,
   type ConversionInspectionRequest,
   type ConversionInspectionResponse,
   type ConversionPreviewRequest,
   type ConversionPreviewResponse,
-  type ConversionSpec,
   type DecodeFailurePolicy,
-  type DraftSpecRequest,
-  type PreviewResult,
   type SavedConversionConfigSummaryResponse,
 } from "@/lib/api"
 import {
@@ -129,6 +128,10 @@ import {
   summarizeConversionSpec,
   summarizeInspectionTopic,
 } from "@/lib/conversion-authoring"
+import {
+  getImagePayloadContract,
+  normalizeOutputContractCapabilities,
+} from "@/lib/conversion-representation"
 
 type NoticeState = {
   description?: string
@@ -349,6 +352,10 @@ function ConversionStatusCard({
   onNewConversion: () => void
 }) {
   const hasShownCreatedToast = React.useRef<string | null>(null)
+  const effectiveRepresentationPolicy =
+    activeConversion.representation_policy ??
+    activeConversion.job.representation_policy ??
+    null
 
   React.useEffect(() => {
     if (hasShownCreatedToast.current === activeConversion.id) {
@@ -476,7 +483,12 @@ function ConversionStatusCard({
             </Button>
             <Button asChild type="button" variant="outline">
               <Link
-                href={buildOutputsHref({ conversionId: activeConversion.id })}
+                href={buildOutputsHref({
+                  conversionId: activeConversion.id,
+                  imagePayloadContract: getImagePayloadContract(
+                    effectiveRepresentationPolicy
+                  ),
+                })}
               >
                 View outputs
               </Link>
@@ -683,6 +695,7 @@ export function ConversionAuthoringWorkspace({
   const { isSubmitting, submit: submitConversion } = useCreateConversion()
   const assetsResponse = useAssets()
   const savedConfigsResponse = useSavedConversionConfigs()
+  const capabilitiesResponse = useConversionAuthoringCapabilities()
   const [createdConversion, setCreatedConversion] = React.useState<NonNullable<
     ReturnType<typeof useConversion>["data"]
   > | null>(null)
@@ -695,20 +708,8 @@ export function ConversionAuthoringWorkspace({
   )
   const [inspectionResponse, setInspectionResponse] =
     React.useState<ConversionInspectionResponse | null>(null)
-  const [draftResponse, setDraftResponse] = React.useState<{
-    asset_id: string
-    draft: {
-      preview: PreviewResult | null
-      spec: ConversionSpec
-      assumptions: string[]
-      join_topics: string[]
-      request: DraftSpecRequest
-      selected_topics: string[]
-      trigger_topic: string | null
-      unresolved_fields: string[]
-      warnings: string[]
-    }
-  } | null>(null)
+  const [draftResponse, setDraftResponse] =
+    React.useState<ConversionDraftResponse | null>(null)
   const [previewResponse, setPreviewResponse] =
     React.useState<ConversionPreviewResponse | null>(null)
   const [specText, setSpecText] = React.useState("")
@@ -820,6 +821,22 @@ export function ConversionAuthoringWorkspace({
   )
   const missingAssetCount = Math.max(assetIds.length - selectedAssets.length, 0)
   const activeConversion = createdConversion ?? conversionResponse.data ?? null
+  const outputContract = React.useMemo(
+    () =>
+      normalizeOutputContractCapabilities(
+        capabilitiesResponse.data?.output_contract
+      ),
+    [capabilitiesResponse.data?.output_contract]
+  )
+  const authoringRepresentationPolicy =
+    previewResponse?.representation_policy ??
+    draftResponse?.representation_policy ??
+    inspectionResponse?.representation_policy ??
+    null
+  const statusRepresentationPolicy =
+    activeConversion?.representation_policy ??
+    activeConversion?.job.representation_policy ??
+    null
   const isPendingConversionRoute =
     Boolean(queryConversionId) &&
     !createdConversion &&
@@ -3398,6 +3415,35 @@ export function ConversionAuthoringWorkspace({
                         </p>
                         <p className="text-sm font-medium text-foreground">
                           {previewResponse.preview.rows.length}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="grid gap-4 sm:grid-cols-3">
+                      <div className="space-y-1">
+                        <p className="text-xs tracking-wide text-muted-foreground uppercase">
+                          Image payload contract
+                        </p>
+                        <p className="text-sm font-medium text-foreground">
+                          {getImagePayloadContract(authoringRepresentationPolicy)}
+                        </p>
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-xs tracking-wide text-muted-foreground uppercase">
+                          Payload encoding
+                        </p>
+                        <p className="text-sm font-medium text-foreground">
+                          {authoringRepresentationPolicy?.payload_encoding ??
+                            "typed_features"}
+                        </p>
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-xs tracking-wide text-muted-foreground uppercase">
+                          Null encoding
+                        </p>
+                        <p className="text-sm font-medium text-foreground">
+                          {authoringRepresentationPolicy?.null_encoding ??
+                            "presence_flag"}
                         </p>
                       </div>
                     </div>

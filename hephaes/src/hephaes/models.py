@@ -14,6 +14,7 @@ StorageFormat = Literal["bag", "mcap", "unknown"]
 TFRecordCompression = Literal["none", "gzip"]
 TFRecordNullEncoding = Literal["presence_flag"]
 TFRecordPayloadEncoding = Literal["typed_features"]
+TFRecordImagePayloadContract = Literal["bytes_v2", "legacy_list_v1"]
 FeatureSourceKind = Literal["path", "constant", "metadata", "concat", "stack"]
 RowStrategyKind = Literal["trigger", "per-message", "resample"]
 DraftOriginKind = Literal["manual", "inspection", "template", "legacy"]
@@ -654,6 +655,7 @@ class OutputSpec(BaseModel):
     compression: ParquetCompression | TFRecordCompression = "none"
     payload_encoding: TFRecordPayloadEncoding = "typed_features"
     null_encoding: TFRecordNullEncoding = "presence_flag"
+    image_payload_contract: TFRecordImagePayloadContract = "bytes_v2"
     shards: int = Field(default=1, ge=1)
     filename_template: str | None = None
     write_manifest: bool = True
@@ -675,6 +677,7 @@ class OutputSpec(BaseModel):
             compression=self.compression,  # type: ignore[arg-type]
             payload_encoding=self.payload_encoding,
             null_encoding=self.null_encoding,
+            image_payload_contract=self.image_payload_contract,
         )
 
     @classmethod
@@ -687,6 +690,7 @@ class OutputSpec(BaseModel):
                 compression=output.compression,
                 payload_encoding=output.payload_encoding,
                 null_encoding=output.null_encoding,
+                image_payload_contract=output.image_payload_contract,
             )
         raise TypeError("output must be a ParquetOutputConfig or TFRecordOutputConfig")
 
@@ -978,6 +982,7 @@ class TFRecordOutputConfig(BaseModel):
     compression: TFRecordCompression = "none"
     payload_encoding: TFRecordPayloadEncoding = "typed_features"
     null_encoding: TFRecordNullEncoding = "presence_flag"
+    image_payload_contract: TFRecordImagePayloadContract = "bytes_v2"
 
 
 OutputConfig: TypeAlias = Annotated[

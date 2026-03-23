@@ -53,6 +53,7 @@ from .conversion.spec_io import (
     load_conversion_spec_document,
     migrate_conversion_spec_document,
     migrate_conversion_spec_payload,
+    set_tfrecord_image_payload_contract,
 )
 from .models import (
     AssemblySpec,
@@ -158,6 +159,7 @@ __all__ = [
     "load_conversion_spec_document",
     "migrate_conversion_spec_document",
     "migrate_conversion_spec_payload",
+    "set_tfrecord_image_payload_contract",
     "preflight_conversion_spec",
     "preview_conversion_spec",
     "source_input_topics",

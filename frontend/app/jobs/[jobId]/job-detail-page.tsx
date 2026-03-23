@@ -21,6 +21,7 @@ import {
 } from "@/lib/format";
 import { buildAssetDetailHref, resolveReturnHref } from "@/lib/navigation";
 import { buildOutputsHref } from "@/lib/outputs";
+import { getImagePayloadContract, isLegacyImagePayloadPolicy } from "@/lib/conversion-representation";
 
 import { MetadataField } from "@/components/metadata-field";
 import { WorkflowStatusBadge } from "@/components/workflow-status-badge";
@@ -187,6 +188,13 @@ export function JobDetailPage({ jobId }: { jobId: string }) {
   }
 
   const conversionDetail = conversionDetailResponse.data ?? null;
+  const conversionRepresentationPolicy =
+    conversionDetail?.representation_policy ??
+    matchedConversionSummary?.representation_policy ??
+    job.representation_policy ??
+    null;
+  const imagePayloadContract = getImagePayloadContract(conversionRepresentationPolicy);
+  const usesLegacyContract = isLegacyImagePayloadPolicy(conversionRepresentationPolicy);
 
   return (
     <div className="space-y-6">
@@ -278,7 +286,12 @@ export function JobDetailPage({ jobId }: { jobId: string }) {
               <CardDescription>Completed conversion metadata linked to this job.</CardDescription>
             </div>
             <Button asChild size="sm" variant="outline">
-              <Link href={buildOutputsHref({ conversionId: matchedConversionSummary.id })}>
+              <Link
+                href={buildOutputsHref({
+                  conversionId: matchedConversionSummary.id,
+                  imagePayloadContract,
+                })}
+              >
                 View outputs
                 <ArrowRight className="size-3.5" />
               </Link>
@@ -304,7 +317,23 @@ export function JobDetailPage({ jobId }: { jobId: string }) {
                   {conversionDetail?.output_path ?? matchedConversionSummary.output_path ?? "Not available"}
                 </dd>
               </div>
+              <div className="space-y-1">
+                <dt className="text-xs uppercase tracking-wide text-muted-foreground">Image payload contract</dt>
+                <dd className="text-sm font-medium text-foreground">{imagePayloadContract}</dd>
+              </div>
+              <div className="space-y-1">
+                <dt className="text-xs uppercase tracking-wide text-muted-foreground">Schema policy</dt>
+                <dd className="text-sm font-medium text-foreground">
+                  v{conversionRepresentationPolicy?.policy_version ?? 1}
+                </dd>
+              </div>
             </dl>
+
+            <p className="text-sm text-muted-foreground">
+              {usesLegacyContract
+                ? "Legacy list image payload mode is active for this conversion."
+                : "Training loaders should consume bytes-based image features from this conversion."}
+            </p>
 
             {conversionDetail?.error_message || matchedConversionSummary.error_message ? (
               <Alert variant="destructive">

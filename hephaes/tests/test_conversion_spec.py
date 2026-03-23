@@ -98,6 +98,7 @@ def test_conversion_spec_parses_design_example_shape():
     assert spec.validation.expected_features == ["image", "buttons"]
     assert spec.output.format == "tfrecord"
     assert spec.output.compression == "gzip"
+    assert spec.output.image_payload_contract == "bytes_v2"
     assert spec.output.shards == 8
     assert spec.uses_schema_aware_path is True
 
@@ -117,9 +118,11 @@ def test_legacy_conversion_spec_keeps_compatibility_fields():
     assert spec.resample.freq_hz == 10.0
     assert spec.output.format == "tfrecord"
     assert spec.output.compression == "gzip"
+    assert spec.output.image_payload_contract == "bytes_v2"
     assert spec.input.include_topics == ["/cmd_vel"]
     assert spec.write_manifest is False
     assert spec.to_output_config().compression == "gzip"
+    assert spec.to_output_config().image_payload_contract == "bytes_v2"
     assert spec.uses_schema_aware_path is False
     assert spec.row_strategy is None
 
@@ -137,6 +140,7 @@ def test_doom_preset_exposes_training_contract():
     assert spec.labels.primary == "buttons"
     assert spec.output.format == "tfrecord"
     assert spec.output.compression == "gzip"
+    assert spec.output.image_payload_contract == "bytes_v2"
     assert spec.validation.bad_record_budget == 0
     assert spec.uses_schema_aware_path is True
 

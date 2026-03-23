@@ -35,6 +35,8 @@ from app.services.conversion_configs import (
 from app.services.jobs import JobService
 from app.services.outputs import sync_output_artifacts_for_conversion
 
+_REPRESENTATION_POLICY_VERSION = 1
+
 
 class ConversionServiceError(Exception):
     """Base exception for conversion workflow failures."""
@@ -59,6 +61,36 @@ def list_conversions(session: Session) -> list[Conversion]:
         .order_by(Conversion.created_at.desc(), Conversion.id.desc())
     )
     return list(session.scalars(statement).all())
+
+
+def list_conversions_filtered(
+    session: Session,
+    *,
+    image_payload_contract: str | None = None,
+    legacy_compatible: bool | None = None,
+) -> list[Conversion]:
+    conversions = list_conversions(session)
+    if image_payload_contract is None and legacy_compatible is None:
+        return conversions
+
+    filtered: list[Conversion] = []
+    for conversion in conversions:
+        policy = conversion.config_json.get("representation_policy")
+        if not isinstance(policy, dict):
+            continue
+
+        effective_contract = policy.get("effective_image_payload_contract")
+        markers = policy.get("compatibility_markers")
+        is_legacy_compatible = isinstance(markers, list) and "legacy_list_image_payload" in markers
+
+        if image_payload_contract is not None and effective_contract != image_payload_contract:
+            continue
+        if legacy_compatible is not None and is_legacy_compatible != legacy_compatible:
+            continue
+
+        filtered.append(conversion)
+
+    return filtered
 
 
 def get_conversion(session: Session, conversion_id: str) -> Conversion | None:
@@ -165,6 +197,7 @@ def _build_conversion_config(
     mapping: MappingTemplate,
     mapping_mode: str,
     spec: ConversionSpec,
+    representation_policy: dict[str, object],
 ) -> dict[str, object]:
     return {
         "mapping": mapping.model_dump(),
@@ -173,6 +206,55 @@ def _build_conversion_config(
         "resample": spec.resample.model_dump() if spec.resample is not None else None,
         "write_manifest": spec.write_manifest,
         "spec": spec.model_dump(by_alias=True),
+        "representation_policy": representation_policy,
+    }
+
+
+def _resolve_representation_policy(
+    *,
+    request: ConversionCreateRequest,
+    spec: ConversionSpec,
+) -> dict[str, object]:
+    if spec.output.format != "tfrecord":
+        if spec.output.image_payload_contract != "bytes_v2":
+            raise ConversionValidationError(
+                "image payload contract can only be customized for tfrecord output"
+            )
+        return {
+            "policy_version": _REPRESENTATION_POLICY_VERSION,
+            "output_format": "parquet",
+            "requested_image_payload_contract": None,
+            "effective_image_payload_contract": None,
+            "payload_encoding": None,
+            "null_encoding": None,
+            "compatibility_markers": [],
+            "warnings": [],
+        }
+
+    requested_contract: str | None = None
+    if request.output is not None and request.output.format == "tfrecord":
+        requested_contract = request.output.image_payload_contract
+    elif request.spec is not None:
+        requested_contract = request.spec.output.image_payload_contract
+
+    effective_contract = spec.output.image_payload_contract
+    compatibility_markers: list[str] = []
+    warnings: list[str] = []
+    if effective_contract == "legacy_list_v1":
+        compatibility_markers.append("legacy_list_image_payload")
+        warnings.append(
+            "legacy image payload contract is enabled; image data will remain list-based"
+        )
+
+    return {
+        "policy_version": _REPRESENTATION_POLICY_VERSION,
+        "output_format": "tfrecord",
+        "requested_image_payload_contract": requested_contract,
+        "effective_image_payload_contract": effective_contract,
+        "payload_encoding": spec.output.payload_encoding,
+        "null_encoding": spec.output.null_encoding,
+        "compatibility_markers": compatibility_markers,
+        "warnings": warnings,
     }
 
 
@@ -231,12 +313,17 @@ class ConversionService:
             conversion_spec = saved_config_document.spec
             if request.write_manifest is not None:
                 conversion_spec = conversion_spec.model_copy(update={"write_manifest": request.write_manifest})
+            representation_policy = _resolve_representation_policy(
+                request=request,
+                spec=conversion_spec,
+            )
             mapping = conversion_spec.mapping or build_mapping_template(_topics_from_asset(assets[0]))
             mapping_mode = "saved-config"
             conversion_config = _build_conversion_config(
                 mapping=mapping,
                 mapping_mode=mapping_mode,
                 spec=conversion_spec,
+                representation_policy=representation_policy,
             )
             conversion_config["saved_config_id"] = request.saved_config_id
             conversion_config["saved_config_revision_number"] = config_service._get_config_or_raise(
@@ -246,11 +333,16 @@ class ConversionService:
         else:
             mapping = _resolve_mapping(assets, request)
             conversion_spec = _resolve_conversion_spec(request, mapping=mapping)
+            representation_policy = _resolve_representation_policy(
+                request=request,
+                spec=conversion_spec,
+            )
             mapping_mode = "spec" if request.spec is not None else ("custom" if request.mapping is not None else "auto")
             conversion_config = _build_conversion_config(
                 mapping=mapping,
                 mapping_mode=mapping_mode,
                 spec=conversion_spec,
+                representation_policy=representation_policy,
             )
 
         conversion_id = str(uuid4())

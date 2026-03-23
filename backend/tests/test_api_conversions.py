@@ -120,6 +120,16 @@ def test_create_conversion_success(
     assert body["config"]["spec"]["schema"] == {"name": "legacy_mapping", "version": 1}
     assert body["config"]["spec"]["output"]["format"] == "parquet"
     assert body["config"]["spec"]["output"]["compression"] == "snappy"
+    assert body["representation_policy"] == {
+        "policy_version": 1,
+        "output_format": "parquet",
+        "requested_image_payload_contract": None,
+        "image_payload_contract": None,
+        "payload_encoding": None,
+        "null_encoding": None,
+        "compatibility_markers": [],
+        "warnings": [],
+    }
     assert body["output_path"] == str(backend_outputs_dir / "conversions" / body["id"])
     assert body["output_files"] == [str(Path(body["output_path"]) / "episode_0001.parquet")]
     assert body["error_message"] is None
@@ -128,6 +138,7 @@ def test_create_conversion_success(
     assert body["job"]["target_asset_ids_json"] == [asset_id]
     assert body["job"]["output_path"] == body["output_path"]
     assert body["job"]["error_message"] is None
+    assert body["job"]["representation_policy"]["output_format"] == "parquet"
     assert captured["file_paths"] == [str(sample_asset_file)]
     assert Path(captured["output_dir"]) == backend_outputs_dir / "conversions" / body["id"]
     assert captured["spec"].schema.name == "legacy_mapping"
@@ -144,6 +155,7 @@ def test_create_conversion_success(
             "config": body["config"],
             "output_path": body["output_path"],
             "error_message": None,
+            "representation_policy": body["representation_policy"],
             "created_at": body["created_at"],
             "updated_at": body["updated_at"],
         }
@@ -191,6 +203,16 @@ def test_create_conversion_with_spec_payload_uses_richer_conversion_spec(
     assert body["config"]["spec"]["schema"] == {"name": "doom_ros_train_py_compatible", "version": 1}
     assert body["config"]["spec"]["output"]["format"] == "tfrecord"
     assert body["config"]["spec"]["output"]["shards"] == 8
+    assert body["representation_policy"] == {
+        "policy_version": 1,
+        "output_format": "tfrecord",
+        "requested_image_payload_contract": "bytes_v2",
+        "image_payload_contract": "bytes_v2",
+        "payload_encoding": "typed_features",
+        "null_encoding": "presence_flag",
+        "compatibility_markers": [],
+        "warnings": [],
+    }
     assert body["output_files"] == [str(Path(body["output_path"]) / "episode_0001.tfrecord")]
     assert captured["spec"].schema.name == "doom_ros_train_py_compatible"
     assert captured["spec"].output.shards == 8
@@ -233,6 +255,71 @@ def test_create_conversion_rejects_invalid_spec_contract(
     assert any("invalid tfrecord compression" in error["msg"] for error in detail)
 
 
+def test_create_conversion_rejects_non_tfrecord_legacy_image_contract(
+    client: TestClient,
+    monkeypatch,
+    sample_asset_file: Path,
+):
+    asset_id = index_registered_asset(client, monkeypatch, sample_asset_file)
+    spec_payload = build_doom_ros_train_py_compatible().model_dump(by_alias=True)
+    spec_payload["output"] = {
+        "format": "parquet",
+        "compression": "none",
+        "image_payload_contract": "legacy_list_v1",
+    }
+
+    response = client.post(
+        "/conversions",
+        json={"asset_ids": [asset_id], "spec": spec_payload},
+    )
+
+    assert response.status_code == 422
+    detail = response.json()["detail"]
+    assert any("image_payload_contract can only be customized" in error["msg"] for error in detail)
+
+
+def test_create_conversion_with_legacy_image_policy_surfaces_warning(
+    client: TestClient,
+    monkeypatch,
+    sample_asset_file: Path,
+):
+    asset_id = index_registered_asset(client, monkeypatch, sample_asset_file)
+
+    class FakeConverter:
+        def __init__(self, **kwargs):
+            self.output_dir = Path(kwargs["output_dir"])
+
+        def convert(self) -> list[Path]:
+            self.output_dir.mkdir(parents=True, exist_ok=True)
+            dataset_path = self.output_dir / "episode_0001.tfrecord"
+            dataset_path.write_bytes(b"tfrecord-data")
+            return [dataset_path]
+
+    monkeypatch.setattr(conversion_service, "Converter", FakeConverter)
+
+    response = client.post(
+        "/conversions",
+        json={
+            "asset_ids": [asset_id],
+            "output": {
+                "format": "tfrecord",
+                "compression": "none",
+                "image_payload_contract": "legacy_list_v1",
+            },
+        },
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["representation_policy"]["requested_image_payload_contract"] == "legacy_list_v1"
+    assert body["representation_policy"]["image_payload_contract"] == "legacy_list_v1"
+    assert body["representation_policy"]["compatibility_markers"] == ["legacy_list_image_payload"]
+    assert body["representation_policy"]["warnings"] == [
+        "legacy image payload contract is enabled; image data will remain list-based"
+    ]
+    assert body["config"]["representation_policy"]["effective_image_payload_contract"] == "legacy_list_v1"
+
+
 def test_create_conversion_failure_persists_failed_conversion_and_job(
     client: TestClient,
     monkeypatch,
@@ -264,6 +351,7 @@ def test_create_conversion_failure_persists_failed_conversion_and_job(
     assert conversions[0]["status"] == "failed"
     assert conversions[0]["asset_ids"] == [asset_id]
     assert conversions[0]["error_message"] == "conversion failed"
+    assert conversions[0]["representation_policy"]["output_format"] == "tfrecord"
 
     detail_response = client.get(f"/conversions/{conversions[0]['id']}")
     assert detail_response.status_code == 200
@@ -315,3 +403,55 @@ def test_list_conversions_orders_newest_first(
     list_response = client.get("/conversions")
     assert list_response.status_code == 200
     assert [item["asset_ids"] for item in list_response.json()] == [[second_id], [first_id]]
+
+
+def test_list_conversions_can_filter_by_image_payload_contract(
+    client: TestClient,
+    monkeypatch,
+    tmp_path: Path,
+):
+    first_asset = tmp_path / "bytes.mcap"
+    second_asset = tmp_path / "legacy.mcap"
+    first_asset.write_bytes(b"one")
+    second_asset.write_bytes(b"two")
+
+    first_id = index_registered_asset(client, monkeypatch, first_asset)
+    second_id = index_registered_asset(client, monkeypatch, second_asset)
+
+    class FakeConverter:
+        def __init__(self, **kwargs):
+            self.output_dir = Path(kwargs["output_dir"])
+
+        def convert(self) -> list[Path]:
+            self.output_dir.mkdir(parents=True, exist_ok=True)
+            dataset_path = self.output_dir / "episode_0001.tfrecord"
+            dataset_path.write_bytes(b"tfrecord-data")
+            return [dataset_path]
+
+    monkeypatch.setattr(conversion_service, "Converter", FakeConverter)
+
+    bytes_response = client.post(
+        "/conversions",
+        json={"asset_ids": [first_id], "output": {"format": "tfrecord"}},
+    )
+    legacy_response = client.post(
+        "/conversions",
+        json={
+            "asset_ids": [second_id],
+            "output": {
+                "format": "tfrecord",
+                "image_payload_contract": "legacy_list_v1",
+            },
+        },
+    )
+
+    assert bytes_response.status_code == 201
+    assert legacy_response.status_code == 201
+
+    only_bytes = client.get("/conversions", params={"image_payload_contract": "bytes_v2"})
+    assert only_bytes.status_code == 200
+    assert [item["asset_ids"] for item in only_bytes.json()] == [[first_id]]
+
+    only_legacy = client.get("/conversions", params={"legacy_compatible": "true"})
+    assert only_legacy.status_code == 200
+    assert [item["asset_ids"] for item in only_legacy.json()] == [[second_id]]

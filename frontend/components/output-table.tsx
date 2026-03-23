@@ -37,6 +37,27 @@ import {
   formatOutputFormat,
 } from "@/lib/format";
 
+function getImagePayloadContract(output: OutputDetail) {
+  const manifest = output.metadata?.manifest;
+  if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)) {
+    return null;
+  }
+
+  const payloadRepresentation = (manifest as Record<string, unknown>).payload_representation;
+  if (
+    !payloadRepresentation ||
+    typeof payloadRepresentation !== "object" ||
+    Array.isArray(payloadRepresentation)
+  ) {
+    return null;
+  }
+
+  const contract = (payloadRepresentation as Record<string, unknown>).image_payload_contract;
+  return typeof contract === "string" && contract.trim().length > 0
+    ? contract.trim()
+    : null;
+}
+
 export function OutputsTable({
   allVisibleSelected,
   assetsById,
@@ -92,6 +113,7 @@ export function OutputsTable({
             const isSelected = output.id === selectedOutputId;
             const isBatchSelected = selectedOutputIds.has(output.id);
             const latestAction = output.latest_action;
+            const imagePayloadContract = getImagePayloadContract(output);
 
             return (
               <TableRow
@@ -116,6 +138,9 @@ export function OutputsTable({
                     <div className="flex flex-wrap items-center gap-2">
                       <Badge variant="outline">{formatOutputFormat(output.format)}</Badge>
                       <OutputRoleBadge role={output.role} />
+                      {imagePayloadContract ? (
+                        <Badge variant="secondary">{imagePayloadContract}</Badge>
+                      ) : null}
                     </div>
                   </div>
                 </TableCell>
@@ -225,6 +250,7 @@ export function OutputsCards({
       {outputs.map((output) => {
         const isBatchSelected = selectedOutputIds.has(output.id);
         const latestAction = output.latest_action;
+        const imagePayloadContract = getImagePayloadContract(output);
 
         return (
           <div className="space-y-3 rounded-xl border bg-muted/15 px-4 py-4" key={output.id}>
@@ -235,6 +261,9 @@ export function OutputsCards({
                 <div className="flex flex-wrap items-center gap-2">
                   <Badge variant="outline">{formatOutputFormat(output.format)}</Badge>
                   <OutputRoleBadge role={output.role} />
+                  {imagePayloadContract ? (
+                    <Badge variant="secondary">{imagePayloadContract}</Badge>
+                  ) : null}
                 </div>
               </div>
               <Checkbox

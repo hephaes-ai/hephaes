@@ -36,6 +36,9 @@ def test_authoring_capabilities_expose_backend_persistence_surface():
     assert capabilities.hephaes.supports_preview is True
     assert capabilities.hephaes.supports_migration is True
     assert capabilities.hephaes.row_strategies == ["trigger", "per-message", "resample"]
+    assert capabilities.output_contract.policy_version == 1
+    assert capabilities.output_contract.default_image_payload_contract == "bytes_v2"
+    assert capabilities.output_contract.supported_image_payload_contracts == ["bytes_v2", "legacy_list_v1"]
 
 
 def test_authoring_requests_and_responses_normalize_and_serialize():
@@ -89,6 +92,10 @@ def test_authoring_requests_and_responses_normalize_and_serialize():
         asset_id="asset-123",
         request=inspection_request,
         inspection=inspection,
+        representation_policy={
+            "output_format": "tfrecord",
+            "image_payload_contract": "bytes_v2",
+        },
     )
     draft_response = ConversionDraftResponse(
         asset_id="asset-123",
@@ -96,11 +103,19 @@ def test_authoring_requests_and_responses_normalize_and_serialize():
         inspection=inspection,
         draft=draft_result,
         draft_revision_id=None,
+        representation_policy={
+            "output_format": "tfrecord",
+            "image_payload_contract": "bytes_v2",
+        },
     )
     preview_response = ConversionPreviewResponse(
         asset_id="asset-123",
         request=preview_request,
         preview=preview,
+        representation_policy={
+            "output_format": "tfrecord",
+            "image_payload_contract": "bytes_v2",
+        },
     )
     revision_response = SavedConversionConfigRevisionResponse(
         id="revision-1",

@@ -198,6 +198,62 @@ def test_converter_spec_path_emits_presence_flags_for_trigger_assembly(tmp_bag_f
     assert rows[1]["buttons"] == [3, 4]
 
 
+def test_converter_spec_path_writes_image_topic_data_as_bytes(tmp_bag_file, tmp_path):
+    mock_reader = make_mock_any_reader_with_payloads(
+        topics={"/camera": "sensor_msgs/msg/Image"},
+        messages=[
+            (
+                "/camera",
+                100,
+                {
+                    "height": 1,
+                    "width": 2,
+                    "encoding": "mono8",
+                    "step": 2,
+                    "data": [11, 13],
+                },
+            )
+        ],
+    )
+
+    spec = ConversionSpec(
+        schema=SchemaSpec(name="image_trigger_demo", version=1),
+        row_strategy={"kind": "trigger", "trigger_topic": "/camera"},
+        features={
+            "camera": FeatureSpec(
+                source=FieldSourceSpec(topic="/camera"),
+                dtype="json",
+                required=True,
+            ),
+        },
+        output=OutputSpec(format="tfrecord"),
+    )
+
+    with _patch_any_reader(mock_reader):
+        converter = Converter(
+            [str(tmp_bag_file)],
+            None,
+            tmp_path,
+            spec=spec,
+            max_workers=1,
+            output="tfrecord",
+        )
+        results = converter.convert()
+
+    rows = list(stream_tfrecord_rows(results[0]))
+    assert rows == [
+        {
+            "timestamp_ns": 100,
+            "camera__present": 1,
+            "camera__height": 1,
+            "camera__width": 2,
+            "camera__encoding": b"mono8",
+            "camera__step": 2,
+            "camera__data": b"\x0b\x0d",
+        }
+    ]
+
+
 def test_converter_spec_path_shards_trigger_outputs_with_default_layout(tmp_bag_file, tmp_path):
     mock_reader = make_mock_any_reader_with_payloads(
         topics={"/trigger": "custom_msgs/msg/Trigger"},
@@ -251,6 +307,11 @@ def test_converter_spec_path_shards_trigger_outputs_with_default_layout(tmp_bag_
 
     manifest = json.loads(manifest_path.read_text())
     assert manifest["conversion"]["schema"] == {"name": "sharded_trigger_demo", "version": 1}
+    assert manifest["conversion"]["payload_representation"] == {
+        "payload_encoding": "typed_features",
+        "null_encoding": "presence_flag",
+        "image_payload_contract": "bytes_v2",
+    }
     assert manifest["dataset"]["split_name"] == "all"
     assert manifest["dataset"]["shard_index"] == 0
     assert manifest["dataset"]["num_shards"] == 2
@@ -260,6 +321,8 @@ def test_converter_spec_path_shards_trigger_outputs_with_default_layout(tmp_bag_
     assert "# conversion report" in report_text
     assert "Preview" in report_text
     assert "rows written: 2" in report_text
+    assert "payload representation: bytes_v2" in report_text
+    assert "Payload Representation" in report_text
 
 
 def test_converter_spec_validation_enforces_bad_record_budget(tmp_bag_file, tmp_path):
