@@ -15,7 +15,19 @@ ParquetCompression = Literal["none", "snappy", "gzip", "brotli", "lz4", "zstd"]
 TFRecordCompression = Literal["none", "gzip"]
 TFRecordNullEncoding = Literal["presence_flag"]
 TFRecordPayloadEncoding = Literal["typed_features"]
+TFRecordImagePayloadContract = Literal["bytes_v2", "legacy_list_v1"]
 ResampleStrategy = Literal["interpolate", "downsample"]
+
+
+class ConversionRepresentationPolicy(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    policy_version: int = Field(default=1, ge=1)
+    output_format: Literal["parquet", "tfrecord"]
+    image_payload_contract: TFRecordImagePayloadContract | None = None
+    payload_encoding: TFRecordPayloadEncoding | None = None
+    null_encoding: TFRecordNullEncoding | None = None
+    compatibility_markers: list[str] = Field(default_factory=list)
 
 
 class ParquetConversionOutputRequest(BaseModel):
@@ -32,6 +44,7 @@ class TFRecordConversionOutputRequest(BaseModel):
     compression: TFRecordCompression = "none"
     payload_encoding: TFRecordPayloadEncoding = "typed_features"
     null_encoding: TFRecordNullEncoding = "presence_flag"
+    image_payload_contract: TFRecordImagePayloadContract = "bytes_v2"
 
 
 ConversionOutputRequest = Annotated[
@@ -137,6 +150,7 @@ class ConversionSummaryResponse(BaseModel):
     config: dict[str, Any] = Field(default_factory=dict)
     output_path: str | None = None
     error_message: str | None = None
+    representation_policy: ConversionRepresentationPolicy | None = None
     created_at: datetime
     updated_at: datetime
 

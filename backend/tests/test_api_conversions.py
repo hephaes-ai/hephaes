@@ -120,6 +120,14 @@ def test_create_conversion_success(
     assert body["config"]["spec"]["schema"] == {"name": "legacy_mapping", "version": 1}
     assert body["config"]["spec"]["output"]["format"] == "parquet"
     assert body["config"]["spec"]["output"]["compression"] == "snappy"
+    assert body["representation_policy"] == {
+        "policy_version": 1,
+        "output_format": "parquet",
+        "image_payload_contract": None,
+        "payload_encoding": None,
+        "null_encoding": None,
+        "compatibility_markers": [],
+    }
     assert body["output_path"] == str(backend_outputs_dir / "conversions" / body["id"])
     assert body["output_files"] == [str(Path(body["output_path"]) / "episode_0001.parquet")]
     assert body["error_message"] is None
@@ -144,6 +152,7 @@ def test_create_conversion_success(
             "config": body["config"],
             "output_path": body["output_path"],
             "error_message": None,
+            "representation_policy": body["representation_policy"],
             "created_at": body["created_at"],
             "updated_at": body["updated_at"],
         }
@@ -191,6 +200,14 @@ def test_create_conversion_with_spec_payload_uses_richer_conversion_spec(
     assert body["config"]["spec"]["schema"] == {"name": "doom_ros_train_py_compatible", "version": 1}
     assert body["config"]["spec"]["output"]["format"] == "tfrecord"
     assert body["config"]["spec"]["output"]["shards"] == 8
+    assert body["representation_policy"] == {
+        "policy_version": 1,
+        "output_format": "tfrecord",
+        "image_payload_contract": "bytes_v2",
+        "payload_encoding": "typed_features",
+        "null_encoding": "presence_flag",
+        "compatibility_markers": [],
+    }
     assert body["output_files"] == [str(Path(body["output_path"]) / "episode_0001.tfrecord")]
     assert captured["spec"].schema.name == "doom_ros_train_py_compatible"
     assert captured["spec"].output.shards == 8
@@ -264,6 +281,7 @@ def test_create_conversion_failure_persists_failed_conversion_and_job(
     assert conversions[0]["status"] == "failed"
     assert conversions[0]["asset_ids"] == [asset_id]
     assert conversions[0]["error_message"] == "conversion failed"
+    assert conversions[0]["representation_policy"]["output_format"] == "tfrecord"
 
     detail_response = client.get(f"/conversions/{conversions[0]['id']}")
     assert detail_response.status_code == 200

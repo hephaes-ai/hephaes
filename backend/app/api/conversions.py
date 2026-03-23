@@ -20,6 +20,7 @@ from app.schemas.conversion_authoring import (
     ConversionPreviewResponse,
 )
 from app.schemas.conversions import (
+    ConversionRepresentationPolicy,
     ConversionCreateRequest,
     ConversionDetailResponse,
     ConversionSummaryResponse,
@@ -46,15 +47,51 @@ router = APIRouter(prefix="/conversions", tags=["conversions"])
 DbSession = Annotated[Session, Depends(get_db_session)]
 
 
+def _build_representation_policy(config: dict[str, object]) -> ConversionRepresentationPolicy | None:
+    output_payload: dict[str, object] | None = None
+    spec_payload = config.get("spec")
+    if isinstance(spec_payload, dict):
+        spec_output = spec_payload.get("output")
+        if isinstance(spec_output, dict):
+            output_payload = spec_output
+
+    if output_payload is None:
+        raw_output = config.get("output")
+        if isinstance(raw_output, dict):
+            output_payload = raw_output
+
+    if output_payload is None:
+        return None
+
+    output_format = output_payload.get("format", "parquet")
+    if output_format != "tfrecord":
+        return ConversionRepresentationPolicy(output_format="parquet")
+
+    image_payload_contract = str(output_payload.get("image_payload_contract", "bytes_v2"))
+    compatibility_markers: list[str] = []
+    if image_payload_contract == "legacy_list_v1":
+        compatibility_markers.append("legacy_list_image_payload")
+
+    return ConversionRepresentationPolicy(
+        output_format="tfrecord",
+        image_payload_contract=image_payload_contract,  # type: ignore[arg-type]
+        payload_encoding=output_payload.get("payload_encoding", "typed_features"),  # type: ignore[arg-type]
+        null_encoding=output_payload.get("null_encoding", "presence_flag"),  # type: ignore[arg-type]
+        compatibility_markers=compatibility_markers,
+    )
+
+
 def build_conversion_summary_response(conversion: Conversion) -> ConversionSummaryResponse:
+    config_payload = dict(conversion.config_json)
     return ConversionSummaryResponse(
         id=conversion.id,
         job_id=conversion.job_id,
         status=conversion.status,
         asset_ids=list(conversion.source_asset_ids_json),
-        config=dict(conversion.config_json),
+        config=config_payload,
         output_path=conversion.output_path,
         error_message=conversion.error_message,
+        representation_policy=_build_representation_policy(config_payload),
         created_at=conversion.created_at,
         updated_at=conversion.updated_at,
     )
