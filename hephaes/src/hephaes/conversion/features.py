@@ -176,6 +176,20 @@ def _validate_shape(value: Any, shape: list[int] | None) -> None:
         _validate_shape(item, next_shape)
 
 
+def _coerce_bytes_feature(value: Any) -> Any:
+    """Coerce numpy uint8 arrays and uint8 int sequences to bytes."""
+    if isinstance(value, (bytes, bytearray)):
+        return value
+    if isinstance(value, np.ndarray) and value.dtype == np.uint8:
+        return value.tobytes()
+    if isinstance(value, (list, tuple)):
+        try:
+            return bytes(value)
+        except (TypeError, ValueError, OverflowError):
+            return value
+    return value
+
+
 def _normalize_feature_value(value: Any) -> Any:
     if isinstance(value, np.ndarray):
         return value.tolist()
@@ -221,6 +235,8 @@ class FeatureBuilder:
         value = self.extract(context, feature)
         value = apply_transform_chain(value, feature.transforms)
         _validate_shape(value, feature.shape)
+        if feature.dtype == "bytes":
+            value = _coerce_bytes_feature(value)
         value = _normalize_feature_value(value)
         _validate_feature_dtype(value, feature.dtype)
         return value
