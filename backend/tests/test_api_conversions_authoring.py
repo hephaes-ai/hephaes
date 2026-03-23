@@ -112,6 +112,9 @@ def test_conversion_authoring_capabilities_route_exposes_backend_contract(client
     assert body["persistence"]["supports_execute_from_saved_config"] is True
     assert body["hephaes"]["supports_preview"] is True
     assert body["hephaes"]["supports_migration"] is True
+    assert body["output_contract"]["policy_version"] == 1
+    assert body["output_contract"]["default_image_payload_contract"] == "bytes_v2"
+    assert body["output_contract"]["supported_image_payload_contracts"] == ["bytes_v2", "legacy_list_v1"]
 
 
 def test_conversion_inspection_route_delegates_to_hephaes(
@@ -147,6 +150,7 @@ def test_conversion_inspection_route_delegates_to_hephaes(
     assert body["asset_id"] == asset_id
     assert body["request"]["topics"] == ["/camera/front/image_raw", "/joy"]
     assert body["inspection"]["sample_n"] == 2
+    assert body["representation_policy"]["image_payload_contract"] == "bytes_v2"
     assert body["inspection"]["topics"]["/camera/front/image_raw"]["message_type"] == "sensor_msgs/msg/Image"
     assert observed["reader"].topics["/joy"] == "sensor_msgs/msg/Joy"
     assert observed["kwargs"]["topics"] == ["/camera/front/image_raw", "/joy"]
@@ -199,6 +203,7 @@ def test_conversion_draft_route_delegates_to_hephaes(
     assert body["asset_id"] == asset_id
     assert body["request"]["draft_request"]["include_preview"] is False
     assert body["draft"]["spec"]["schema"]["name"] == "doom_ros_train_py_compatible"
+    assert body["representation_policy"]["image_payload_contract"] == "bytes_v2"
     assert observed["inspect_reader"].topics["/camera/front/image_raw"] == "sensor_msgs/msg/Image"
     assert observed["inspect_kwargs"]["topics"] == ["/camera/front/image_raw", "/joy"]
     assert observed["draft_request"].selected_topics == ["/camera/front/image_raw", "/joy"]
@@ -238,6 +243,7 @@ def test_conversion_preview_route_delegates_to_hephaes(
     body = response.json()
     assert body["asset_id"] == asset_id
     assert body["preview"]["rows"][0]["timestamp_ns"] == 1
+    assert body["representation_policy"]["image_payload_contract"] == "bytes_v2"
     assert observed["reader"].topics["/joy"] == "sensor_msgs/msg/Joy"
     assert observed["spec"].schema.name == "doom_ros_train_py_compatible"
     assert observed["sample_n"] == 3

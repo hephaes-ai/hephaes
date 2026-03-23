@@ -7,6 +7,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.schemas.conversions import ConversionRepresentationPolicy
 from hephaes import build_conversion_capabilities
 from hephaes.conversion import ConversionCapabilities
 from hephaes.conversion.draft_spec import DraftSpecRequest, DraftSpecResult
@@ -19,6 +20,17 @@ AuthoringPersistenceMode = Literal["sqlite-json"]
 SavedConversionConfigStatus = Literal["ready", "needs_migration", "invalid"]
 SavedConversionConfigRevisionKind = Literal["create", "update", "duplicate", "migration", "import"]
 SavedConversionDraftStatus = Literal["draft", "saved", "discarded"]
+
+
+class ConversionOutputContractCapabilities(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    policy_version: int = Field(default=1, ge=1)
+    default_image_payload_contract: Literal["bytes_v2"] = "bytes_v2"
+    supported_image_payload_contracts: list[Literal["bytes_v2", "legacy_list_v1"]] = Field(
+        default_factory=lambda: ["bytes_v2", "legacy_list_v1"]
+    )
+    legacy_compatibility_marker: str = "legacy_list_image_payload"
 
 
 def _normalize_non_empty_string(value: object) -> object:
@@ -110,6 +122,7 @@ class ConversionInspectionResponse(BaseModel):
     asset_id: str = Field(min_length=1)
     request: ConversionInspectionRequest
     inspection: InspectionResult
+    representation_policy: ConversionRepresentationPolicy | None = None
 
     @field_validator("asset_id")
     @classmethod
@@ -137,6 +150,7 @@ class ConversionDraftResponse(BaseModel):
     inspection: InspectionResult
     draft: DraftSpecResult
     draft_revision_id: str | None = None
+    representation_policy: ConversionRepresentationPolicy | None = None
 
     @field_validator("asset_id")
     @classmethod
@@ -180,6 +194,7 @@ class ConversionPreviewResponse(BaseModel):
     asset_id: str = Field(min_length=1)
     request: ConversionPreviewRequest
     preview: PreviewResult
+    representation_policy: ConversionRepresentationPolicy | None = None
 
     @field_validator("asset_id")
     @classmethod
@@ -205,6 +220,9 @@ class ConversionAuthoringCapabilitiesResponse(BaseModel):
 
     authoring_api_version: int = Field(default=1, ge=1)
     hephaes: ConversionCapabilities = Field(default_factory=build_conversion_capabilities)
+    output_contract: ConversionOutputContractCapabilities = Field(
+        default_factory=ConversionOutputContractCapabilities
+    )
     persistence: ConversionAuthoringPersistenceCapabilities = Field(
         default_factory=ConversionAuthoringPersistenceCapabilities
     )

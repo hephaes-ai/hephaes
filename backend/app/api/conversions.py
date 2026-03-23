@@ -42,6 +42,7 @@ from app.services.conversions import (
     get_conversion_or_raise,
     list_conversions_filtered,
 )
+from hephaes.models import ConversionSpec
 
 router = APIRouter(prefix="/conversions", tags=["conversions"])
 DbSession = Annotated[Session, Depends(get_db_session)]
@@ -91,6 +92,40 @@ def _build_representation_policy(config: dict[str, object]) -> ConversionReprese
     )
 
 
+def _representation_policy_from_spec(spec: ConversionSpec | None) -> ConversionRepresentationPolicy:
+    if spec is None:
+        return ConversionRepresentationPolicy(
+            output_format="tfrecord",
+            requested_image_payload_contract=None,
+            image_payload_contract="bytes_v2",
+            payload_encoding="typed_features",
+            null_encoding="presence_flag",
+            compatibility_markers=[],
+            warnings=[],
+        )
+
+    if spec.output.format != "tfrecord":
+        return ConversionRepresentationPolicy(output_format="parquet")
+
+    compatibility_markers: list[str] = []
+    warnings: list[str] = []
+    if spec.output.image_payload_contract == "legacy_list_v1":
+        compatibility_markers.append("legacy_list_image_payload")
+        warnings.append(
+            "legacy image payload contract is enabled; image data will remain list-based"
+        )
+
+    return ConversionRepresentationPolicy(
+        output_format="tfrecord",
+        requested_image_payload_contract=spec.output.image_payload_contract,
+        image_payload_contract=spec.output.image_payload_contract,
+        payload_encoding=spec.output.payload_encoding,
+        null_encoding=spec.output.null_encoding,
+        compatibility_markers=compatibility_markers,
+        warnings=warnings,
+    )
+
+
 def build_conversion_summary_response(conversion: Conversion) -> ConversionSummaryResponse:
     config_payload = dict(conversion.config_json)
     return ConversionSummaryResponse(
@@ -132,6 +167,7 @@ def build_inspection_response(
         asset_id=request.asset_id,
         request=request,
         inspection=inspection,
+        representation_policy=_representation_policy_from_spec(None),
     )
 
 
@@ -148,6 +184,7 @@ def build_draft_response(
         inspection=inspection,
         draft=draft,
         draft_revision_id=draft_revision_id,
+        representation_policy=_representation_policy_from_spec(draft.spec),
     )
 
 
@@ -160,6 +197,7 @@ def build_preview_response(
         asset_id=request.asset_id,
         request=request,
         preview=preview,
+        representation_policy=_representation_policy_from_spec(request.spec),
     )
 
 
