@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
 
 from app.api._status import HTTP_422_UNPROCESSABLE_CONTENT
@@ -41,6 +41,7 @@ from app.services.conversions import (
     ConversionValidationError,
     get_conversion_or_raise,
     list_conversions_filtered,
+    run_conversion_job_in_background,
 )
 from hephaes._converter_helpers import _normalize_payload
 from hephaes.models import ConversionSpec
@@ -220,16 +221,30 @@ def build_preview_response(
 
 
 @router.post("", response_model=ConversionDetailResponse, status_code=status.HTTP_201_CREATED)
-def create_conversion_route(payload: ConversionCreateRequest, session: DbSession) -> ConversionDetailResponse:
+def create_conversion_route(
+    payload: ConversionCreateRequest,
+    request: Request,
+    session: DbSession,
+) -> ConversionDetailResponse:
     service = ConversionService(session)
 
     try:
-        conversion = service.run_conversion(payload)
+        conversion, execution = service.create_conversion(payload)
     except ConversionValidationError as exc:
         raise HTTPException(status_code=HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
+
+    try:
+        request.app.state.job_runner.submit(
+            f"convert assets for conversion {conversion.id}",
+            run_conversion_job_in_background,
+            request.app.state.session_factory,
+            execution=execution,
+        )
     except ConversionExecutionError as exc:
         raise HTTPException(status_code=HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
 
+    session.expire_all()
+    conversion = get_conversion_or_raise(session, conversion.id)
     return build_conversion_detail_response(conversion)
 
 

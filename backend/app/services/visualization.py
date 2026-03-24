@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.session import sessionmaker
 
 from hephaes._converter_helpers import _normalize_payload
 
@@ -68,6 +69,18 @@ class VisualizationArtifactMetadata:
     viewer_version: str
     recording_version: str
     generated_at: datetime
+
+
+@dataclass(frozen=True)
+class PendingVisualizationExecution:
+    job_id: str
+    asset_id: str
+    asset_file_path: str
+    episode_id: str
+    topics: list[str]
+    output_path: Path
+    viewer_version: str
+    recording_version: str
 
 
 def _artifact_output_dir(asset_id: str, episode_id: str) -> Path:
@@ -287,7 +300,11 @@ class VisualizationService:
         self.job_service = JobService(session)
         self.settings = get_settings()
 
-    def prepare_visualization(self, asset_id: str, episode_id: str) -> Job:
+    def prepare_visualization_job(
+        self,
+        asset_id: str,
+        episode_id: str,
+    ) -> tuple[Job, PendingVisualizationExecution | None]:
         """Create or reuse a prepare_visualization job for the given episode."""
         asset = get_asset_or_raise(self.session, asset_id)
         _episode_summary_for_asset(asset, episode_id)
@@ -309,9 +326,9 @@ class VisualizationService:
 
         if existing_job is not None:
             if existing_job.status in {"queued", "running"}:
-                return existing_job
+                return existing_job, None
             if existing_job.status == "succeeded" and cached_artifact is not None:
-                return existing_job
+                return existing_job, None
 
         streams = _build_streams_for_episode(asset, episode_id)
         topics = [stream.source_topic for stream in streams]
@@ -324,28 +341,51 @@ class VisualizationService:
             output_path=str(output_path),
         )
 
-        self.job_service.mark_job_running(job.id)
-
-        try:
-            _generate_rrd(
-                asset.file_path,
+        return (
+            job,
+            PendingVisualizationExecution(
+                job_id=job.id,
                 asset_id=asset_id,
+                asset_file_path=asset.file_path,
                 episode_id=episode_id,
                 topics=topics,
                 output_path=output_path,
-            )
-            _write_artifact_metadata(
-                asset_id,
-                episode_id,
                 viewer_version=viewer_version,
                 recording_version=recording_version,
+            ),
+        )
+
+    def execute_visualization_job(self, execution: PendingVisualizationExecution) -> Job:
+        self.job_service.mark_job_running(execution.job_id)
+        try:
+            _generate_rrd(
+                execution.asset_file_path,
+                asset_id=execution.asset_id,
+                episode_id=execution.episode_id,
+                topics=execution.topics,
+                output_path=execution.output_path,
             )
-            return self.job_service.mark_job_succeeded(job.id, output_path=str(output_path))
+            _write_artifact_metadata(
+                execution.asset_id,
+                execution.episode_id,
+                viewer_version=execution.viewer_version,
+                recording_version=execution.recording_version,
+            )
+            return self.job_service.mark_job_succeeded(
+                execution.job_id,
+                output_path=str(execution.output_path),
+            )
         except Exception as exc:
             self.session.rollback()
-            _invalidate_cached_artifact(asset_id, episode_id)
-            self.job_service.mark_job_failed(job.id, error_message=str(exc))
+            _invalidate_cached_artifact(execution.asset_id, execution.episode_id)
+            self.job_service.mark_job_failed(execution.job_id, error_message=str(exc))
             raise VisualizationGenerationError(str(exc)) from exc
+
+    def prepare_visualization(self, asset_id: str, episode_id: str) -> Job:
+        job, execution = self.prepare_visualization_job(asset_id, episode_id)
+        if execution is None:
+            return job
+        return self.execute_visualization_job(execution)
 
     def get_viewer_source(self, asset_id: str, episode_id: str) -> ViewerSourceManifest:
         """Return the current viewer-source manifest for an episode."""
@@ -423,3 +463,15 @@ class VisualizationService:
             recording_version=artifact_metadata.recording_version,
             updated_at=artifact_metadata.generated_at,
         )
+
+
+def run_visualization_job_in_background(
+    session_factory: sessionmaker[Session],
+    *,
+    execution: PendingVisualizationExecution,
+) -> None:
+    session = session_factory()
+    try:
+        VisualizationService(session).execute_visualization_job(execution)
+    finally:
+        session.close()

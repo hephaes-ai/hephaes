@@ -40,6 +40,8 @@ class Settings:
     outputs_dir: Path
     database_path: Path
     database_url: str
+    job_execution_mode: str
+    job_max_workers: int
     rerun_sdk_version: str
     rerun_recording_format_version: str
 
@@ -69,6 +71,8 @@ def get_settings() -> Settings:
         outputs_dir=outputs_dir,
         database_path=database_path,
         database_url=f"sqlite:///{database_path}",
+        job_execution_mode=os.environ.get("HEPHAES_BACKEND_JOB_EXECUTION_MODE", "background").strip(),
+        job_max_workers=max(1, int(os.environ.get("HEPHAES_BACKEND_JOB_MAX_WORKERS", "4"))),
         rerun_sdk_version=_resolve_rerun_sdk_version(),
         rerun_recording_format_version=os.environ.get(
             "HEPHAES_RERUN_RECORDING_FORMAT_VERSION",

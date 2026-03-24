@@ -7,11 +7,13 @@ from datetime import UTC, datetime
 
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.session import sessionmaker
 
 from hephaes import Profiler
 from hephaes.metrics import infer_topic_modality, summarize_bag_topics
 from hephaes.models import BagMetadata
 
+from app.config import get_settings
 from app.db.models import Asset, AssetMetadata, utc_now
 from app.services.assets import AssetNotFoundError, get_asset_or_raise
 from app.services.jobs import JobService
@@ -126,17 +128,27 @@ class IndexingService:
     def __init__(self, session: Session) -> None:
         self.session = session
         self.job_service = JobService(session)
+        self.settings = get_settings()
 
-    def index_asset(self, asset_id: str, *, job_config: dict[str, object] | None = None) -> Asset:
+    def start_index_asset_job(
+        self,
+        asset_id: str,
+        *,
+        job_config: dict[str, object] | None = None,
+    ) -> tuple[Asset, str]:
         asset = get_asset_or_raise(self.session, asset_id)
         job = self.job_service.create_job(
             job_type="index",
             target_asset_ids=[asset.id],
-            config={"execution": "inline", **(job_config or {})},
+            config={"execution": self.settings.job_execution_mode, **(job_config or {})},
         )
-        job_id = job.id
 
         asset.indexing_status = "indexing"
+        self.session.commit()
+        return get_asset_or_raise(self.session, asset_id), job.id
+
+    def execute_index_asset_job(self, asset_id: str, *, job_id: str) -> Asset:
+        asset = get_asset_or_raise(self.session, asset_id)
         self.job_service.mark_job_running(job_id)
 
         try:
@@ -161,6 +173,10 @@ class IndexingService:
             raise AssetIndexingError(str(exc)) from exc
 
         return get_asset_or_raise(self.session, asset_id)
+
+    def index_asset(self, asset_id: str, *, job_config: dict[str, object] | None = None) -> Asset:
+        asset, job_id = self.start_index_asset_job(asset_id, job_config=job_config)
+        return self.execute_index_asset_job(asset.id, job_id=job_id)
 
     def reindex_all_pending_assets(self) -> ReindexAllResult:
         statement = (
@@ -193,3 +209,16 @@ class IndexingService:
             failed_assets=failed_assets,
             indexed_assets=indexed_assets,
         )
+
+
+def run_index_asset_job_in_background(
+    session_factory: sessionmaker[Session],
+    *,
+    asset_id: str,
+    job_id: str,
+) -> None:
+    session = session_factory()
+    try:
+        IndexingService(session).execute_index_asset_job(asset_id, job_id=job_id)
+    finally:
+        session.close()

@@ -52,7 +52,7 @@ from app.services.assets import (
     scan_directory_for_assets,
     upload_asset,
 )
-from app.services.indexing import AssetIndexingError, IndexingService
+from app.services.indexing import AssetIndexingError, IndexingService, run_index_asset_job_in_background
 from app.services.tags import (
     AssetTagAlreadyExistsError,
     AssetTagNotFoundError,
@@ -275,17 +275,30 @@ def scan_directory_route(payload: DirectoryScanRequest, session: DbSession) -> D
 
 
 @router.post("/{asset_id}/index", response_model=AssetDetailResponse)
-def index_asset_route(asset_id: str, session: DbSession) -> AssetDetailResponse:
+def index_asset_route(asset_id: str, request: Request, session: DbSession) -> AssetDetailResponse:
     indexing_service = IndexingService(session)
 
     try:
-        asset = indexing_service.index_asset(asset_id, job_config={"trigger": "index_asset"})
+        asset, job_id = indexing_service.start_index_asset_job(
+            asset_id,
+            job_config={"trigger": "index_asset"},
+        )
     except AssetNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+    try:
+        request.app.state.job_runner.submit(
+            f"index asset {asset_id}",
+            run_index_asset_job_in_background,
+            request.app.state.session_factory,
+            asset_id=asset.id,
+            job_id=job_id,
+        )
     except AssetIndexingError as exc:
         raise HTTPException(status_code=HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
 
-    return build_asset_detail_response(session, asset)
+    session.expire_all()
+    return build_asset_detail_response(session, get_asset_or_raise(session, asset.id))
 
 
 @router.post("/{asset_id}/tags", response_model=AssetDetailResponse)
