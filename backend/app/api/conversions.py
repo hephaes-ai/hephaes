@@ -42,7 +42,10 @@ from app.services.conversions import (
     get_conversion_or_raise,
     list_conversions_filtered,
 )
+from hephaes._converter_helpers import _normalize_payload
 from hephaes.models import ConversionSpec
+from hephaes.conversion.draft_spec import DraftSpecResult
+from hephaes.conversion.preview import PreviewResult
 
 router = APIRouter(prefix="/conversions", tags=["conversions"])
 DbSession = Annotated[Session, Depends(get_db_session)]
@@ -126,6 +129,18 @@ def _representation_policy_from_spec(spec: ConversionSpec | None) -> ConversionR
     )
 
 
+def _json_safe_preview(preview: PreviewResult | None) -> PreviewResult | None:
+    if preview is None:
+        return None
+    normalized = _normalize_payload(preview.model_dump(mode="python", by_alias=True))
+    return PreviewResult.model_validate(normalized)
+
+
+def _json_safe_draft_result(draft: DraftSpecResult) -> DraftSpecResult:
+    safe_preview = _json_safe_preview(draft.preview)
+    return draft.model_copy(update={"preview": safe_preview})
+
+
 def build_conversion_summary_response(conversion: Conversion) -> ConversionSummaryResponse:
     config_payload = dict(conversion.config_json)
     return ConversionSummaryResponse(
@@ -178,13 +193,14 @@ def build_draft_response(
     draft,
     draft_revision_id: str | None = None,
 ) -> ConversionDraftResponse:
+    safe_draft = _json_safe_draft_result(draft)
     return ConversionDraftResponse(
         asset_id=request.asset_id,
         request=request,
         inspection=inspection,
-        draft=draft,
+        draft=safe_draft,
         draft_revision_id=draft_revision_id,
-        representation_policy=_representation_policy_from_spec(draft.spec),
+        representation_policy=_representation_policy_from_spec(safe_draft.spec),
     )
 
 
@@ -193,10 +209,12 @@ def build_preview_response(
     request: ConversionPreviewRequest,
     preview,
 ) -> ConversionPreviewResponse:
+    safe_preview = _json_safe_preview(preview)
+    assert safe_preview is not None
     return ConversionPreviewResponse(
         asset_id=request.asset_id,
         request=request,
-        preview=preview,
+        preview=safe_preview,
         representation_policy=_representation_policy_from_spec(request.spec),
     )
 
