@@ -49,9 +49,12 @@ def client(
     monkeypatch.setenv("HEPHAES_BACKEND_DB_PATH", str(backend_db_path))
     monkeypatch.setenv("HEPHAES_BACKEND_OUTPUTS_DIR", str(backend_outputs_dir))
     monkeypatch.setenv("HEPHAES_BACKEND_RAW_DATA_DIR", str(backend_raw_data_dir))
-    monkeypatch.setenv("HEPHAES_BACKEND_JOB_EXECUTION_MODE", "inline")
 
+    import app.config as app_config
     from app.config import get_settings
+
+    monkeypatch.setattr(app_config, "DEFAULT_JOB_EXECUTION_MODE", "inline")
+    monkeypatch.setattr(app_config, "DEFAULT_JOB_MAX_WORKERS", 1)
 
     get_settings.cache_clear()
 
