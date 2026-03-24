@@ -88,12 +88,27 @@ def _build_draft_result() -> DraftSpecResult:
     )
 
 
+def _build_draft_result_with_preview_bytes() -> DraftSpecResult:
+    spec = build_doom_ros_train_py_compatible()
+    return DraftSpecResult(
+        request=DraftSpecRequest(include_preview=True, preview_rows=2),
+        spec=spec,
+        selected_topics=["/camera/front/image_raw", "/joy"],
+        trigger_topic="/camera/front/image_raw",
+        join_topics=["/joy"],
+        warnings=[],
+        assumptions=["drafted from inspection"],
+        unresolved_fields=[],
+        preview=_build_preview(),
+    )
+
+
 def _build_preview() -> PreviewResult:
     return PreviewResult(
         rows=[
             PreviewRow(
                 timestamp_ns=1,
-                field_data={"image": b"\x00\x01"},
+                field_data={"image": b"\x83\x00"},
                 presence_data={"image": 1},
             )
         ],
@@ -248,4 +263,43 @@ def test_conversion_preview_route_delegates_to_hephaes(
     assert observed["spec"].schema.name == "doom_ros_train_py_compatible"
     assert observed["sample_n"] == 3
     assert observed["topic_type_hints"] == {"/camera/front/image_raw": "sensor_msgs/msg/Image"}
+
+
+def test_conversion_draft_route_handles_preview_bytes_payloads(
+    client: TestClient,
+    monkeypatch,
+    sample_asset_file: Path,
+):
+    asset_id = register_asset(client, sample_asset_file).json()["id"]
+    _install_fake_reader(monkeypatch, bag_path=str(sample_asset_file))
+
+    monkeypatch.setattr(authoring_service, "inspect_reader", lambda _reader, **_kwargs: _build_inspection())
+    monkeypatch.setattr(
+        authoring_service,
+        "build_draft_conversion_spec",
+        lambda _inspection, *, request, reader: _build_draft_result_with_preview_bytes(),
+    )
+
+    response = client.post(
+        "/conversions/draft",
+        json={
+            "asset_id": asset_id,
+            "topics": ["/camera/front/image_raw", "/joy"],
+            "sample_n": 2,
+            "draft_request": {
+                "trigger_topic": "/camera/front/image_raw",
+                "selected_topics": ["/camera/front/image_raw", "/joy"],
+                "include_preview": True,
+                "preview_rows": 2,
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["asset_id"] == asset_id
+    assert body["draft"]["preview"]["rows"][0]["timestamp_ns"] == 1
+    assert body["draft"]["preview"]["rows"][0]["field_data"]["image"]["__bytes__"] is True
+    assert body["draft"]["preview"]["rows"][0]["field_data"]["image"]["encoding"] == "base64"
+    assert body["draft_revision_id"] is not None
 

@@ -29,6 +29,7 @@ from app.schemas.conversion_authoring import (
     SavedConversionDraftRevisionResponse,
     SavedConversionDraftStatus,
 )
+from hephaes._converter_helpers import _normalize_payload
 from hephaes.conversion.draft_spec import DraftSpecRequest, DraftSpecResult
 from hephaes.conversion.introspection import InspectionResult
 from hephaes.conversion.preview import PreviewResult
@@ -73,6 +74,16 @@ def _normalize_optional_text(value: str | None) -> str | None:
         return None
     stripped = value.strip()
     return stripped or None
+
+
+def _model_dump_json_safe(model: Any) -> dict[str, Any]:
+    """Dump pydantic models while preserving binary payloads as JSON-safe dicts."""
+
+    payload = model.model_dump(mode="python", by_alias=True)
+    normalized = _normalize_payload(payload)
+    if not isinstance(normalized, dict):  # pragma: no cover - defensive guard
+        raise TypeError("expected model dump to produce a dictionary payload")
+    return normalized
 
 
 def _document_summary(document: ConversionSpecDocument | None) -> dict[str, Any]:
@@ -533,6 +544,8 @@ class ConversionConfigService:
             status = "draft"
 
         preview_result = preview if preview is not None else draft_result.preview
+        draft_result_json = _model_dump_json_safe(draft_result)
+        preview_json = _model_dump_json_safe(preview_result) if preview_result is not None else None
         draft_row = ConversionDraftRevision(
             saved_config_id=saved_config_id,
             revision_number=revision_number,
@@ -541,12 +554,10 @@ class ConversionConfigService:
             inspection_request_json=inspection_request.model_dump(mode="json", by_alias=True),
             inspection_json=inspection.model_dump(mode="json", by_alias=True),
             draft_request_json=draft_request.draft_request.model_dump(mode="json", by_alias=True),
-            draft_result_json=draft_result.model_dump(mode="json", by_alias=True),
+            draft_result_json=draft_result_json,
             spec_document_json=draft_result.spec.model_dump(mode="json", by_alias=True),
             spec_document_version=CONVERSION_SPEC_DOCUMENT_VERSION,
-            preview_json=preview_result.model_dump(mode="json", by_alias=True)
-            if preview_result is not None
-            else None,
+            preview_json=preview_json,
             warning_messages_json=list(draft_result.warnings),
             assumption_messages_json=list(draft_result.assumptions),
             unresolved_fields_json=list(draft_result.unresolved_fields),
@@ -556,7 +567,7 @@ class ConversionConfigService:
         self.session.add(draft_row)
 
         if saved_config is not None and preview_result is not None:
-            saved_config.latest_preview_json = preview_result.model_dump(mode="json", by_alias=True)
+            saved_config.latest_preview_json = preview_json
             saved_config.latest_preview_at = utc_now()
             saved_config.updated_at = utc_now()
         self.session.commit()
