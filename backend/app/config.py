@@ -10,6 +10,8 @@ from pathlib import Path
 
 DEFAULT_RERUN_SDK_VERSION = "0.22"
 DEFAULT_RERUN_RECORDING_FORMAT_VERSION = "1"
+DEFAULT_JOB_EXECUTION_MODE = "background"
+DEFAULT_JOB_MAX_WORKERS = 4
 
 
 def _as_bool(value: str | None, *, default: bool = False) -> bool:
@@ -40,6 +42,8 @@ class Settings:
     outputs_dir: Path
     database_path: Path
     database_url: str
+    job_execution_mode: str
+    job_max_workers: int
     rerun_sdk_version: str
     rerun_recording_format_version: str
 
@@ -69,6 +73,8 @@ def get_settings() -> Settings:
         outputs_dir=outputs_dir,
         database_path=database_path,
         database_url=f"sqlite:///{database_path}",
+        job_execution_mode=DEFAULT_JOB_EXECUTION_MODE,
+        job_max_workers=DEFAULT_JOB_MAX_WORKERS,
         rerun_sdk_version=_resolve_rerun_sdk_version(),
         rerun_recording_format_version=os.environ.get(
             "HEPHAES_RERUN_RECORDING_FORMAT_VERSION",

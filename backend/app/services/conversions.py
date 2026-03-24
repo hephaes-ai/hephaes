@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 from uuid import uuid4
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm.session import sessionmaker
 
 from hephaes import (
     Converter,
@@ -52,6 +54,16 @@ class ConversionValidationError(ConversionServiceError):
 
 class ConversionExecutionError(ConversionServiceError):
     """Raised when hephaes conversion fails during execution."""
+
+
+@dataclass(frozen=True)
+class PendingConversionExecution:
+    conversion_id: str
+    job_id: str
+    asset_file_paths: list[str]
+    mapping: MappingTemplate
+    conversion_spec: ConversionSpec
+    output_dir: Path
 
 
 def list_conversions(session: Session) -> list[Conversion]:
@@ -292,7 +304,10 @@ class ConversionService:
         self.job_service = JobService(session)
         self.settings = get_settings()
 
-    def run_conversion(self, request: ConversionCreateRequest) -> Conversion:
+    def create_conversion(
+        self,
+        request: ConversionCreateRequest,
+    ) -> tuple[Conversion, PendingConversionExecution]:
         assets = _resolve_assets(self.session, request.asset_ids)
         conversion_spec: ConversionSpec
         mapping_mode: str
@@ -352,7 +367,7 @@ class ConversionService:
         job = self.job_service.create_job(
             job_type="convert",
             target_asset_ids=[asset.id for asset in assets],
-            config={"execution": "inline", **conversion_config},
+            config={"execution": self.settings.job_execution_mode, **conversion_config},
             output_path=str(output_dir),
         )
 
@@ -369,21 +384,35 @@ class ConversionService:
         self.session.add(conversion)
         self.session.commit()
 
-        self.job_service.mark_job_running(job.id)
+        return (
+            get_conversion_or_raise(self.session, conversion.id),
+            PendingConversionExecution(
+                conversion_id=conversion_id,
+                job_id=job.id,
+                asset_file_paths=[asset.file_path for asset in assets],
+                mapping=mapping,
+                conversion_spec=conversion_spec,
+                output_dir=output_dir,
+            ),
+        )
+
+    def execute_conversion(self, execution: PendingConversionExecution) -> Conversion:
+        conversion = get_conversion_or_raise(self.session, execution.conversion_id)
+        self.job_service.mark_job_running(execution.job_id)
         conversion = _update_conversion_status(self.session, conversion=conversion, status="running")
 
         try:
             converter = Converter(
-                file_paths=[asset.file_path for asset in assets],
-                mapping=mapping,
-                output_dir=output_dir,
-                spec=conversion_spec,
-                output=conversion_spec.to_output_config(),
-                resample=conversion_spec.resample,
-                write_manifest=conversion_spec.write_manifest,
+                file_paths=execution.asset_file_paths,
+                mapping=execution.mapping,
+                output_dir=execution.output_dir,
+                spec=execution.conversion_spec,
+                output=execution.conversion_spec.to_output_config(),
+                resample=execution.conversion_spec.resample,
+                write_manifest=execution.conversion_spec.write_manifest,
             )
             output_files = [str(path) for path in converter.convert()]
-            self.job_service.mark_job_succeeded(job.id, output_path=str(output_dir))
+            self.job_service.mark_job_succeeded(execution.job_id, output_path=str(execution.output_dir))
             completed_conversion = _update_conversion_status(
                 self.session,
                 conversion=conversion,
@@ -395,8 +424,8 @@ class ConversionService:
             return get_conversion_or_raise(self.session, completed_conversion.id)
         except Exception as exc:
             self.session.rollback()
-            self.job_service.mark_job_failed(job.id, error_message=str(exc))
-            failed_conversion = get_conversion_or_raise(self.session, conversion_id)
+            self.job_service.mark_job_failed(execution.job_id, error_message=str(exc))
+            failed_conversion = get_conversion_or_raise(self.session, execution.conversion_id)
             _update_conversion_status(
                 self.session,
                 conversion=failed_conversion,
@@ -405,3 +434,20 @@ class ConversionService:
                 error_message=str(exc),
             )
             raise ConversionExecutionError(str(exc)) from exc
+
+    def run_conversion(self, request: ConversionCreateRequest) -> Conversion:
+        conversion, execution = self.create_conversion(request)
+        return self.execute_conversion(execution)
+
+
+
+def run_conversion_job_in_background(
+    session_factory: sessionmaker[Session],
+    *,
+    execution: PendingConversionExecution,
+) -> None:
+    session = session_factory()
+    try:
+        ConversionService(session).execute_conversion(execution)
+    finally:
+        session.close()

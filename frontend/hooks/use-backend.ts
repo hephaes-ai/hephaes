@@ -92,6 +92,10 @@ export const backendKeys = {
     ["viewer-source", assetId, episodeId] as const,
 }
 
+type JobsHookOptions = {
+  refreshInterval?: number
+}
+
 export function useHealth() {
   return useSWR(backendKeys.health, () => getHealth(), {
     dedupingInterval: 10_000,
@@ -243,8 +247,10 @@ export function useCreateOutputAction() {
   }
 }
 
-export function useJobs() {
-  return useSWR(backendKeys.jobs, () => listJobs())
+export function useJobs(options?: JobsHookOptions) {
+  return useSWR(backendKeys.jobs, () => listJobs(), {
+    refreshInterval: options?.refreshInterval,
+  })
 }
 
 export function useJob(jobId: string) {

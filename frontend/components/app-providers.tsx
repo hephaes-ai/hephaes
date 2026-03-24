@@ -3,6 +3,7 @@
 import { SWRConfig } from "swr";
 
 import { FeedbackProvider } from "@/components/feedback-provider";
+import { JobStatusToaster } from "@/components/job-status-toaster";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
 
@@ -18,6 +19,7 @@ export function AppProviders({ children }: { children: React.ReactNode }) {
       >
         <FeedbackProvider>
           {children}
+          <JobStatusToaster />
           <Toaster position="bottom-right" />
         </FeedbackProvider>
       </SWRConfig>
