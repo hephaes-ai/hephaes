@@ -245,10 +245,10 @@ export function JobsPage() {
             <div
               className={cn(
                 "grid transition-all duration-200 ease-out",
-                isFiltersOpen ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0",
+                isFiltersOpen ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0 pointer-events-none",
               )}
             >
-              <div className="overflow-hidden">
+              <div className="min-h-0 overflow-hidden">
                 <div className="space-y-4 rounded-xl border bg-muted/20 p-4">
                   <div className="grid gap-4 sm:grid-cols-2">
                     <div className="space-y-2">

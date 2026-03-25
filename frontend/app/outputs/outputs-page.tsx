@@ -543,10 +543,10 @@ export function OutputsPage() {
           <div
             className={cn(
               "grid transition-all duration-200 ease-out",
-              isFiltersOpen ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0",
+              isFiltersOpen ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0 pointer-events-none",
             )}
           >
-            <div className="overflow-hidden">
+            <div className="min-h-0 overflow-hidden">
               <div className="space-y-4 rounded-xl border bg-muted/20 p-4">
                 <form className="flex flex-col gap-3 lg:flex-row" onSubmit={onSearchSubmit}>
                   <div className="flex-1">

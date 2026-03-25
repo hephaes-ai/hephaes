@@ -686,7 +686,7 @@ export function InventoryPage() {
 
       {formMessage ? <InlineNotice description={formMessage.description} title={formMessage.title} tone={formMessage.tone} /> : null}
 
-      <Card className="flex-1">
+      <Card className="flex-1 overflow-visible">
         <CardHeader className="space-y-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
@@ -778,10 +778,10 @@ export function InventoryPage() {
           <div
             className={cn(
               "grid transition-all duration-200 ease-out",
-              isBrowsePanelOpen ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0",
+              isBrowsePanelOpen ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0 pointer-events-none",
             )}
           >
-            <div className="overflow-hidden">
+            <div className="min-h-0 overflow-hidden">
               <div className="space-y-4 rounded-xl border bg-muted/20 p-4">
                 <form className="flex flex-col gap-3 lg:flex-row" onSubmit={onSearchSubmit}>
                   <div className="flex-1">
