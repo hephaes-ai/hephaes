@@ -182,8 +182,8 @@ export function AssetsTable({
   }
 
   return (
-    <div className="overflow-x-auto">
-      <Table className="min-w-[860px]">
+    <div className="[&_[data-slot=table-container]]:overflow-x-auto">
+      <Table className="w-auto min-w-[860px]">
         <TableHeader>
           <TableRow>
             <TableHead className="w-12">

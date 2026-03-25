@@ -686,7 +686,7 @@ export function InventoryPage() {
 
       {formMessage ? <InlineNotice description={formMessage.description} title={formMessage.title} tone={formMessage.tone} /> : null}
 
-      <Card className="flex-1">
+      <Card className="flex-1 overflow-visible">
         <CardHeader className="space-y-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
