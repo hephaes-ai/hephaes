@@ -481,6 +481,28 @@ class Workspace:
             return None
         return self._row_to_registered_asset(row)
 
+    def find_asset_by_path(self, asset_path: str | Path) -> RegisteredAsset | None:
+        normalized_path = str(_normalize_asset_path(asset_path))
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM assets WHERE file_path = ?",
+                (normalized_path,),
+            ).fetchone()
+        if row is None:
+            return None
+        return self._row_to_registered_asset(row)
+
+    def resolve_asset(self, selector: str | Path) -> RegisteredAsset:
+        asset = self.get_asset(str(selector))
+        if asset is not None:
+            return asset
+
+        asset = self.find_asset_by_path(selector)
+        if asset is not None:
+            return asset
+
+        raise AssetNotFoundError(f"asset not found: {selector}")
+
     def get_asset_or_raise(self, asset_id: str) -> RegisteredAsset:
         asset = self.get_asset(asset_id)
         if asset is None:

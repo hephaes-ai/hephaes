@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from typing import Sequence
 
@@ -65,6 +66,32 @@ def build_parser() -> argparse.ArgumentParser:
         help="Duplicate asset behavior.",
     )
     add_parser.set_defaults(handler=_handle_add)
+
+    index_parser = subparsers.add_parser(
+        "index",
+        help="Index registered assets in the active workspace.",
+    )
+    index_parser.add_argument(
+        "selectors",
+        nargs="*",
+        help="Asset ids or original file paths to index.",
+    )
+    index_parser.add_argument(
+        "--workspace",
+        help="Workspace root or any path inside the target workspace.",
+    )
+    index_parser.add_argument(
+        "--all",
+        action="store_true",
+        help="Index every registered asset in the workspace.",
+    )
+    index_parser.add_argument(
+        "--max-workers",
+        type=int,
+        default=1,
+        help="Worker count for bag profiling.",
+    )
+    index_parser.set_defaults(handler=_handle_index)
 
     ls_parser = subparsers.add_parser(
         "ls",
@@ -163,6 +190,44 @@ def _handle_list_assets(args: argparse.Namespace) -> int:
                     last_indexed_at,
                     asset.file_path,
                 )
+            )
+        )
+    return 0
+
+
+def _handle_index(args: argparse.Namespace) -> int:
+    workspace = _open_workspace(args.workspace)
+    if args.max_workers < 1:
+        raise WorkspaceError("--max-workers must be >= 1")
+
+    if args.all:
+        assets_to_index = workspace.list_assets()
+    else:
+        if not args.selectors:
+            raise WorkspaceError("provide one or more asset selectors or use --all")
+        assets_to_index = [workspace.resolve_asset(selector) for selector in args.selectors]
+
+    if not assets_to_index:
+        print("No assets to index.")
+        return 0
+
+    for asset in assets_to_index:
+        indexed_asset = workspace.index_asset(asset.id, max_workers=args.max_workers)
+        metadata = workspace.get_asset_metadata(indexed_asset.id)
+        if metadata is None:
+            raise WorkspaceError(f"indexed metadata missing for asset {indexed_asset.id}")
+        print(
+            json.dumps(
+                {
+                    "asset_id": indexed_asset.id,
+                    "status": indexed_asset.indexing_status,
+                    "file_path": indexed_asset.file_path,
+                    "message_count": metadata.message_count,
+                    "topic_count": metadata.topic_count,
+                    "duration": metadata.duration,
+                    "sensor_types": metadata.sensor_types,
+                },
+                sort_keys=True,
             )
         )
     return 0
