@@ -651,6 +651,22 @@ class Workspace:
         created_at = (
             existing["created_at"] if existing is not None else _to_db_timestamp(timestamp)
         )
+
+        if payload is None and existing is not None:
+            connection.execute(
+                """
+                UPDATE asset_metadata
+                SET indexing_error = ?, updated_at = ?
+                WHERE asset_id = ?
+                """,
+                (
+                    indexing_error,
+                    _to_db_timestamp(timestamp),
+                    asset_id,
+                ),
+            )
+            return
+
         payload = payload or {}
         connection.execute(
             """

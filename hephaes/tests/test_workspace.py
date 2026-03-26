@@ -193,6 +193,63 @@ def test_index_asset_persists_failure_state(
     assert metadata.message_count == 0
 
 
+def test_reindex_failure_preserves_previous_metadata(
+    tmp_path: Path,
+    tmp_mcap_file: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = Workspace.init(tmp_path)
+    asset = workspace.register_asset(tmp_mcap_file)
+
+    def successful_profile(file_path: str, *, max_workers: int = 1) -> BagMetadata:
+        return BagMetadata(
+            path=file_path,
+            file_path=file_path,
+            ros_version="ROS2",
+            storage_format="mcap",
+            file_size_bytes=123,
+            start_timestamp=1_000_000_000,
+            end_timestamp=3_000_000_000,
+            start_time_iso="1970-01-01T00:00:01+00:00",
+            end_time_iso="1970-01-01T00:00:03+00:00",
+            duration_seconds=2.0,
+            message_count=42,
+            topics=[
+                Topic(
+                    name="/camera/image",
+                    message_type="sensor_msgs/Image",
+                    message_count=20,
+                    rate_hz=10.0,
+                )
+            ],
+            compression_format="none",
+        )
+
+    monkeypatch.setattr("hephaes.workspace.profile_asset_file", successful_profile)
+    workspace.index_asset(asset.id)
+    first_metadata = workspace.get_asset_metadata(asset.id)
+    assert first_metadata is not None
+
+    def failing_profile(file_path: str, *, max_workers: int = 1) -> BagMetadata:
+        raise RuntimeError("reindex failed")
+
+    monkeypatch.setattr("hephaes.workspace.profile_asset_file", failing_profile)
+
+    with pytest.raises(RuntimeError, match="reindex failed"):
+        workspace.index_asset(asset.id)
+
+    preserved_metadata = workspace.get_asset_metadata(asset.id)
+    failed_asset = workspace.get_asset_or_raise(asset.id)
+
+    assert preserved_metadata is not None
+    assert preserved_metadata.message_count == 42
+    assert preserved_metadata.topic_count == 1
+    assert preserved_metadata.sensor_types == ["camera"]
+    assert preserved_metadata.raw_metadata["storage_format"] == "mcap"
+    assert preserved_metadata.indexing_error == "reindex failed"
+    assert failed_asset.indexing_status == "failed"
+
+
 def test_index_asset_raises_for_missing_asset(tmp_path: Path) -> None:
     workspace = Workspace.init(tmp_path)
 
