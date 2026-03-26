@@ -82,6 +82,10 @@ class TestPublicExports:
         from hephaes import Workspace
         assert Workspace is not None
 
+    def test_indexed_asset_metadata_exported(self):
+        from hephaes import IndexedAssetMetadata
+        assert IndexedAssetMetadata is not None
+
     def test_ros1_reader_exported(self):
         from hephaes import ROS1Reader
         assert ROS1Reader is not None
@@ -151,10 +155,12 @@ class TestPublicExports:
             "RowStrategySpec",
             "WideParquetWriter",
             "Profiler",
+            "IndexedAssetMetadata",
             "RegisteredAsset",
             "ROS1Reader",
             "ROS2Reader",
             "RosReader",
+            "AssetNotFoundError",
             "Workspace",
             "WorkspaceAlreadyExistsError",
             "WorkspaceError",

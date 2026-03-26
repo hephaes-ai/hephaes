@@ -92,6 +92,8 @@ from .profiler import Profiler
 from .reader import ROS1Reader, ROS2Reader, RosReader
 from .workspace import (
     AssetAlreadyRegisteredError,
+    AssetNotFoundError,
+    IndexedAssetMetadata,
     InvalidAssetPathError,
     RegisteredAsset,
     Workspace,
@@ -149,10 +151,12 @@ __all__ = [
     "ValidationSpec",
     "WideParquetWriter",
     "Profiler",
+    "IndexedAssetMetadata",
     "RegisteredAsset",
     "ROS1Reader",
     "ROS2Reader",
     "RosReader",
+    "AssetNotFoundError",
     "Workspace",
     "WorkspaceAlreadyExistsError",
     "WorkspaceError",
