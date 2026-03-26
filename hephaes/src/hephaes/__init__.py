@@ -90,6 +90,15 @@ from .models import (
 )
 from .profiler import Profiler
 from .reader import ROS1Reader, ROS2Reader, RosReader
+from .workspace import (
+    AssetAlreadyRegisteredError,
+    InvalidAssetPathError,
+    RegisteredAsset,
+    Workspace,
+    WorkspaceAlreadyExistsError,
+    WorkspaceError,
+    WorkspaceNotFoundError,
+)
 
 __all__ = [
     "__version__",
@@ -140,9 +149,16 @@ __all__ = [
     "ValidationSpec",
     "WideParquetWriter",
     "Profiler",
+    "RegisteredAsset",
     "ROS1Reader",
     "ROS2Reader",
     "RosReader",
+    "Workspace",
+    "WorkspaceAlreadyExistsError",
+    "WorkspaceError",
+    "WorkspaceNotFoundError",
+    "InvalidAssetPathError",
+    "AssetAlreadyRegisteredError",
     "build_mapping_template",
     "build_mapping_template_from_json",
     "build_conversion_capabilities",

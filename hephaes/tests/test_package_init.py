@@ -10,7 +10,7 @@ class TestVersion:
     def test_version_defined(self):
         assert hasattr(hephaes, "__version__")
         assert isinstance(hephaes.__version__, str)
-        assert hephaes.__version__ == "0.2.1"
+        assert hephaes.__version__ == "0.2.2"
 
 
 class TestPublicExports:
@@ -77,6 +77,10 @@ class TestPublicExports:
     def test_profiler_exported(self):
         from hephaes import Profiler
         assert Profiler is not None
+
+    def test_workspace_exported(self):
+        from hephaes import Workspace
+        assert Workspace is not None
 
     def test_ros1_reader_exported(self):
         from hephaes import ROS1Reader
@@ -147,9 +151,16 @@ class TestPublicExports:
             "RowStrategySpec",
             "WideParquetWriter",
             "Profiler",
+            "RegisteredAsset",
             "ROS1Reader",
             "ROS2Reader",
             "RosReader",
+            "Workspace",
+            "WorkspaceAlreadyExistsError",
+            "WorkspaceError",
+            "WorkspaceNotFoundError",
+            "InvalidAssetPathError",
+            "AssetAlreadyRegisteredError",
             "build_conversion_capabilities",
             "build_conversion_spec_document",
             "build_draft_conversion_spec",
