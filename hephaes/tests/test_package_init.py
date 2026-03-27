@@ -93,6 +93,9 @@ class TestPublicExports:
             ConversionConfigNotFoundError,
             DefaultEpisodeSummary,
             IndexedTopicSummary,
+            OutputArtifact,
+            OutputArtifactNotFoundError,
+            OutputArtifactSummary,
             SavedConversionConfig,
             SavedConversionConfigSummary,
             SourceAssetMetadata,
@@ -103,6 +106,9 @@ class TestPublicExports:
         assert ConversionConfigNotFoundError is not None
         assert DefaultEpisodeSummary is not None
         assert IndexedTopicSummary is not None
+        assert OutputArtifact is not None
+        assert OutputArtifactNotFoundError is not None
+        assert OutputArtifactSummary is not None
         assert SavedConversionConfig is not None
         assert SavedConversionConfigSummary is not None
         assert SourceAssetMetadata is not None
@@ -183,6 +189,9 @@ class TestPublicExports:
             "DefaultEpisodeSummary",
             "IndexedAssetMetadata",
             "IndexedTopicSummary",
+            "OutputArtifact",
+            "OutputArtifactNotFoundError",
+            "OutputArtifactSummary",
             "RegisteredAsset",
             "ROS1Reader",
             "ROS2Reader",

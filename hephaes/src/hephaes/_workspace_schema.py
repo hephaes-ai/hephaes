@@ -4,7 +4,7 @@ import sqlite3
 
 WORKSPACE_DIRNAME = ".hephaes"
 WORKSPACE_DB_FILENAME = "workspace.sqlite3"
-WORKSPACE_SCHEMA_VERSION = 3
+WORKSPACE_SCHEMA_VERSION = 4
 
 
 def initialize_workspace_schema(connection: sqlite3.Connection) -> None:
@@ -61,6 +61,29 @@ def initialize_workspace_schema(connection: sqlite3.Connection) -> None:
             updated_at TEXT NOT NULL,
             last_opened_at TEXT NULL
         );
+
+        CREATE TABLE IF NOT EXISTS output_artifacts (
+            id TEXT PRIMARY KEY,
+            source_asset_id TEXT NULL,
+            source_asset_path TEXT NULL,
+            saved_config_id TEXT NULL,
+            output_path TEXT NOT NULL,
+            relative_path TEXT NOT NULL,
+            file_name TEXT NOT NULL,
+            format TEXT NOT NULL,
+            role TEXT NOT NULL,
+            media_type TEXT NULL,
+            size_bytes INTEGER NOT NULL DEFAULT 0,
+            availability_status TEXT NOT NULL DEFAULT 'ready',
+            manifest_available INTEGER NOT NULL DEFAULT 0,
+            report_available INTEGER NOT NULL DEFAULT 0,
+            metadata_json TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_output_artifacts_output_path
+        ON output_artifacts(output_path);
 
         CREATE INDEX IF NOT EXISTS idx_assets_registered_at
         ON assets(registered_at DESC, id DESC);
@@ -131,6 +154,42 @@ def migrate_workspace_schema(connection: sqlite3.Connection, schema_version: int
                 updated_at TEXT NOT NULL,
                 last_opened_at TEXT NULL
             )
+            """
+        )
+        connection.execute(
+            "UPDATE workspace_meta SET value = ? WHERE key = 'schema_version'",
+            ("3",),
+        )
+        schema_version = 3
+
+    if schema_version == 3:
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS output_artifacts (
+                id TEXT PRIMARY KEY,
+                source_asset_id TEXT NULL,
+                source_asset_path TEXT NULL,
+                saved_config_id TEXT NULL,
+                output_path TEXT NOT NULL,
+                relative_path TEXT NOT NULL,
+                file_name TEXT NOT NULL,
+                format TEXT NOT NULL,
+                role TEXT NOT NULL,
+                media_type TEXT NULL,
+                size_bytes INTEGER NOT NULL DEFAULT 0,
+                availability_status TEXT NOT NULL DEFAULT 'ready',
+                manifest_available INTEGER NOT NULL DEFAULT 0,
+                report_available INTEGER NOT NULL DEFAULT 0,
+                metadata_json TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_output_artifacts_output_path
+            ON output_artifacts(output_path)
             """
         )
         connection.execute(

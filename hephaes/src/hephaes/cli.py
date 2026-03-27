@@ -12,6 +12,7 @@ from .workspace import (
     AssetAlreadyRegisteredError,
     ConversionConfigAlreadyExistsError,
     InvalidAssetPathError,
+    OutputArtifactNotFoundError,
     Workspace,
     WorkspaceAlreadyExistsError,
     WorkspaceError,
@@ -176,6 +177,33 @@ def build_parser() -> argparse.ArgumentParser:
     )
     configs_save_parser.set_defaults(handler=_handle_save_config)
 
+    outputs_parser = subparsers.add_parser(
+        "outputs",
+        help="Inspect tracked output artifacts in the active workspace.",
+    )
+    outputs_subparsers = outputs_parser.add_subparsers(dest="outputs_command")
+
+    outputs_ls_parser = outputs_subparsers.add_parser(
+        "ls",
+        help="List tracked output artifacts.",
+    )
+    outputs_ls_parser.add_argument(
+        "--workspace",
+        help="Workspace root or any path inside the target workspace.",
+    )
+    outputs_ls_parser.set_defaults(handler=_handle_list_outputs)
+
+    outputs_show_parser = outputs_subparsers.add_parser(
+        "show",
+        help="Show one tracked output artifact.",
+    )
+    outputs_show_parser.add_argument("output_id", help="Tracked output artifact id.")
+    outputs_show_parser.add_argument(
+        "--workspace",
+        help="Workspace root or any path inside the target workspace.",
+    )
+    outputs_show_parser.set_defaults(handler=_handle_show_output)
+
     ls_parser = subparsers.add_parser(
         "ls",
         help="List workspace records.",
@@ -214,6 +242,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         InvalidAssetPathError,
         AssetAlreadyRegisteredError,
         ConversionConfigAlreadyExistsError,
+        OutputArtifactNotFoundError,
     ) as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
@@ -387,6 +416,58 @@ def _handle_save_config(args: argparse.Namespace) -> int:
                 config.name,
                 config.document_path,
             )
+        )
+    )
+    return 0
+
+
+def _handle_list_outputs(args: argparse.Namespace) -> int:
+    workspace = _open_workspace(args.workspace)
+    outputs = workspace.list_output_artifacts()
+    if not outputs:
+        print("No tracked outputs.")
+        return 0
+
+    for output in outputs:
+        print(
+            "\t".join(
+                (
+                    output.id,
+                    output.format,
+                    output.role,
+                    output.source_asset_id or output.source_asset_path or "-",
+                    output.saved_config_id or "-",
+                    output.output_path,
+                )
+            )
+        )
+    return 0
+
+
+def _handle_show_output(args: argparse.Namespace) -> int:
+    workspace = _open_workspace(args.workspace)
+    output = workspace.get_output_artifact_or_raise(args.output_id)
+    print(
+        json.dumps(
+            {
+                "id": output.id,
+                "source_asset_id": output.source_asset_id,
+                "source_asset_path": output.source_asset_path,
+                "saved_config_id": output.saved_config_id,
+                "output_path": output.output_path,
+                "relative_path": output.relative_path,
+                "file_name": output.file_name,
+                "format": output.format,
+                "role": output.role,
+                "size_bytes": output.size_bytes,
+                "availability_status": output.availability_status,
+                "manifest_available": output.manifest_available,
+                "report_available": output.report_available,
+                "metadata": output.metadata,
+                "created_at": output.created_at.isoformat(),
+                "updated_at": output.updated_at.isoformat(),
+            },
+            sort_keys=True,
         )
     )
     return 0

@@ -10,6 +10,8 @@ from ._workspace_models import (
     IndexedAssetMetadata,
     IndexedTopicSummary,
     IndexMetadataPayload,
+    OutputArtifact,
+    OutputArtifactSummary,
     RegisteredAsset,
     SavedConversionConfig,
     SavedConversionConfigSummary,
@@ -225,4 +227,42 @@ def build_saved_conversion_config(
         updated_at=summary.updated_at,
         last_opened_at=summary.last_opened_at,
         invalid_reason=summary.invalid_reason,
+    )
+
+
+def row_to_output_artifact(row: sqlite3.Row) -> OutputArtifact:
+    return OutputArtifact(
+        id=row["id"],
+        source_asset_id=row["source_asset_id"],
+        source_asset_path=row["source_asset_path"],
+        output_path=row["output_path"],
+        relative_path=row["relative_path"],
+        file_name=row["file_name"],
+        format=row["format"],
+        role=row["role"],
+        size_bytes=int(row["size_bytes"]),
+        availability_status=row["availability_status"],
+        media_type=row["media_type"],
+        metadata=dict(json.loads(row["metadata_json"])),
+        created_at=from_db_timestamp(row["created_at"]),
+        updated_at=from_db_timestamp(row["updated_at"]),
+        saved_config_id=row["saved_config_id"],
+        manifest_available=bool(row["manifest_available"]),
+        report_available=bool(row["report_available"]),
+    )
+
+
+def row_to_output_artifact_summary(row: sqlite3.Row) -> OutputArtifactSummary:
+    artifact = row_to_output_artifact(row)
+    return OutputArtifactSummary(
+        id=artifact.id,
+        source_asset_id=artifact.source_asset_id,
+        source_asset_path=artifact.source_asset_path,
+        output_path=artifact.output_path,
+        format=artifact.format,
+        role=artifact.role,
+        created_at=artifact.created_at,
+        saved_config_id=artifact.saved_config_id,
+        manifest_available=artifact.manifest_available,
+        report_available=artifact.report_available,
     )

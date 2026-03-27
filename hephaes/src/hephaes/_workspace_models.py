@@ -126,3 +126,38 @@ class SavedConversionConfig:
     updated_at: datetime
     last_opened_at: datetime | None
     invalid_reason: str | None
+
+
+@dataclass(frozen=True)
+class OutputArtifactSummary:
+    id: str
+    source_asset_id: str | None
+    source_asset_path: str | None
+    output_path: str
+    format: str
+    role: str
+    created_at: datetime
+    saved_config_id: str | None
+    manifest_available: bool
+    report_available: bool
+
+
+@dataclass(frozen=True)
+class OutputArtifact:
+    id: str
+    source_asset_id: str | None
+    source_asset_path: str | None
+    output_path: str
+    relative_path: str
+    file_name: str
+    format: str
+    role: str
+    size_bytes: int
+    availability_status: str
+    media_type: str | None
+    metadata: dict[str, Any]
+    created_at: datetime
+    updated_at: datetime
+    saved_config_id: str | None
+    manifest_available: bool
+    report_available: bool

@@ -322,8 +322,37 @@ def test_cli_configs_save_and_ls(tmp_path: Path, capsys) -> None:
     assert exit_code == 0
     assert "\tSaved Demo\t" in captured.out
 
-    exit_code = main(["configs", "ls", "--workspace", str(tmp_path)])
+
+def test_cli_outputs_ls_and_show(tmp_path: Path, capsys) -> None:
+    main(["init", str(tmp_path)])
+    capsys.readouterr()
+
+    workspace_outputs = tmp_path / "outputs"
+    workspace_outputs.mkdir()
+    dataset_path = workspace_outputs / "episode_0001.parquet"
+    dataset_path.write_bytes(b"parquet")
+    manifest_path = workspace_outputs / "episode_0001.manifest.json"
+    manifest_path.write_text('{"episode_id":"episode_0001"}', encoding="utf-8")
+
+    from hephaes import Workspace
+
+    workspace = Workspace.open(tmp_path)
+    registered = workspace.register_output_artifacts(
+        output_root=workspace_outputs,
+        source_asset_path="/tmp/source.mcap",
+    )
+
+    exit_code = main(["outputs", "ls", "--workspace", str(tmp_path)])
 
     captured = capsys.readouterr()
     assert exit_code == 0
-    assert "\tSaved Demo\t" in captured.out
+    assert str(dataset_path.resolve()) in captured.out
+    assert "\tparquet\tdataset\t" in captured.out
+
+    dataset_id = next(output.id for output in registered if output.role == "dataset")
+    exit_code = main(["outputs", "show", "--workspace", str(tmp_path), dataset_id])
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert '"format": "parquet"' in captured.out
+    assert '"manifest_available": true' in captured.out

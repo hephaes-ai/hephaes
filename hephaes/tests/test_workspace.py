@@ -311,3 +311,50 @@ def test_resolve_saved_conversion_config_by_name(tmp_path: Path) -> None:
 
     assert resolved.name == "TF Config"
     assert resolved.document.spec.output.format == "tfrecord"
+
+
+def test_register_and_list_output_artifacts(tmp_path: Path) -> None:
+    workspace = Workspace.init(tmp_path)
+    outputs_dir = tmp_path / "emitted"
+    outputs_dir.mkdir()
+    dataset_path = outputs_dir / "episode_0001.parquet"
+    dataset_path.write_bytes(b"parquet")
+    manifest_path = outputs_dir / "episode_0001.manifest.json"
+    manifest_path.write_text('{"episode_id":"episode_0001"}', encoding="utf-8")
+    report_path = outputs_dir / "episode_0001.report.md"
+    report_path.write_text("# report", encoding="utf-8")
+
+    registered = workspace.register_output_artifacts(
+        output_root=outputs_dir,
+        source_asset_path="/tmp/source.mcap",
+    )
+    outputs = workspace.list_output_artifacts()
+
+    assert len(registered) == 3
+    assert len(outputs) == 3
+    dataset = next(output for output in outputs if output.role == "dataset")
+    assert dataset.format == "parquet"
+    assert dataset.source_asset_path == "/tmp/source.mcap"
+    assert dataset.manifest_available is True
+    assert dataset.report_available is True
+
+
+def test_get_output_artifact_returns_metadata(tmp_path: Path) -> None:
+    workspace = Workspace.init(tmp_path)
+    dataset_path = tmp_path / "episode_0001.tfrecord"
+    dataset_path.write_bytes(b"tfrecord")
+    manifest_path = tmp_path / "episode_0001.manifest.json"
+    manifest_path.write_text('{"episode_id":"episode_0001","dataset":{"format":"tfrecord"}}', encoding="utf-8")
+
+    registered = workspace.register_output_artifacts(
+        output_root=dataset_path,
+        source_asset_id="asset-123",
+        saved_config_id="config-123",
+    )
+    artifact = workspace.get_output_artifact_or_raise(registered[0].id)
+
+    assert artifact.source_asset_id == "asset-123"
+    assert artifact.saved_config_id == "config-123"
+    assert artifact.output_path == str(dataset_path.resolve())
+    assert artifact.manifest_available is True
+    assert artifact.metadata["manifest"]["dataset"]["format"] == "tfrecord"
