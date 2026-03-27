@@ -35,8 +35,6 @@ import {
   getWorkflowStatusClasses,
   isWorkflowActiveStatus,
 } from "@/lib/format";
-import { buildConversionHref, buildJobDetailHref, resolveReturnHref } from "@/lib/navigation";
-import { buildOutputsHref } from "@/lib/outputs";
 import {
   buildConversionPayload,
   createDefaultFormState,
@@ -49,7 +47,9 @@ import {
   type ConversionFormState,
   type ParquetCompression,
   type TFRecordCompression,
-} from "./conversion-workflow";
+} from "@/lib/conversion-workflow";
+import { buildConversionHref, buildJobDetailHref, resolveReturnHref } from "@/lib/navigation";
+import { buildOutputsHref } from "@/lib/outputs";
 
 function parseAssetIds(rawAssetIds: string | null | undefined) {
   return Array.from(
@@ -309,10 +309,10 @@ export function ConversionPage() {
     setRequestMessage(null);
     setFormState(createDefaultFormState());
 
-      const nextHref = buildConversionHref({
-        assetIds,
-        from: searchParams.get("from"),
-      });
+    const nextHref = buildConversionHref({
+      assetIds,
+      from: searchParams.get("from"),
+    });
 
     React.startTransition(() => {
       router.replace(nextHref, { scroll: false });

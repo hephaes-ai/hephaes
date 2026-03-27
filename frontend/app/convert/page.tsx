@@ -1,26 +1,10 @@
 import { redirect } from "next/navigation"
 
-import {
-  buildConversionCreateHref,
-  buildConversionUseHref,
-} from "@/lib/navigation"
-import {
-  resolveBackendUrl,
-  type SavedConversionConfigSummaryResponse,
-} from "@/lib/api"
+import { ConversionEntryErrorState } from "@/components/conversion-entry-state"
+import { resolveConversionEntry } from "@/lib/conversion-entry"
+import { resolveReturnHref } from "@/lib/navigation"
 
 export const dynamic = "force-dynamic"
-
-function parseAssetIds(rawAssetIds: string | null | undefined) {
-  return Array.from(
-    new Set(
-      (rawAssetIds ?? "")
-        .split(",")
-        .map((assetId) => assetId.trim())
-        .filter(Boolean)
-    )
-  )
-}
 
 function appendSearchParams(
   searchParams: Record<string, string | string[] | undefined>,
@@ -40,24 +24,6 @@ function appendSearchParams(
   }
 }
 
-async function loadSavedConfigs() {
-  try {
-    const response = await fetch(resolveBackendUrl("/conversion-configs"), {
-      cache: "no-store",
-    })
-
-    if (!response.ok) {
-      return null
-    }
-
-    const payload =
-      (await response.json()) as SavedConversionConfigSummaryResponse[]
-    return Array.isArray(payload) ? payload : null
-  } catch {
-    return null
-  }
-}
-
 export default async function ConversionRoute({
   searchParams,
 }: {
@@ -66,31 +32,16 @@ export default async function ConversionRoute({
   const params = await searchParams
   const nextParams = new URLSearchParams()
   appendSearchParams(params, nextParams)
+  const resolution = await resolveConversionEntry(nextParams)
 
-  const assetIds = parseAssetIds(nextParams.get("asset_ids"))
-  const from = nextParams.get("from")
-  const conversionId = nextParams.get("conversion_id")?.trim() || null
-  const sourceAssetId = nextParams.get("source_asset_id")?.trim() || null
-  const savedConfigId = nextParams.get("saved_config_id")?.trim() || null
-  const savedConfigs = await loadSavedConfigs()
+  if (resolution.status === "error") {
+    return (
+      <ConversionEntryErrorState
+        description={resolution.error}
+        returnHref={resolveReturnHref(nextParams.get("from"), "/inventory")}
+      />
+    )
+  }
 
-  const nextHref =
-    savedConfigs && savedConfigs.length > 0
-      ? buildConversionUseHref({
-          assetIds,
-          conversionId,
-          from,
-          savedConfigId:
-            savedConfigs.find((config) => config.id === savedConfigId)?.id ??
-            savedConfigs[0]?.id ??
-            null,
-          sourceAssetId,
-        })
-      : buildConversionCreateHref({
-          assetIds,
-          from,
-          sourceAssetId,
-        })
-
-  redirect(nextHref)
+  redirect(resolution.href)
 }
