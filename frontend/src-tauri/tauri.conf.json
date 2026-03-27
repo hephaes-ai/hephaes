@@ -28,6 +28,9 @@
   },
   "bundle": {
     "active": true,
+    "externalBin": [
+      "binaries/hephaes-backend-sidecar"
+    ],
     "targets": "all",
     "icon": [
       "icons/32x32.png",

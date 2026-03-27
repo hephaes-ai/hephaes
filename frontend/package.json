@@ -9,6 +9,7 @@
     "start": "next start",
     "desktop:dev": "vite",
     "desktop:build": "vite build",
+    "tauri:prepare-backend": "python ../backend/scripts/stage_tauri_sidecar.py --clean",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
     "lint": "eslint",
