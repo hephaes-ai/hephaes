@@ -57,7 +57,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_parser.add_argument(
         "paths",
         nargs="+",
-        help="Asset file paths to register.",
+        help="Asset file or directory paths to register. Directories are walked recursively.",
     )
     add_parser.add_argument(
         "--workspace",
@@ -312,12 +312,38 @@ def _handle_init(args: argparse.Namespace) -> int:
     return 0
 
 
+def _collect_asset_files(paths: list[str]) -> tuple[list[Path], list[Path]]:
+    from .workspace import SUPPORTED_ASSET_FILE_TYPES
+
+    explicit: list[Path] = []
+    discovered: list[Path] = []
+    for raw in paths:
+        p = Path(raw).expanduser().resolve()
+        if p.is_dir():
+            for child in sorted(p.rglob("*")):
+                if child.is_file() and child.suffix.lstrip(".") in SUPPORTED_ASSET_FILE_TYPES:
+                    discovered.append(child)
+        else:
+            explicit.append(p)
+    return explicit, discovered
+
+
 def _handle_add(args: argparse.Namespace) -> int:
     workspace = _open_workspace(args.workspace)
+    explicit_files, discovered_files = _collect_asset_files(args.paths)
+    if not explicit_files and not discovered_files:
+        print("No supported asset files found.", file=sys.stderr)
+        return 1
     registered = []
-    for raw_path in args.paths:
-        asset = workspace.register_asset(raw_path, on_duplicate=args.on_duplicate)
+    for file_path in explicit_files:
+        asset = workspace.register_asset(file_path, on_duplicate=args.on_duplicate)
         registered.append(asset)
+    for file_path in discovered_files:
+        try:
+            asset = workspace.register_asset(file_path, on_duplicate="error")
+            registered.append(asset)
+        except AssetAlreadyRegisteredError:
+            print(f"Warning: skipping already registered asset: {file_path}", file=sys.stderr)
 
     for asset in registered:
         print(
