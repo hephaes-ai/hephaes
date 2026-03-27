@@ -24,6 +24,7 @@ def test_workspace_init_creates_layout(tmp_path: Path) -> None:
     assert workspace.root == tmp_path
     assert (tmp_path / ".hephaes").is_dir()
     assert (tmp_path / ".hephaes" / "workspace.sqlite3").is_file()
+    assert (tmp_path / ".hephaes" / "imports").is_dir()
     assert (tmp_path / ".hephaes" / "outputs").is_dir()
     assert (tmp_path / ".hephaes" / "specs").is_dir()
     assert (tmp_path / ".hephaes" / "jobs").is_dir()
@@ -60,7 +61,9 @@ def test_register_asset_persists_across_reopen(tmp_path: Path, tmp_mcap_file: Pa
 
     assert len(assets) == 1
     assert assets[0].id == registered.id
-    assert assets[0].file_path == str(tmp_mcap_file.resolve())
+    assert Path(assets[0].file_path).is_file()
+    assert str(tmp_path / ".hephaes" / "imports") in assets[0].file_path
+    assert assets[0].source_path == str(tmp_mcap_file.resolve())
     assert assets[0].file_type == "mcap"
     assert assets[0].indexing_status == "pending"
 
@@ -94,6 +97,18 @@ def test_register_asset_supports_duplicate_refresh(tmp_path: Path, tmp_bag_file:
     assert refreshed.updated_at >= first.updated_at
 
 
+def test_import_asset_copies_file_into_workspace(tmp_path: Path, tmp_bag_file: Path) -> None:
+    workspace = Workspace.init(tmp_path)
+
+    asset = workspace.import_asset(tmp_bag_file)
+
+    imported_path = Path(asset.file_path)
+    assert imported_path.is_file()
+    assert imported_path.read_bytes() == tmp_bag_file.read_bytes()
+    assert imported_path.parent.parent == tmp_path / ".hephaes" / "imports"
+    assert asset.source_path == str(tmp_bag_file.resolve())
+
+
 def test_register_asset_rejects_unsupported_types(tmp_path: Path) -> None:
     workspace = Workspace.init(tmp_path)
     unsupported = tmp_path / "notes.txt"
@@ -112,7 +127,9 @@ def test_index_asset_persists_profiled_metadata(
     asset = workspace.register_asset(tmp_mcap_file)
 
     def fake_profile_asset_file(file_path: str, *, max_workers: int = 1) -> BagMetadata:
-        assert file_path == str(tmp_mcap_file.resolve())
+        assert Path(file_path).is_file()
+        assert Path(file_path).name == tmp_mcap_file.name
+        assert str(tmp_path / ".hephaes" / "imports") in file_path
         assert max_workers == 1
         return BagMetadata(
             path=file_path,
@@ -387,7 +404,10 @@ def test_run_conversion_registers_emitted_outputs(
             max_workers=1,
             **kwargs,
         ) -> None:
-            assert file_paths == [str(tmp_mcap_file.resolve())]
+            assert len(file_paths) == 1
+            assert Path(file_paths[0]).is_file()
+            assert Path(file_paths[0]).name == tmp_mcap_file.name
+            assert str(tmp_path / ".hephaes" / "imports") in file_paths[0]
             assert mapping is None
             assert spec.schema.name == "demo"
             assert max_workers == 1
@@ -412,6 +432,7 @@ def test_run_conversion_registers_emitted_outputs(
     manifest_output = next(output for output in outputs if output.role == "manifest")
     assert dataset_output.source_asset_id == asset.id
     assert dataset_output.saved_config_id == saved_config.id
+    assert dataset_output.source_asset_path == str(tmp_mcap_file.resolve())
     assert dataset_output.manifest_available is True
     assert manifest_output.saved_config_id == saved_config.id
 

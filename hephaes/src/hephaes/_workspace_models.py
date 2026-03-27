@@ -17,6 +17,7 @@ class WorkspacePaths:
     root: Path
     workspace_dir: Path
     database_path: Path
+    imports_dir: Path
     outputs_dir: Path
     specs_dir: Path
     jobs_dir: Path
@@ -26,9 +27,11 @@ class WorkspacePaths:
 class RegisteredAsset:
     id: str
     file_path: str
+    source_path: str | None
     file_name: str
     file_type: str
     file_size: int
+    imported_at: datetime
     registered_at: datetime
     updated_at: datetime
     indexing_status: str

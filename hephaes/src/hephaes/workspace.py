@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import mimetypes
+import shutil
 import sqlite3
 from contextlib import contextmanager
 from datetime import UTC, datetime
@@ -150,6 +151,13 @@ def _write_text_atomically(path: Path, content: str) -> None:
     temporary_path.replace(path)
 
 
+def _copy_file_atomically(source_path: Path, destination_path: Path) -> None:
+    destination_path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path = destination_path.with_name(f".{destination_path.name}.tmp")
+    shutil.copy2(source_path, temporary_path)
+    temporary_path.replace(destination_path)
+
+
 def _infer_output_format_and_role(path: Path) -> tuple[str, str]:
     name = path.name.lower()
     if name.endswith(".manifest.json"):
@@ -244,6 +252,7 @@ class Workspace:
             root=normalized_root,
             workspace_dir=workspace_dir,
             database_path=workspace_dir / WORKSPACE_DB_FILENAME,
+            imports_dir=workspace_dir / "imports",
             outputs_dir=workspace_dir / "outputs",
             specs_dir=workspace_dir / "specs",
             jobs_dir=workspace_dir / "jobs",
@@ -261,10 +270,12 @@ class Workspace:
             root=workspace_dir.parent,
             workspace_dir=workspace_dir,
             database_path=workspace_dir / WORKSPACE_DB_FILENAME,
+            imports_dir=workspace_dir / "imports",
             outputs_dir=workspace_dir / "outputs",
             specs_dir=workspace_dir / "specs",
             jobs_dir=workspace_dir / "jobs",
         )
+        cls._create_layout(paths)
         workspace = cls(paths)
         workspace._validate_database()
         return workspace
@@ -283,6 +294,7 @@ class Workspace:
     @staticmethod
     def _create_layout(paths: WorkspacePaths) -> None:
         paths.workspace_dir.mkdir(parents=True, exist_ok=True)
+        paths.imports_dir.mkdir(parents=True, exist_ok=True)
         paths.outputs_dir.mkdir(parents=True, exist_ok=True)
         paths.specs_dir.mkdir(parents=True, exist_ok=True)
         paths.jobs_dir.mkdir(parents=True, exist_ok=True)
@@ -315,71 +327,94 @@ class Workspace:
             except ValueError as exc:
                 raise WorkspaceError(str(exc)) from exc
 
-    def register_asset(
+    def _build_import_destination(self, *, asset_id: str, source_path: Path) -> Path:
+        return self.paths.imports_dir / asset_id / source_path.name
+
+    def import_asset(
         self,
         asset_path: str | Path,
         *,
         on_duplicate: AssetRegistrationMode = "error",
     ) -> RegisteredAsset:
-        normalized_path, file_type, file_size = _inspect_asset_path(asset_path)
+        normalized_source_path, file_type, _file_size = _inspect_asset_path(asset_path)
         now = _utc_now()
-        file_path = str(normalized_path)
-        file_name = normalized_path.name
+        source_path = str(normalized_source_path)
+        file_name = normalized_source_path.name
 
         with self._transaction() as connection:
             existing = connection.execute(
-                "SELECT * FROM assets WHERE file_path = ?",
-                (file_path,),
+                """
+                SELECT *
+                FROM assets
+                WHERE source_path = ?
+                   OR file_path = ?
+                """,
+                (source_path, source_path),
             ).fetchone()
 
             if existing is not None:
+                existing_asset = row_to_registered_asset(existing)
                 if on_duplicate == "skip":
-                    return row_to_registered_asset(existing)
+                    return existing_asset
                 if on_duplicate == "refresh":
+                    imported_path = Path(existing_asset.file_path)
+                    _copy_file_atomically(normalized_source_path, imported_path)
                     connection.execute(
                         """
                         UPDATE assets
-                        SET file_name = ?, file_type = ?, file_size = ?, updated_at = ?
-                        WHERE file_path = ?
+                        SET source_path = ?, file_name = ?, file_type = ?, file_size = ?, updated_at = ?
+                        WHERE id = ?
                         """,
                         (
+                            source_path,
                             file_name,
                             file_type,
-                            file_size,
+                            imported_path.stat().st_size,
                             to_db_timestamp(now),
-                            file_path,
+                            existing_asset.id,
                         ),
                     )
                     refreshed = connection.execute(
-                        "SELECT * FROM assets WHERE file_path = ?",
-                        (file_path,),
+                        "SELECT * FROM assets WHERE id = ?",
+                        (existing_asset.id,),
                     ).fetchone()
                     return row_to_registered_asset(refreshed)
                 raise AssetAlreadyRegisteredError(
-                    f"asset already registered: {file_path}"
+                    f"asset already registered: {source_path}"
                 )
 
             asset_id = str(uuid4())
+            imported_path = self._build_import_destination(
+                asset_id=asset_id,
+                source_path=normalized_source_path,
+            )
+            _copy_file_atomically(normalized_source_path, imported_path)
+            imported_size = imported_path.stat().st_size
             timestamp = to_db_timestamp(now)
             connection.execute(
                 """
                 INSERT INTO assets(
                     id,
                     file_path,
+                    source_path,
                     file_name,
                     file_type,
                     file_size,
                     indexing_status,
+                    last_indexed_at,
+                    imported_at,
                     registered_at,
                     updated_at
-                ) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, 'pending', NULL, ?, ?, ?)
                 """,
                 (
                     asset_id,
-                    file_path,
+                    str(imported_path),
+                    source_path,
                     file_name,
                     file_type,
-                    file_size,
+                    imported_size,
+                    timestamp,
                     timestamp,
                     timestamp,
                 ),
@@ -389,6 +424,14 @@ class Workspace:
                 (asset_id,),
             ).fetchone()
             return row_to_registered_asset(row)
+
+    def register_asset(
+        self,
+        asset_path: str | Path,
+        *,
+        on_duplicate: AssetRegistrationMode = "error",
+    ) -> RegisteredAsset:
+        return self.import_asset(asset_path, on_duplicate=on_duplicate)
 
     def list_assets(self) -> list[RegisteredAsset]:
         with self._connect() as connection:
@@ -415,8 +458,13 @@ class Workspace:
         normalized_path = str(_normalize_asset_path(asset_path))
         with self._connect() as connection:
             row = connection.execute(
-                "SELECT * FROM assets WHERE file_path = ?",
-                (normalized_path,),
+                """
+                SELECT *
+                FROM assets
+                WHERE file_path = ?
+                   OR source_path = ?
+                """,
+                (normalized_path, normalized_path),
             ).fetchone()
         if row is None:
             return None
@@ -762,7 +810,11 @@ class Workspace:
             output_root=resolved_output_dir,
             paths=[str(path) for path in artifact_paths],
             source_asset_id=registered_asset.id if registered_asset is not None else None,
-            source_asset_path=str(source_path),
+            source_asset_path=(
+                registered_asset.source_path
+                if registered_asset is not None
+                else str(source_path)
+            ),
             saved_config_id=saved_config.id if saved_config is not None else None,
         )
 

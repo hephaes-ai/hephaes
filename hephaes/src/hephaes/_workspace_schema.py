@@ -4,7 +4,7 @@ import sqlite3
 
 WORKSPACE_DIRNAME = ".hephaes"
 WORKSPACE_DB_FILENAME = "workspace.sqlite3"
-WORKSPACE_SCHEMA_VERSION = 4
+WORKSPACE_SCHEMA_VERSION = 5
 
 
 def initialize_workspace_schema(connection: sqlite3.Connection) -> None:
@@ -21,11 +21,13 @@ def initialize_workspace_schema(connection: sqlite3.Connection) -> None:
         CREATE TABLE IF NOT EXISTS assets (
             id TEXT PRIMARY KEY,
             file_path TEXT NOT NULL UNIQUE,
+            source_path TEXT NULL UNIQUE,
             file_name TEXT NOT NULL,
             file_type TEXT NOT NULL,
             file_size INTEGER NOT NULL,
             indexing_status TEXT NOT NULL DEFAULT 'pending',
             last_indexed_at TEXT NULL,
+            imported_at TEXT NOT NULL,
             registered_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
         );
@@ -87,6 +89,9 @@ def initialize_workspace_schema(connection: sqlite3.Connection) -> None:
 
         CREATE INDEX IF NOT EXISTS idx_assets_registered_at
         ON assets(registered_at DESC, id DESC);
+
+        CREATE INDEX IF NOT EXISTS idx_assets_source_path
+        ON assets(source_path);
         """
     )
     connection.execute(
@@ -190,6 +195,34 @@ def migrate_workspace_schema(connection: sqlite3.Connection, schema_version: int
             """
             CREATE UNIQUE INDEX IF NOT EXISTS idx_output_artifacts_output_path
             ON output_artifacts(output_path)
+            """
+        )
+        connection.execute(
+            "UPDATE workspace_meta SET value = ? WHERE key = 'schema_version'",
+            ("4",),
+        )
+        schema_version = 4
+    if schema_version == 4:
+        columns = {
+            row["name"]
+            for row in connection.execute("PRAGMA table_info(assets)").fetchall()
+        }
+        if "source_path" not in columns:
+            connection.execute("ALTER TABLE assets ADD COLUMN source_path TEXT NULL")
+        if "imported_at" not in columns:
+            connection.execute("ALTER TABLE assets ADD COLUMN imported_at TEXT NULL")
+            connection.execute(
+                """
+                UPDATE assets
+                SET imported_at = COALESCE(registered_at, updated_at)
+                WHERE imported_at IS NULL
+                """
+            )
+        connection.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_assets_source_path
+            ON assets(source_path)
+            WHERE source_path IS NOT NULL
             """
         )
         connection.execute(

@@ -33,9 +33,11 @@ def row_to_registered_asset(row: sqlite3.Row) -> RegisteredAsset:
     return RegisteredAsset(
         id=row["id"],
         file_path=row["file_path"],
+        source_path=row["source_path"],
         file_name=row["file_name"],
         file_type=row["file_type"],
         file_size=int(row["file_size"]),
+        imported_at=from_db_timestamp(row["imported_at"]),
         registered_at=from_db_timestamp(row["registered_at"]),
         updated_at=from_db_timestamp(row["updated_at"]),
         indexing_status=row["indexing_status"],
