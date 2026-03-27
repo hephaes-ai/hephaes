@@ -21,6 +21,7 @@
   "dependencies": {
     "@rerun-io/web-viewer": "^0.22.1",
     "@tauri-apps/api": "^2.10.1",
+    "@tauri-apps/plugin-dialog": "^2.6.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "lucide-react": "^0.577.0",
