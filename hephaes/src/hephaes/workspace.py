@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 from contextlib import contextmanager
 from datetime import UTC, datetime
@@ -14,6 +15,8 @@ from ._workspace_models import (
     IndexedAssetMetadata,
     IndexedTopicSummary,
     RegisteredAsset,
+    SavedConversionConfig,
+    SavedConversionConfigSummary,
     SourceAssetMetadata,
     VisualizationSummary,
     WorkspacePaths,
@@ -26,12 +29,23 @@ from ._workspace_schema import (
     migrate_workspace_schema,
 )
 from ._workspace_serialization import (
+    build_saved_conversion_config,
     from_db_timestamp,
     row_to_indexed_asset_metadata,
     row_to_registered_asset,
+    row_to_saved_conversion_config_summary,
     to_db_timestamp,
     upsert_asset_metadata,
 )
+from .conversion.spec_io import (
+    CONVERSION_SPEC_DOCUMENT_VERSION,
+    ConversionSpecDocument,
+    build_conversion_spec_document,
+    dump_conversion_spec_document,
+    load_conversion_spec_document,
+    migrate_conversion_spec_document,
+)
+from .models import ConversionSpec
 
 SUPPORTED_ASSET_FILE_TYPES = frozenset({"bag", "mcap"})
 
@@ -58,6 +72,18 @@ class AssetAlreadyRegisteredError(WorkspaceError):
 
 class AssetNotFoundError(WorkspaceError):
     """Raised when a requested asset cannot be found in the workspace."""
+
+
+class ConversionConfigAlreadyExistsError(WorkspaceError):
+    """Raised when a saved conversion config name already exists."""
+
+
+class ConversionConfigNotFoundError(WorkspaceError):
+    """Raised when a saved conversion config cannot be found."""
+
+
+class ConversionConfigInvalidError(WorkspaceError):
+    """Raised when a saved conversion config document cannot be loaded."""
 
 
 def _utc_now() -> datetime:
@@ -94,6 +120,24 @@ def _inspect_asset_path(path: str | Path) -> tuple[Path, str, int]:
         )
 
     return normalized, file_type, normalized.stat().st_size
+
+
+def _normalize_name(value: str) -> str:
+    return " ".join(value.strip().split()).casefold()
+
+
+def _normalize_optional_text(value: str | None) -> str | None:
+    if value is None:
+        return None
+    stripped = value.strip()
+    return stripped or None
+
+
+def _write_text_atomically(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path = path.with_name(f".{path.name}.tmp")
+    temporary_path.write_text(content, encoding="utf-8")
+    temporary_path.replace(path)
 
 
 class Workspace:
@@ -332,6 +376,133 @@ class Workspace:
             return None
         return row_to_indexed_asset_metadata(row)
 
+    def list_saved_conversion_configs(self) -> list[SavedConversionConfigSummary]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT *
+                FROM conversion_configs
+                ORDER BY updated_at DESC, id DESC
+                """
+            ).fetchall()
+        return [
+            row_to_saved_conversion_config_summary(
+                row,
+                document_path=str(self.paths.specs_dir / row["spec_document_path"]),
+            )
+            for row in rows
+        ]
+
+    def get_saved_conversion_config(self, config_id: str) -> SavedConversionConfig | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM conversion_configs WHERE id = ?",
+                (config_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        summary = row_to_saved_conversion_config_summary(
+            row,
+            document_path=str(self.paths.specs_dir / row["spec_document_path"]),
+        )
+        return self._resolve_saved_conversion_config(summary, persist_migration=True)
+
+    def find_saved_conversion_config_by_name(self, name: str) -> SavedConversionConfigSummary | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM conversion_configs WHERE normalized_name = ?",
+                (_normalize_name(name),),
+            ).fetchone()
+        if row is None:
+            return None
+        return row_to_saved_conversion_config_summary(
+            row,
+            document_path=str(self.paths.specs_dir / row["spec_document_path"]),
+        )
+
+    def resolve_saved_conversion_config(self, selector: str) -> SavedConversionConfig:
+        config = self.get_saved_conversion_config(selector)
+        if config is not None:
+            return config
+        summary = self.find_saved_conversion_config_by_name(selector)
+        if summary is None:
+            raise ConversionConfigNotFoundError(f"saved conversion config not found: {selector}")
+        return self._resolve_saved_conversion_config(summary, persist_migration=True)
+
+    def save_conversion_config(
+        self,
+        *,
+        name: str,
+        spec_document: ConversionSpecDocument | ConversionSpec | dict | str | Path,
+        description: str | None = None,
+    ) -> SavedConversionConfig:
+        normalized_name = _normalize_name(name)
+        if not normalized_name:
+            raise WorkspaceError("saved conversion config name must be non-empty")
+
+        if isinstance(spec_document, ConversionSpec):
+            document = build_conversion_spec_document(spec_document)
+        else:
+            document = load_conversion_spec_document(spec_document)
+
+        config_id = str(uuid4())
+        relative_document_path = f"{config_id}.json"
+        document_path = self.paths.specs_dir / relative_document_path
+        timestamp = _utc_now()
+        payload = dump_conversion_spec_document(document, format="json")
+
+        with self._transaction() as connection:
+            existing = connection.execute(
+                "SELECT id FROM conversion_configs WHERE normalized_name = ?",
+                (normalized_name,),
+            ).fetchone()
+            if existing is not None:
+                raise ConversionConfigAlreadyExistsError(
+                    f"saved conversion config already exists: {name}"
+                )
+
+            _write_text_atomically(document_path, payload)
+            connection.execute(
+                """
+                INSERT INTO conversion_configs(
+                    id,
+                    name,
+                    normalized_name,
+                    description,
+                    metadata_json,
+                    spec_document_path,
+                    spec_document_version,
+                    invalid_reason,
+                    created_at,
+                    updated_at,
+                    last_opened_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    config_id,
+                    name.strip(),
+                    normalized_name,
+                    _normalize_optional_text(description),
+                    json.dumps(document.metadata),
+                    relative_document_path,
+                    document.spec_version,
+                    None,
+                    to_db_timestamp(timestamp),
+                    to_db_timestamp(timestamp),
+                    None,
+                ),
+            )
+            row = connection.execute(
+                "SELECT * FROM conversion_configs WHERE id = ?",
+                (config_id,),
+            ).fetchone()
+
+        summary = row_to_saved_conversion_config_summary(
+            row,
+            document_path=str(document_path),
+        )
+        return build_saved_conversion_config(summary, document=document)
+
     def index_asset(self, asset_id: str, *, max_workers: int = 1) -> RegisteredAsset:
         started_at = _utc_now()
         with self._transaction() as connection:
@@ -394,6 +565,100 @@ class Workspace:
             )
 
         return self.get_asset_or_raise(asset_id)
+
+    def _resolve_saved_conversion_config(
+        self,
+        summary: SavedConversionConfigSummary,
+        *,
+        persist_migration: bool,
+    ) -> SavedConversionConfig:
+        document_path = Path(summary.document_path)
+        try:
+            document = load_conversion_spec_document(document_path)
+        except Exception as exc:
+            if persist_migration:
+                self._update_saved_conversion_config_invalid_reason(summary.id, str(exc))
+            raise ConversionConfigInvalidError(str(exc)) from exc
+
+        needs_migration = document.spec_version < CONVERSION_SPEC_DOCUMENT_VERSION
+        if needs_migration and persist_migration:
+            migrated_document = migrate_conversion_spec_document(document)
+            _write_text_atomically(document_path, dump_conversion_spec_document(migrated_document, format="json"))
+            self._update_saved_conversion_config_metadata(
+                summary.id,
+                spec_document_version=migrated_document.spec_version,
+                invalid_reason=None,
+                mark_opened=True,
+            )
+            refreshed_summary = self._get_saved_conversion_config_summary_or_raise(summary.id)
+            return build_saved_conversion_config(refreshed_summary, document=migrated_document)
+
+        if persist_migration:
+            self._update_saved_conversion_config_metadata(
+                summary.id,
+                spec_document_version=document.spec_version,
+                invalid_reason=None,
+                mark_opened=True,
+            )
+            summary = self._get_saved_conversion_config_summary_or_raise(summary.id)
+
+        return build_saved_conversion_config(summary, document=document)
+
+    def _get_saved_conversion_config_summary_or_raise(
+        self,
+        config_id: str,
+    ) -> SavedConversionConfigSummary:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM conversion_configs WHERE id = ?",
+                (config_id,),
+            ).fetchone()
+        if row is None:
+            raise ConversionConfigNotFoundError(f"saved conversion config not found: {config_id}")
+        return row_to_saved_conversion_config_summary(
+            row,
+            document_path=str(self.paths.specs_dir / row["spec_document_path"]),
+        )
+
+    def _update_saved_conversion_config_invalid_reason(self, config_id: str, invalid_reason: str) -> None:
+        with self._transaction() as connection:
+            connection.execute(
+                """
+                UPDATE conversion_configs
+                SET invalid_reason = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    invalid_reason,
+                    to_db_timestamp(_utc_now()),
+                    config_id,
+                ),
+            )
+
+    def _update_saved_conversion_config_metadata(
+        self,
+        config_id: str,
+        *,
+        spec_document_version: int,
+        invalid_reason: str | None,
+        mark_opened: bool,
+    ) -> None:
+        timestamp = _utc_now()
+        with self._transaction() as connection:
+            connection.execute(
+                """
+                UPDATE conversion_configs
+                SET spec_document_version = ?, invalid_reason = ?, updated_at = ?, last_opened_at = ?
+                WHERE id = ?
+                """,
+                (
+                    spec_document_version,
+                    invalid_reason,
+                    to_db_timestamp(timestamp),
+                    to_db_timestamp(timestamp) if mark_opened else None,
+                    config_id,
+                ),
+            )
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:

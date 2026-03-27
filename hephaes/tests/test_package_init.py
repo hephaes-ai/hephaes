@@ -88,13 +88,23 @@ class TestPublicExports:
 
     def test_workspace_summary_models_exported(self):
         from hephaes import (
+            ConversionConfigAlreadyExistsError,
+            ConversionConfigInvalidError,
+            ConversionConfigNotFoundError,
             DefaultEpisodeSummary,
             IndexedTopicSummary,
+            SavedConversionConfig,
+            SavedConversionConfigSummary,
             SourceAssetMetadata,
             VisualizationSummary,
         )
+        assert ConversionConfigAlreadyExistsError is not None
+        assert ConversionConfigInvalidError is not None
+        assert ConversionConfigNotFoundError is not None
         assert DefaultEpisodeSummary is not None
         assert IndexedTopicSummary is not None
+        assert SavedConversionConfig is not None
+        assert SavedConversionConfigSummary is not None
         assert SourceAssetMetadata is not None
         assert VisualizationSummary is not None
 
@@ -167,6 +177,9 @@ class TestPublicExports:
             "RowStrategySpec",
             "WideParquetWriter",
             "Profiler",
+            "ConversionConfigAlreadyExistsError",
+            "ConversionConfigInvalidError",
+            "ConversionConfigNotFoundError",
             "DefaultEpisodeSummary",
             "IndexedAssetMetadata",
             "IndexedTopicSummary",
@@ -175,6 +188,8 @@ class TestPublicExports:
             "ROS2Reader",
             "RosReader",
             "AssetNotFoundError",
+            "SavedConversionConfig",
+            "SavedConversionConfigSummary",
             "SourceAssetMetadata",
             "VisualizationSummary",
             "Workspace",

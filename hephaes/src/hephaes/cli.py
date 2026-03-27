@@ -10,6 +10,7 @@ from . import __version__
 from .conversion.introspection import inspect_bag
 from .workspace import (
     AssetAlreadyRegisteredError,
+    ConversionConfigAlreadyExistsError,
     InvalidAssetPathError,
     Workspace,
     WorkspaceAlreadyExistsError,
@@ -140,6 +141,41 @@ def build_parser() -> argparse.ArgumentParser:
     )
     inspect_parser.set_defaults(handler=_handle_inspect)
 
+    configs_parser = subparsers.add_parser(
+        "configs",
+        help="Manage saved conversion configs in the active workspace.",
+    )
+    configs_subparsers = configs_parser.add_subparsers(dest="configs_command")
+
+    configs_ls_parser = configs_subparsers.add_parser(
+        "ls",
+        help="List saved conversion configs.",
+    )
+    configs_ls_parser.add_argument(
+        "--workspace",
+        help="Workspace root or any path inside the target workspace.",
+    )
+    configs_ls_parser.set_defaults(handler=_handle_list_configs)
+
+    configs_save_parser = configs_subparsers.add_parser(
+        "save",
+        help="Save a conversion spec document into the workspace config store.",
+    )
+    configs_save_parser.add_argument("name", help="Saved config name.")
+    configs_save_parser.add_argument(
+        "spec_document",
+        help="Path to a conversion spec or conversion spec document.",
+    )
+    configs_save_parser.add_argument(
+        "--workspace",
+        help="Workspace root or any path inside the target workspace.",
+    )
+    configs_save_parser.add_argument(
+        "--description",
+        help="Optional saved config description.",
+    )
+    configs_save_parser.set_defaults(handler=_handle_save_config)
+
     ls_parser = subparsers.add_parser(
         "ls",
         help="List workspace records.",
@@ -173,7 +209,12 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     try:
         return int(handler(args))
-    except (WorkspaceError, InvalidAssetPathError, AssetAlreadyRegisteredError) as exc:
+    except (
+        WorkspaceError,
+        InvalidAssetPathError,
+        AssetAlreadyRegisteredError,
+        ConversionConfigAlreadyExistsError,
+    ) as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
 
@@ -307,4 +348,45 @@ def _handle_inspect(args: argparse.Namespace) -> int:
         on_failure=args.on_failure,
     )
     print(json.dumps(inspection.model_dump(mode="json"), sort_keys=True))
+    return 0
+
+
+def _handle_list_configs(args: argparse.Namespace) -> int:
+    workspace = _open_workspace(args.workspace)
+    configs = workspace.list_saved_conversion_configs()
+    if not configs:
+        print("No saved conversion configs.")
+        return 0
+
+    for config in configs:
+        print(
+            "\t".join(
+                (
+                    config.id,
+                    str(config.spec_document_version),
+                    config.name,
+                    config.document_path,
+                )
+            )
+        )
+    return 0
+
+
+def _handle_save_config(args: argparse.Namespace) -> int:
+    workspace = _open_workspace(args.workspace)
+    config = workspace.save_conversion_config(
+        name=args.name,
+        spec_document=args.spec_document,
+        description=args.description,
+    )
+    print(
+        "\t".join(
+            (
+                config.id,
+                str(config.spec_document_version),
+                config.name,
+                config.document_path,
+            )
+        )
+    )
     return 0

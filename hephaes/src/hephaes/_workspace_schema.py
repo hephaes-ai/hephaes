@@ -4,7 +4,7 @@ import sqlite3
 
 WORKSPACE_DIRNAME = ".hephaes"
 WORKSPACE_DB_FILENAME = "workspace.sqlite3"
-WORKSPACE_SCHEMA_VERSION = 2
+WORKSPACE_SCHEMA_VERSION = 3
 
 
 def initialize_workspace_schema(connection: sqlite3.Connection) -> None:
@@ -46,6 +46,20 @@ def initialize_workspace_schema(connection: sqlite3.Connection) -> None:
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
             FOREIGN KEY(asset_id) REFERENCES assets(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS conversion_configs (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            normalized_name TEXT NOT NULL UNIQUE,
+            description TEXT NULL,
+            metadata_json TEXT NOT NULL DEFAULT '{}',
+            spec_document_path TEXT NOT NULL,
+            spec_document_version INTEGER NOT NULL,
+            invalid_reason TEXT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            last_opened_at TEXT NULL
         );
 
         CREATE INDEX IF NOT EXISTS idx_assets_registered_at
@@ -92,6 +106,30 @@ def migrate_workspace_schema(connection: sqlite3.Connection, schema_version: int
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 FOREIGN KEY(asset_id) REFERENCES assets(id) ON DELETE CASCADE
+            )
+            """
+        )
+        connection.execute(
+            "UPDATE workspace_meta SET value = ? WHERE key = 'schema_version'",
+            ("2",),
+        )
+        schema_version = 2
+
+    if schema_version == 2:
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS conversion_configs (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                normalized_name TEXT NOT NULL UNIQUE,
+                description TEXT NULL,
+                metadata_json TEXT NOT NULL DEFAULT '{}',
+                spec_document_path TEXT NOT NULL,
+                spec_document_version INTEGER NOT NULL,
+                invalid_reason TEXT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                last_opened_at TEXT NULL
             )
             """
         )

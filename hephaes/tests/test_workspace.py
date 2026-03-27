@@ -7,12 +7,15 @@ import pytest
 from hephaes import (
     AssetAlreadyRegisteredError,
     AssetNotFoundError,
+    ConversionConfigAlreadyExistsError,
     InvalidAssetPathError,
     Workspace,
     WorkspaceAlreadyExistsError,
     WorkspaceNotFoundError,
 )
+from hephaes.conversion.spec_io import build_conversion_spec_document, dump_conversion_spec_document
 from hephaes.models import BagMetadata, Topic
+from hephaes.models import ConversionSpec, OutputSpec, SchemaSpec
 
 
 def test_workspace_init_creates_layout(tmp_path: Path) -> None:
@@ -256,3 +259,55 @@ def test_index_asset_raises_for_missing_asset(tmp_path: Path) -> None:
 
     with pytest.raises(AssetNotFoundError):
         workspace.index_asset("missing")
+
+
+def test_save_and_list_conversion_configs(tmp_path: Path) -> None:
+    workspace = Workspace.init(tmp_path)
+    spec = ConversionSpec(
+        schema=SchemaSpec(name="demo", version=1),
+        output=OutputSpec(format="parquet"),
+    )
+
+    saved = workspace.save_conversion_config(
+        name="Demo Config",
+        spec_document=build_conversion_spec_document(spec, metadata={"source": "test"}),
+        description="example",
+    )
+    configs = workspace.list_saved_conversion_configs()
+    resolved = workspace.resolve_saved_conversion_config(saved.id)
+
+    assert len(configs) == 1
+    assert configs[0].id == saved.id
+    assert configs[0].name == "Demo Config"
+    assert configs[0].description == "example"
+    assert Path(configs[0].document_path).is_file()
+    assert resolved.document.spec.schema.name == "demo"
+    assert resolved.metadata == {"source": "test"}
+
+
+def test_save_conversion_config_rejects_duplicate_names(tmp_path: Path) -> None:
+    workspace = Workspace.init(tmp_path)
+    spec = ConversionSpec(
+        schema=SchemaSpec(name="demo", version=1),
+        output=OutputSpec(format="parquet"),
+    )
+    document = build_conversion_spec_document(spec)
+
+    workspace.save_conversion_config(name="Demo Config", spec_document=document)
+
+    with pytest.raises(ConversionConfigAlreadyExistsError):
+        workspace.save_conversion_config(name="demo   config", spec_document=document)
+
+
+def test_resolve_saved_conversion_config_by_name(tmp_path: Path) -> None:
+    workspace = Workspace.init(tmp_path)
+    spec = ConversionSpec(
+        schema=SchemaSpec(name="demo", version=1),
+        output=OutputSpec(format="tfrecord"),
+    )
+    workspace.save_conversion_config(name="TF Config", spec_document=build_conversion_spec_document(spec))
+
+    resolved = workspace.resolve_saved_conversion_config("tf config")
+
+    assert resolved.name == "TF Config"
+    assert resolved.document.spec.output.format == "tfrecord"

@@ -11,9 +11,12 @@ from ._workspace_models import (
     IndexedTopicSummary,
     IndexMetadataPayload,
     RegisteredAsset,
+    SavedConversionConfig,
+    SavedConversionConfigSummary,
     SourceAssetMetadata,
     VisualizationSummary,
 )
+from .conversion.spec_io import ConversionSpecDocument
 
 
 def to_db_timestamp(value: datetime) -> str:
@@ -179,4 +182,47 @@ def upsert_asset_metadata(
             created_at,
             to_db_timestamp(timestamp),
         ),
+    )
+
+
+def row_to_saved_conversion_config_summary(
+    row: sqlite3.Row,
+    *,
+    document_path: str,
+) -> SavedConversionConfigSummary:
+    return SavedConversionConfigSummary(
+        id=row["id"],
+        name=row["name"],
+        description=row["description"],
+        metadata=dict(json.loads(row["metadata_json"])),
+        spec_document_version=int(row["spec_document_version"]),
+        document_path=document_path,
+        created_at=from_db_timestamp(row["created_at"]),
+        updated_at=from_db_timestamp(row["updated_at"]),
+        last_opened_at=(
+            from_db_timestamp(row["last_opened_at"])
+            if row["last_opened_at"] is not None
+            else None
+        ),
+        invalid_reason=row["invalid_reason"],
+    )
+
+
+def build_saved_conversion_config(
+    summary: SavedConversionConfigSummary,
+    *,
+    document: ConversionSpecDocument,
+) -> SavedConversionConfig:
+    return SavedConversionConfig(
+        id=summary.id,
+        name=summary.name,
+        description=summary.description,
+        metadata=summary.metadata,
+        document=document,
+        spec_document_version=summary.spec_document_version,
+        document_path=summary.document_path,
+        created_at=summary.created_at,
+        updated_at=summary.updated_at,
+        last_opened_at=summary.last_opened_at,
+        invalid_reason=summary.invalid_reason,
     )

@@ -3,9 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from .metrics import SensorFamily, TopicModality
+from .conversion.spec_io import ConversionSpecDocument
 from .models import CompressionFormat, RosVersion, StorageFormat
 
 AssetRegistrationMode = Literal["error", "skip", "refresh"]
@@ -96,3 +97,32 @@ class IndexMetadataPayload:
     default_episode: DefaultEpisodeSummary | None
     visualization_summary: VisualizationSummary | None
     raw_metadata: SourceAssetMetadata
+
+
+@dataclass(frozen=True)
+class SavedConversionConfigSummary:
+    id: str
+    name: str
+    description: str | None
+    metadata: dict[str, Any]
+    spec_document_version: int
+    document_path: str
+    created_at: datetime
+    updated_at: datetime
+    last_opened_at: datetime | None
+    invalid_reason: str | None
+
+
+@dataclass(frozen=True)
+class SavedConversionConfig:
+    id: str
+    name: str
+    description: str | None
+    metadata: dict[str, Any]
+    document: ConversionSpecDocument
+    spec_document_version: int
+    document_path: str
+    created_at: datetime
+    updated_at: datetime
+    last_opened_at: datetime | None
+    invalid_reason: str | None

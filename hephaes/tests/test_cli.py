@@ -3,9 +3,10 @@ from __future__ import annotations
 from pathlib import Path
 
 import hephaes
+from hephaes.conversion.spec_io import build_conversion_spec_document, dump_conversion_spec_document
 from hephaes.cli import main
 from hephaes.conversion.introspection import InspectionResult, TopicInspectionResult
-from hephaes.models import BagMetadata, Topic
+from hephaes.models import BagMetadata, ConversionSpec, OutputSpec, SchemaSpec, Topic
 
 
 def test_cli_version(capsys) -> None:
@@ -288,3 +289,41 @@ def test_cli_inspect_registered_asset_by_id(
     assert exit_code == 0
     assert '"ros_version": "ROS1"' in captured.out
     assert str(tmp_bag_file.resolve()) in captured.out
+
+
+def test_cli_configs_save_and_ls(tmp_path: Path, capsys) -> None:
+    main(["init", str(tmp_path)])
+    capsys.readouterr()
+
+    spec = ConversionSpec(
+        schema=SchemaSpec(name="saved_demo", version=1),
+        output=OutputSpec(format="parquet"),
+    )
+    document_path = tmp_path / "saved-spec.json"
+    document_path.write_text(
+        dump_conversion_spec_document(build_conversion_spec_document(spec), format="json"),
+        encoding="utf-8",
+    )
+
+    exit_code = main(
+        [
+            "configs",
+            "save",
+            "--workspace",
+            str(tmp_path),
+            "Saved Demo",
+            str(document_path),
+            "--description",
+            "demo config",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "\tSaved Demo\t" in captured.out
+
+    exit_code = main(["configs", "ls", "--workspace", str(tmp_path)])
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "\tSaved Demo\t" in captured.out
