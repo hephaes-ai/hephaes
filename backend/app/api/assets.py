@@ -43,9 +43,7 @@ from app.services import indexing as indexing_service
 from app.services.assets import (
     list_related_conversions_for_asset,
     list_related_jobs_for_asset,
-    sync_workspace_asset,
 )
-from app.services.jobs import sync_workspace_job
 from hephaes import (
     AssetAlreadyRegisteredError,
     AssetNotFoundError,
@@ -251,7 +249,6 @@ def _import_asset_or_skip(
 def register_asset_route(
     payload: AssetRegistrationRequest,
     workspace: WorkspaceDep,
-    session: DbSession,
 ) -> AssetRegistrationResponse:
     try:
         asset = workspace.import_asset(payload.file_path)
@@ -260,7 +257,6 @@ def register_asset_route(
     except AssetAlreadyRegisteredError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
-    sync_workspace_asset(session, asset=asset)
     return _asset_registration_response(asset)
 
 
@@ -272,7 +268,6 @@ def register_asset_route(
 async def upload_asset_route(
     request: Request,
     workspace: WorkspaceDep,
-    session: DbSession,
     file_name: Annotated[str | None, Header(alias="X-File-Name")] = None,
 ) -> AssetRegistrationResponse:
     if file_name is None or not file_name.strip():
@@ -305,14 +300,12 @@ async def upload_asset_route(
         raw_target_path.unlink(missing_ok=True)
         raise
 
-    sync_workspace_asset(session, asset=asset)
     return _asset_registration_response(asset)
 
 
 @router.post("/register-dialog", response_model=DialogAssetRegistrationResponse)
 def register_assets_from_dialog_route(
     workspace: WorkspaceDep,
-    session: DbSession,
 ) -> DialogAssetRegistrationResponse:
     try:
         selected_paths = asset_services.open_asset_file_dialog()
@@ -331,10 +324,6 @@ def register_assets_from_dialog_route(
     for file_path in selected_paths:
         registered_asset, skipped_item = _import_asset_or_skip(workspace, file_path)
         if registered_asset is not None:
-            sync_workspace_asset(
-                session,
-                asset=workspace.get_asset_or_raise(registered_asset.id),
-            )
             registered_assets.append(registered_asset)
         if skipped_item is not None:
             skipped.append(skipped_item)
@@ -350,7 +339,6 @@ def register_assets_from_dialog_route(
 def scan_directory_route(
     payload: DirectoryScanRequest,
     workspace: WorkspaceDep,
-    session: DbSession,
 ) -> DirectoryScanResponse:
     directory = asset_services.normalize_asset_path(payload.directory_path)
     if not directory.exists() or not directory.is_dir():
@@ -367,10 +355,6 @@ def scan_directory_route(
     for candidate in candidates:
         registered_asset, skipped_item = _import_asset_or_skip(workspace, str(candidate))
         if registered_asset is not None:
-            sync_workspace_asset(
-                session,
-                asset=workspace.get_asset_or_raise(registered_asset.id),
-            )
             registered_assets.append(registered_asset)
         if skipped_item is not None:
             skipped.append(skipped_item)
@@ -400,28 +384,9 @@ def index_asset_route(
                 "trigger": "index_asset",
             },
         )
-        sync_workspace_asset(
-            session,
-            asset=workspace.get_asset_or_raise(asset_id),
-            metadata=workspace.get_asset_metadata(asset_id),
-        )
-        for job in workspace.list_jobs():
-            if asset_id in job.target_asset_ids and job.kind == "index_asset":
-                sync_workspace_job(session, job=job)
     except AssetNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except Exception as exc:
-        try:
-            sync_workspace_asset(
-                session,
-                asset=workspace.get_asset_or_raise(asset_id),
-                metadata=workspace.get_asset_metadata(asset_id),
-            )
-            for job in workspace.list_jobs():
-                if asset_id in job.target_asset_ids and job.kind == "index_asset":
-                    sync_workspace_job(session, job=job)
-        except Exception:
-            pass
         raise HTTPException(status_code=HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
     return _build_asset_detail_response(workspace, asset_id, session=session)
 
@@ -488,7 +453,6 @@ def remove_tag_from_asset_route(
 def reindex_all_route(
     request: Request,
     workspace: WorkspaceDep,
-    session: DbSession,
 ) -> ReindexAllResponse:
     indexed_assets: list[AssetSummary] = []
     failed_assets: list[AssetSummary] = []
@@ -506,14 +470,6 @@ def reindex_all_route(
                     "trigger": "reindex_all",
                 },
             )
-            sync_workspace_asset(
-                session,
-                asset=reindexed_asset,
-                metadata=workspace.get_asset_metadata(asset.id),
-            )
-            for job in workspace.list_jobs():
-                if asset.id in job.target_asset_ids and job.kind == "index_asset":
-                    sync_workspace_job(session, job=job)
             indexed_assets.append(
                 map_asset_summary(reindexed_asset)
             )

@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
-from app.db.models import Asset, Conversion, Job, OutputArtifact
+from app.db.models import Conversion, Job, OutputArtifact
 from app.services import conversions as conversion_service
 from app.services import dashboard as dashboard_service
 from app.services import indexing as indexing_service
@@ -106,6 +107,58 @@ def parse_api_datetime(value: str | None) -> datetime | None:
 
 def count_entries_by_key(entries: list[dict[str, object]]) -> dict[str, int]:
     return {str(entry["key"]): int(entry["count"]) for entry in entries}
+
+
+def _update_workspace_asset(
+    client: TestClient,
+    *,
+    file_name: str,
+    registered_at: datetime,
+    last_indexed_at: datetime | None = None,
+) -> None:
+    with sqlite3.connect(client.app.state.workspace.database_path) as connection:
+        connection.execute(
+            """
+            UPDATE assets
+            SET registered_at = ?, last_indexed_at = ?
+            WHERE file_name = ?
+            """,
+            (
+                registered_at.isoformat(),
+                last_indexed_at.isoformat() if last_indexed_at is not None else None,
+                file_name,
+            ),
+        )
+        connection.commit()
+
+
+def _update_workspace_job(
+    client: TestClient,
+    *,
+    kind: str,
+    status: str,
+    created_at: datetime,
+    updated_at: datetime,
+    started_at: datetime | None = None,
+    completed_at: datetime | None = None,
+) -> None:
+    with sqlite3.connect(client.app.state.workspace.database_path) as connection:
+        connection.execute(
+            """
+            UPDATE jobs
+            SET created_at = ?, updated_at = ?, started_at = ?, completed_at = ?
+            WHERE kind = ? AND status = ?
+            """,
+            (
+                created_at.isoformat(),
+                updated_at.isoformat(),
+                started_at.isoformat() if started_at is not None else None,
+                completed_at.isoformat() if completed_at is not None else None,
+                kind,
+                status,
+            ),
+        )
+        connection.commit()
 
 
 def test_dashboard_routes_return_zeroed_shapes_for_empty_catalog(
@@ -282,29 +335,45 @@ def test_dashboard_routes_aggregate_mixed_operational_states(
     manifest_size = manifest_path.stat().st_size
     (successful_output_dir / "episode_0001.parquet").unlink()
 
+    _update_workspace_asset(
+        client,
+        file_name="indexed.mcap",
+        registered_at=datetime(2026, 3, 19, 1, 0, 0, tzinfo=UTC),
+        last_indexed_at=datetime(2026, 3, 18, 11, 5, 0, tzinfo=UTC),
+    )
+    _update_workspace_asset(
+        client,
+        file_name="pending.mcap",
+        registered_at=datetime(2026, 3, 15, 14, 0, 0, tzinfo=UTC),
+    )
+    _update_workspace_asset(
+        client,
+        file_name="failed.mcap",
+        registered_at=datetime(2026, 2, 10, 9, 0, 0, tzinfo=UTC),
+    )
+    _update_workspace_job(
+        client,
+        kind="index_asset",
+        status="succeeded",
+        created_at=datetime(2026, 3, 18, 11, 0, 0, tzinfo=UTC),
+        updated_at=datetime(2026, 3, 18, 11, 5, 0, tzinfo=UTC),
+        started_at=datetime(2026, 3, 18, 11, 0, 30, tzinfo=UTC),
+        completed_at=datetime(2026, 3, 18, 11, 5, 0, tzinfo=UTC),
+    )
+    _update_workspace_job(
+        client,
+        kind="index_asset",
+        status="failed",
+        created_at=datetime(2026, 3, 19, 8, 0, 0, tzinfo=UTC),
+        updated_at=datetime(2026, 3, 19, 8, 3, 0, tzinfo=UTC),
+        started_at=datetime(2026, 3, 19, 8, 0, 30, tzinfo=UTC),
+        completed_at=datetime(2026, 3, 19, 8, 3, 0, tzinfo=UTC),
+    )
+
     session = client.app.state.session_factory()
     try:
-        assets = {
-            asset.file_name: asset
-            for asset in session.scalars(select(Asset)).all()
-        }
-        assets["indexed.mcap"].registered_time = datetime(2026, 3, 19, 1, 0, 0, tzinfo=UTC)
-        assets["indexed.mcap"].last_indexed_time = datetime(2026, 3, 18, 11, 5, 0, tzinfo=UTC)
-        assets["pending.mcap"].registered_time = datetime(2026, 3, 15, 14, 0, 0, tzinfo=UTC)
-        assets["failed.mcap"].registered_time = datetime(2026, 2, 10, 9, 0, 0, tzinfo=UTC)
-
         for job in session.scalars(select(Job)).all():
-            if job.type == "index" and job.status == "succeeded":
-                job.created_at = datetime(2026, 3, 18, 11, 0, 0, tzinfo=UTC)
-                job.updated_at = datetime(2026, 3, 18, 11, 5, 0, tzinfo=UTC)
-                job.started_at = datetime(2026, 3, 18, 11, 0, 30, tzinfo=UTC)
-                job.finished_at = datetime(2026, 3, 18, 11, 5, 0, tzinfo=UTC)
-            elif job.type == "index" and job.status == "failed":
-                job.created_at = datetime(2026, 3, 19, 8, 0, 0, tzinfo=UTC)
-                job.updated_at = datetime(2026, 3, 19, 8, 3, 0, tzinfo=UTC)
-                job.started_at = datetime(2026, 3, 19, 8, 0, 30, tzinfo=UTC)
-                job.finished_at = datetime(2026, 3, 19, 8, 3, 0, tzinfo=UTC)
-            elif job.type == "prepare_visualization" and job.status == "queued":
+            if job.type == "prepare_visualization" and job.status == "queued":
                 job.created_at = datetime(2026, 3, 19, 9, 0, 0, tzinfo=UTC)
                 job.updated_at = datetime(2026, 3, 19, 9, 0, 0, tzinfo=UTC)
                 job.started_at = None

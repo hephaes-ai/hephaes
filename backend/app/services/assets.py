@@ -17,8 +17,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from app.config import get_settings
-from app.db.models import Asset, AssetMetadata, Conversion, Job, Tag
-from hephaes import IndexedAssetMetadata, RegisteredAsset, Workspace
+from app.db.models import Asset, Conversion, Job, Tag
+from hephaes import Workspace
 
 SUPPORTED_ASSET_FILE_TYPES = {"bag", "mcap"}
 
@@ -611,83 +611,6 @@ def list_asset_episodes(asset: Asset) -> list[AssetEpisodeSummary]:
             start_time=metadata_record.start_time,
         )
     ]
-
-
-def sync_workspace_asset(
-    session: Session,
-    *,
-    asset: RegisteredAsset,
-    metadata: IndexedAssetMetadata | None = None,
-) -> Asset:
-    db_asset = session.get(Asset, asset.id)
-    if db_asset is None:
-        db_asset = Asset(id=asset.id)
-        session.add(db_asset)
-
-    db_asset.file_path = asset.file_path
-    db_asset.file_name = asset.file_name
-    db_asset.file_type = asset.file_type
-    db_asset.file_size = asset.file_size
-    db_asset.registered_time = asset.registered_at
-    db_asset.indexing_status = asset.indexing_status
-    db_asset.last_indexed_time = asset.last_indexed_at
-
-    if metadata is not None:
-        metadata_record = db_asset.metadata_record
-        if metadata_record is None:
-            metadata_record = AssetMetadata(asset_id=asset.id)
-            db_asset.metadata_record = metadata_record
-            session.add(metadata_record)
-        metadata_record.duration = metadata.duration
-        metadata_record.start_time = metadata.start_time
-        metadata_record.end_time = metadata.end_time
-        metadata_record.topic_count = metadata.topic_count
-        metadata_record.message_count = metadata.message_count
-        metadata_record.sensor_types_json = [str(sensor_type) for sensor_type in metadata.sensor_types]
-        metadata_record.topics_json = [
-            {
-                "name": topic.name,
-                "message_type": topic.message_type,
-                "message_count": topic.message_count,
-                "rate_hz": topic.rate_hz,
-                "modality": topic.modality,
-            }
-            for topic in metadata.topics
-        ]
-        metadata_record.default_episode_json = (
-            {
-                "episode_id": metadata.default_episode.episode_id,
-                "label": metadata.default_episode.label,
-                "duration": metadata.default_episode.duration,
-            }
-            if metadata.default_episode is not None
-            else None
-        )
-        metadata_record.visualization_summary_json = (
-            {
-                "has_visualizable_streams": metadata.visualization_summary.has_visualizable_streams,
-                "default_lane_count": metadata.visualization_summary.default_lane_count,
-            }
-            if metadata.visualization_summary is not None
-            else None
-        )
-        metadata_record.raw_metadata_json = (
-            {
-                "compression_format": metadata.raw_metadata.compression_format,
-                "file_path": metadata.raw_metadata.file_path,
-                "file_size_bytes": metadata.raw_metadata.file_size_bytes,
-                "path": metadata.raw_metadata.path,
-                "ros_version": metadata.raw_metadata.ros_version,
-                "storage_format": metadata.raw_metadata.storage_format,
-            }
-            if metadata.raw_metadata is not None
-            else {}
-        )
-        metadata_record.indexing_error = metadata.indexing_error
-
-    session.commit()
-    session.refresh(db_asset)
-    return db_asset
 
 
 def list_related_jobs_for_asset(
