@@ -1,8 +1,6 @@
 "use client";
 
 import * as React from "react";
-import Link from "next/link";
-import { usePathname, useSearchParams } from "next/navigation";
 import { ArrowRightLeft, CheckCircle2, LoaderCircle, TriangleAlert } from "lucide-react";
 
 import { WorkflowStatusBadge } from "@/components/workflow-status-badge";
@@ -37,6 +35,7 @@ import {
   type TFRecordConversionOutputRequest,
 } from "@/lib/api";
 import { formatDateTime, formatSentenceCase, getWorkflowStatusClasses, isWorkflowActiveStatus } from "@/lib/format";
+import { AppLink, useAppPathname, useAppSearchParams } from "@/lib/app-routing";
 import { buildOutputsHref } from "@/lib/outputs";
 
 type ParquetCompression = NonNullable<ParquetConversionOutputRequest["compression"]>;
@@ -229,8 +228,8 @@ export function ConversionDialog({
   onOpenChange: (open: boolean) => void;
   open: boolean;
 }) {
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
+  const pathname = useAppPathname();
+  const searchParams = useAppSearchParams();
   const {
     revalidateAssetDetail,
     revalidateConversionDetail,
@@ -470,12 +469,12 @@ export function ConversionDialog({
                 New conversion
               </Button>
               <Button asChild type="button" variant="outline">
-                <Link href={`/jobs/${createdConversion.job_id}?from=${encodeURIComponent(currentHref)}`}>
+                <AppLink href={`/jobs/${createdConversion.job_id}?from=${encodeURIComponent(currentHref)}`}>
                   Open job
-                </Link>
+                </AppLink>
               </Button>
               <Button asChild type="button" variant="outline">
-                <Link href={buildOutputsHref({ conversionId: createdConversion.id })}>View outputs</Link>
+                <AppLink href={buildOutputsHref({ conversionId: createdConversion.id })}>View outputs</AppLink>
               </Button>
               <Button onClick={() => onOpenChange(false)} type="button">
                 Done
