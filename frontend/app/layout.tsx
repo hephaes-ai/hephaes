@@ -3,7 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import { AppProviders } from "@/components/app-providers";
 import { AppShell } from "@/components/app-shell";
 import { cn } from "@/lib/utils";
-import "./globals.css";
+import "../src/styles/globals.css";
 
 export const metadata = {
   description: "Local frontend for registering and inspecting ROS bag assets.",
