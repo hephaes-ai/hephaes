@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.models import Job, utc_now
+from hephaes import WorkspaceJob
 
 
 class JobServiceError(Exception):
@@ -60,6 +61,34 @@ def find_latest_job_for_target(
                 continue
         return job
     return None
+
+
+def sync_workspace_job(
+    session: Session,
+    *,
+    job: WorkspaceJob,
+    output_path: str | None = None,
+) -> Job:
+    db_job = session.get(Job, job.id)
+    if db_job is None:
+        db_job = Job(id=job.id)
+        session.add(db_job)
+
+    db_job.type = "index" if job.kind == "index_asset" else job.kind
+    db_job.status = "queued" if job.status == "pending" else job.status
+    db_job.target_asset_ids_json = list(job.target_asset_ids)
+    config_json = dict(job.config)
+    config_json.pop("max_workers", None)
+    db_job.config_json = config_json
+    db_job.output_path = output_path or config_json.get("output_path")
+    db_job.error_message = job.error_message
+    db_job.created_at = job.created_at
+    db_job.updated_at = job.updated_at
+    db_job.started_at = job.started_at
+    db_job.finished_at = job.completed_at
+    session.commit()
+    session.refresh(db_job)
+    return db_job
 
 
 class JobService:

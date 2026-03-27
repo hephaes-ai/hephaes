@@ -139,7 +139,9 @@ def test_create_conversion_success(
     assert body["job"]["output_path"] == body["output_path"]
     assert body["job"]["error_message"] is None
     assert body["job"]["representation_policy"]["output_format"] == "parquet"
-    assert captured["file_paths"] == [str(sample_asset_file)]
+    assert len(captured["file_paths"]) == 1
+    assert Path(captured["file_paths"][0]).name == sample_asset_file.name
+    assert ".hephaes/imports/" in captured["file_paths"][0]
     assert Path(captured["output_dir"]) == backend_outputs_dir / "conversions" / body["id"]
     assert captured["spec"].schema.name == "legacy_mapping"
     assert captured["spec"].output.compression == "snappy"

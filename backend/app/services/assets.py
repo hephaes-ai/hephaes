@@ -10,6 +10,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
@@ -17,6 +18,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.config import get_settings
 from app.db.models import Asset, AssetMetadata, Conversion, Job, Tag
+from hephaes import IndexedAssetMetadata, RegisteredAsset, Workspace
 
 SUPPORTED_ASSET_FILE_TYPES = {"bag", "mcap"}
 
@@ -504,7 +506,79 @@ def get_asset(session: Session, asset_id: str) -> Asset | None:
         )
         .where(Asset.id == asset_id)
     )
-    return session.scalar(statement)
+    asset = session.scalar(statement)
+    if asset is not None:
+        return asset
+
+    workspace = Workspace.open(get_settings().workspace_root)
+    workspace_asset = workspace.get_asset(asset_id)
+    if workspace_asset is None:
+        return None
+
+    workspace_metadata = workspace.get_asset_metadata(asset_id)
+    metadata_record = None
+    if workspace_metadata is not None:
+        metadata_record = SimpleNamespace(
+            duration=workspace_metadata.duration,
+            start_time=workspace_metadata.start_time,
+            end_time=workspace_metadata.end_time,
+            topic_count=workspace_metadata.topic_count,
+            message_count=workspace_metadata.message_count,
+            sensor_types_json=[str(sensor_type) for sensor_type in workspace_metadata.sensor_types],
+            topics_json=[
+                {
+                    "name": topic.name,
+                    "message_type": topic.message_type,
+                    "message_count": topic.message_count,
+                    "rate_hz": topic.rate_hz,
+                    "modality": topic.modality,
+                }
+                for topic in workspace_metadata.topics
+            ],
+            default_episode_json=(
+                {
+                    "episode_id": workspace_metadata.default_episode.episode_id,
+                    "label": workspace_metadata.default_episode.label,
+                    "duration": workspace_metadata.default_episode.duration,
+                }
+                if workspace_metadata.default_episode is not None
+                else None
+            ),
+            visualization_summary_json=(
+                {
+                    "has_visualizable_streams": workspace_metadata.visualization_summary.has_visualizable_streams,
+                    "default_lane_count": workspace_metadata.visualization_summary.default_lane_count,
+                }
+                if workspace_metadata.visualization_summary is not None
+                else None
+            ),
+            raw_metadata_json=(
+                {
+                    "compression_format": workspace_metadata.raw_metadata.compression_format,
+                    "file_path": workspace_metadata.raw_metadata.file_path,
+                    "file_size_bytes": workspace_metadata.raw_metadata.file_size_bytes,
+                    "path": workspace_metadata.raw_metadata.path,
+                    "ros_version": workspace_metadata.raw_metadata.ros_version,
+                    "storage_format": workspace_metadata.raw_metadata.storage_format,
+                }
+                if workspace_metadata.raw_metadata is not None
+                else None
+            ),
+            indexing_error=workspace_metadata.indexing_error,
+        )
+
+    return SimpleNamespace(
+        id=workspace_asset.id,
+        file_path=workspace_asset.file_path,
+        file_name=workspace_asset.file_name,
+        file_type=workspace_asset.file_type,
+        file_size=workspace_asset.file_size,
+        indexing_status=workspace_asset.indexing_status,
+        last_indexed_time=workspace_asset.last_indexed_at,
+        registered_time=workspace_asset.registered_at,
+        metadata_record=metadata_record,
+        tags=workspace.get_asset_tags(workspace_asset.id),
+    )
 
 
 def get_asset_or_raise(session: Session, asset_id: str) -> Asset:
@@ -537,6 +611,83 @@ def list_asset_episodes(asset: Asset) -> list[AssetEpisodeSummary]:
             start_time=metadata_record.start_time,
         )
     ]
+
+
+def sync_workspace_asset(
+    session: Session,
+    *,
+    asset: RegisteredAsset,
+    metadata: IndexedAssetMetadata | None = None,
+) -> Asset:
+    db_asset = session.get(Asset, asset.id)
+    if db_asset is None:
+        db_asset = Asset(id=asset.id)
+        session.add(db_asset)
+
+    db_asset.file_path = asset.file_path
+    db_asset.file_name = asset.file_name
+    db_asset.file_type = asset.file_type
+    db_asset.file_size = asset.file_size
+    db_asset.registered_time = asset.registered_at
+    db_asset.indexing_status = asset.indexing_status
+    db_asset.last_indexed_time = asset.last_indexed_at
+
+    if metadata is not None:
+        metadata_record = db_asset.metadata_record
+        if metadata_record is None:
+            metadata_record = AssetMetadata(asset_id=asset.id)
+            db_asset.metadata_record = metadata_record
+            session.add(metadata_record)
+        metadata_record.duration = metadata.duration
+        metadata_record.start_time = metadata.start_time
+        metadata_record.end_time = metadata.end_time
+        metadata_record.topic_count = metadata.topic_count
+        metadata_record.message_count = metadata.message_count
+        metadata_record.sensor_types_json = [str(sensor_type) for sensor_type in metadata.sensor_types]
+        metadata_record.topics_json = [
+            {
+                "name": topic.name,
+                "message_type": topic.message_type,
+                "message_count": topic.message_count,
+                "rate_hz": topic.rate_hz,
+                "modality": topic.modality,
+            }
+            for topic in metadata.topics
+        ]
+        metadata_record.default_episode_json = (
+            {
+                "episode_id": metadata.default_episode.episode_id,
+                "label": metadata.default_episode.label,
+                "duration": metadata.default_episode.duration,
+            }
+            if metadata.default_episode is not None
+            else None
+        )
+        metadata_record.visualization_summary_json = (
+            {
+                "has_visualizable_streams": metadata.visualization_summary.has_visualizable_streams,
+                "default_lane_count": metadata.visualization_summary.default_lane_count,
+            }
+            if metadata.visualization_summary is not None
+            else None
+        )
+        metadata_record.raw_metadata_json = (
+            {
+                "compression_format": metadata.raw_metadata.compression_format,
+                "file_path": metadata.raw_metadata.file_path,
+                "file_size_bytes": metadata.raw_metadata.file_size_bytes,
+                "path": metadata.raw_metadata.path,
+                "ros_version": metadata.raw_metadata.ros_version,
+                "storage_format": metadata.raw_metadata.storage_format,
+            }
+            if metadata.raw_metadata is not None
+            else {}
+        )
+        metadata_record.indexing_error = metadata.indexing_error
+
+    session.commit()
+    session.refresh(db_asset)
+    return db_asset
 
 
 def list_related_jobs_for_asset(

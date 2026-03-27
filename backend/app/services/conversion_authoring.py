@@ -13,9 +13,8 @@ from app.schemas.conversion_authoring import (
     ConversionPreviewRequest,
 )
 from app.services.conversion_configs import ConversionConfigService
-from app.services.assets import AssetNotFoundError, get_asset_or_raise
 from app.services.episodes import open_asset_reader
-from hephaes import build_conversion_capabilities
+from hephaes import AssetNotFoundError, Workspace, build_conversion_capabilities
 from hephaes.conversion import (
     build_draft_conversion_spec,
     inspect_reader,
@@ -47,7 +46,8 @@ class ConversionAuthoringPreviewError(ConversionAuthoringServiceError):
 
 
 class ConversionAuthoringService:
-    def __init__(self, session: Session) -> None:
+    def __init__(self, workspace: Workspace, session: Session) -> None:
+        self.workspace = workspace
         self.session = session
 
     def get_capabilities(self) -> ConversionAuthoringCapabilitiesResponse:
@@ -56,7 +56,7 @@ class ConversionAuthoringService:
 
     def _get_asset_or_raise(self, asset_id: str):
         try:
-            return get_asset_or_raise(self.session, asset_id)
+            return self.workspace.get_asset_or_raise(asset_id)
         except AssetNotFoundError as exc:
             raise ConversionAuthoringNotFoundError(str(exc)) from exc
 

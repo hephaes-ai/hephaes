@@ -605,6 +605,13 @@ class Workspace:
             ).fetchone()
         return row_to_workspace_tag(row)
 
+    def delete_tag(self, tag_selector: str) -> WorkspaceTag:
+        tag = self.resolve_tag(tag_selector)
+        with self._transaction() as connection:
+            connection.execute("DELETE FROM asset_tags WHERE tag_id = ?", (tag.id,))
+            connection.execute("DELETE FROM tags WHERE id = ?", (tag.id,))
+        return tag
+
     def get_tag(self, tag_id: str) -> WorkspaceTag | None:
         with self._connect() as connection:
             row = connection.execute(
@@ -1602,12 +1609,18 @@ class Workspace:
             raise OutputArtifactNotFoundError(f"output artifact not found: {output_path}")
         return row_to_output_artifact(row)
 
-    def index_asset(self, asset_id: str, *, max_workers: int = 1) -> RegisteredAsset:
+    def index_asset(
+        self,
+        asset_id: str,
+        *,
+        max_workers: int = 1,
+        job_config: dict | None = None,
+    ) -> RegisteredAsset:
         self.get_asset_or_raise(asset_id)
         job = self.create_job(
             kind="index_asset",
             target_asset_ids=[asset_id],
-            config={"max_workers": max_workers},
+            config={"max_workers": max_workers, **(job_config or {})},
         )
         self.mark_job_running(job.id)
         started_at = _utc_now()

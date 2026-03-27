@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from types import SimpleNamespace
 from uuid import uuid4
 
 from sqlalchemy import select
@@ -12,6 +13,7 @@ from sqlalchemy.orm.session import sessionmaker
 
 from hephaes import (
     Converter,
+    Workspace,
     build_legacy_conversion_spec,
     build_mapping_template,
     build_mapping_template_from_json,
@@ -171,11 +173,40 @@ def _resolve_mapping(assets: list[Asset], request: ConversionCreateRequest) -> M
 
 def _resolve_assets(session: Session, asset_ids: list[str]) -> list[Asset]:
     assets: list[Asset] = []
+    workspace: Workspace | None = None
     for asset_id in asset_ids:
         try:
             assets.append(get_asset_or_raise(session, asset_id))
         except AssetNotFoundError as exc:
-            raise ConversionValidationError(str(exc)) from exc
+            if workspace is None:
+                workspace = Workspace.open(get_settings().workspace_root)
+            workspace_asset = workspace.get_asset(asset_id)
+            if workspace_asset is None:
+                raise ConversionValidationError(str(exc)) from exc
+
+            workspace_metadata = workspace.get_asset_metadata(asset_id)
+            metadata_record = None
+            if workspace_metadata is not None:
+                metadata_record = SimpleNamespace(
+                    topics_json=[
+                        {
+                            "name": topic.name,
+                            "message_type": topic.message_type,
+                            "message_count": topic.message_count,
+                            "rate_hz": topic.rate_hz,
+                        }
+                        for topic in workspace_metadata.topics
+                    ]
+                )
+
+            assets.append(
+                SimpleNamespace(
+                    id=workspace_asset.id,
+                    file_path=workspace_asset.file_path,
+                    file_name=workspace_asset.file_name,
+                    metadata_record=metadata_record,
+                )
+            )
     return assets
 
 
