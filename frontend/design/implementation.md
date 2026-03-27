@@ -129,6 +129,13 @@ Better follow-up:
 
 Keep Tauri integration minimal at first.
 
+Current status:
+
+- completed by the scaffold and shell-validation work already landed in phases
+  1 through 5
+- revalidated with `desktop:build`, `cargo check`, and `tauri:dev` after the
+  routing and backend-config migrations
+
 Needed immediately:
 
 - app window configuration
