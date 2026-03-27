@@ -323,6 +323,60 @@ def build_parser() -> argparse.ArgumentParser:
     )
     configs_revisions_parser.set_defaults(handler=_handle_list_config_revisions)
 
+    jobs_parser = subparsers.add_parser(
+        "jobs",
+        help="Inspect durable workspace jobs.",
+    )
+    jobs_subparsers = jobs_parser.add_subparsers(dest="jobs_command")
+
+    jobs_ls_parser = jobs_subparsers.add_parser(
+        "ls",
+        help="List workspace jobs.",
+    )
+    jobs_ls_parser.add_argument(
+        "--workspace",
+        help="Workspace root or any path inside the target workspace.",
+    )
+    jobs_ls_parser.set_defaults(handler=_handle_list_jobs)
+
+    jobs_show_parser = jobs_subparsers.add_parser(
+        "show",
+        help="Show one workspace job.",
+    )
+    jobs_show_parser.add_argument("job_id", help="Workspace job id.")
+    jobs_show_parser.add_argument(
+        "--workspace",
+        help="Workspace root or any path inside the target workspace.",
+    )
+    jobs_show_parser.set_defaults(handler=_handle_show_job)
+
+    runs_parser = subparsers.add_parser(
+        "runs",
+        help="Inspect durable conversion runs.",
+    )
+    runs_subparsers = runs_parser.add_subparsers(dest="runs_command")
+
+    runs_ls_parser = runs_subparsers.add_parser(
+        "ls",
+        help="List conversion runs.",
+    )
+    runs_ls_parser.add_argument(
+        "--workspace",
+        help="Workspace root or any path inside the target workspace.",
+    )
+    runs_ls_parser.set_defaults(handler=_handle_list_runs)
+
+    runs_show_parser = runs_subparsers.add_parser(
+        "show",
+        help="Show one conversion run.",
+    )
+    runs_show_parser.add_argument("run_id", help="Conversion run id.")
+    runs_show_parser.add_argument(
+        "--workspace",
+        help="Workspace root or any path inside the target workspace.",
+    )
+    runs_show_parser.set_defaults(handler=_handle_show_run)
+
     outputs_parser = subparsers.add_parser(
         "outputs",
         help="Inspect tracked output artifacts in the active workspace.",
@@ -773,6 +827,106 @@ def _handle_list_config_revisions(args: argparse.Namespace) -> int:
     return 0
 
 
+def _handle_list_jobs(args: argparse.Namespace) -> int:
+    workspace = _open_workspace(args.workspace)
+    jobs = workspace.list_jobs()
+    if not jobs:
+        print("No jobs.")
+        return 0
+
+    for job in jobs:
+        print(
+            "\t".join(
+                (
+                    job.id,
+                    job.kind,
+                    job.status,
+                    job.conversion_run_id or "-",
+                    ",".join(job.target_asset_ids) or "-",
+                )
+            )
+        )
+    return 0
+
+
+def _handle_show_job(args: argparse.Namespace) -> int:
+    workspace = _open_workspace(args.workspace)
+    job = workspace.get_job_or_raise(args.job_id)
+    print(
+        json.dumps(
+            {
+                "id": job.id,
+                "kind": job.kind,
+                "status": job.status,
+                "target_asset_ids": job.target_asset_ids,
+                "config": job.config,
+                "conversion_run_id": job.conversion_run_id,
+                "error_message": job.error_message,
+                "created_at": job.created_at.isoformat(),
+                "updated_at": job.updated_at.isoformat(),
+                "started_at": job.started_at.isoformat() if job.started_at is not None else None,
+                "completed_at": (
+                    job.completed_at.isoformat() if job.completed_at is not None else None
+                ),
+            },
+            sort_keys=True,
+        )
+    )
+    return 0
+
+
+def _handle_list_runs(args: argparse.Namespace) -> int:
+    workspace = _open_workspace(args.workspace)
+    runs = workspace.list_conversion_runs()
+    if not runs:
+        print("No conversion runs.")
+        return 0
+
+    for run in runs:
+        print(
+            "\t".join(
+                (
+                    run.id,
+                    run.status,
+                    run.job_id or "-",
+                    run.saved_config_id or "-",
+                    run.output_dir,
+                )
+            )
+        )
+    return 0
+
+
+def _handle_show_run(args: argparse.Namespace) -> int:
+    workspace = _open_workspace(args.workspace)
+    run = workspace.get_conversion_run_or_raise(args.run_id)
+    print(
+        json.dumps(
+            {
+                "id": run.id,
+                "job_id": run.job_id,
+                "status": run.status,
+                "source_asset_ids": run.source_asset_ids,
+                "source_asset_paths": run.source_asset_paths,
+                "saved_config_id": run.saved_config_id,
+                "saved_config_revision_id": run.saved_config_revision_id,
+                "config": run.config,
+                "output_dir": run.output_dir,
+                "output_paths": run.output_paths,
+                "error_message": run.error_message,
+                "created_at": run.created_at.isoformat(),
+                "updated_at": run.updated_at.isoformat(),
+                "started_at": run.started_at.isoformat() if run.started_at is not None else None,
+                "completed_at": (
+                    run.completed_at.isoformat() if run.completed_at is not None else None
+                ),
+            },
+            sort_keys=True,
+        )
+    )
+    return 0
+
+
 def _handle_list_outputs(args: argparse.Namespace) -> int:
     workspace = _open_workspace(args.workspace)
     outputs = workspace.list_output_artifacts()
@@ -785,6 +939,7 @@ def _handle_list_outputs(args: argparse.Namespace) -> int:
             "\t".join(
                 (
                     output.id,
+                    output.conversion_run_id or "-",
                     output.format,
                     output.role,
                     output.source_asset_id or output.source_asset_path or "-",
@@ -803,6 +958,7 @@ def _handle_show_output(args: argparse.Namespace) -> int:
         json.dumps(
             {
                 "id": output.id,
+                "conversion_run_id": output.conversion_run_id,
                 "source_asset_id": output.source_asset_id,
                 "source_asset_path": output.source_asset_path,
                 "saved_config_id": output.saved_config_id,

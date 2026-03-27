@@ -465,7 +465,7 @@ def test_cli_outputs_ls_and_show(tmp_path: Path, capsys) -> None:
     captured = capsys.readouterr()
     assert exit_code == 0
     assert str(dataset_path.resolve()) in captured.out
-    assert "\tparquet\tdataset\t" in captured.out
+    assert "\t-\tparquet\tdataset\t" in captured.out
 
     dataset_id = next(output.id for output in registered if output.role == "dataset")
     exit_code = main(["outputs", "show", "--workspace", str(tmp_path), dataset_id])
@@ -473,6 +473,7 @@ def test_cli_outputs_ls_and_show(tmp_path: Path, capsys) -> None:
     captured = capsys.readouterr()
     assert exit_code == 0
     assert '"format": "parquet"' in captured.out
+    assert '"conversion_run_id": null' in captured.out
     assert '"manifest_available": true' in captured.out
 
 
@@ -548,6 +549,30 @@ def test_cli_convert_with_saved_config(
     assert '"output_count": 2' in captured.out
     assert '"role": "dataset"' in captured.out
     assert '"role": "manifest"' in captured.out
+
+    exit_code = main(["jobs", "ls", "--workspace", str(tmp_path)])
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "\tconversion\tsucceeded\t" in captured.out
+
+    job_id = captured.out.strip().split("\t", 1)[0]
+    exit_code = main(["jobs", "show", "--workspace", str(tmp_path), job_id])
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert '"status": "succeeded"' in captured.out
+    assert '"kind": "conversion"' in captured.out
+
+    exit_code = main(["runs", "ls", "--workspace", str(tmp_path)])
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "\tsucceeded\t" in captured.out
+
+    run_id = captured.out.strip().split("\t", 1)[0]
+    exit_code = main(["runs", "show", "--workspace", str(tmp_path), run_id])
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert '"status": "succeeded"' in captured.out
+    assert '"saved_config_id":' in captured.out
 
 
 def test_cli_convert_requires_exactly_one_config_source(

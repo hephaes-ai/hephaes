@@ -196,8 +196,43 @@ class ConversionDraftRevision:
 
 
 @dataclass(frozen=True)
+class WorkspaceJob:
+    id: str
+    kind: str
+    status: str
+    target_asset_ids: list[str]
+    config: dict[str, Any]
+    conversion_run_id: str | None
+    error_message: str | None
+    created_at: datetime
+    updated_at: datetime
+    started_at: datetime | None
+    completed_at: datetime | None
+
+
+@dataclass(frozen=True)
+class ConversionRun:
+    id: str
+    job_id: str | None
+    status: str
+    source_asset_ids: list[str]
+    source_asset_paths: list[str]
+    saved_config_id: str | None
+    saved_config_revision_id: str | None
+    config: dict[str, Any]
+    output_dir: str
+    output_paths: list[str]
+    error_message: str | None
+    created_at: datetime
+    updated_at: datetime
+    started_at: datetime | None
+    completed_at: datetime | None
+
+
+@dataclass(frozen=True)
 class OutputArtifactSummary:
     id: str
+    conversion_run_id: str | None
     source_asset_id: str | None
     source_asset_path: str | None
     output_path: str
@@ -212,6 +247,7 @@ class OutputArtifactSummary:
 @dataclass(frozen=True)
 class OutputArtifact:
     id: str
+    conversion_run_id: str | None
     source_asset_id: str | None
     source_asset_path: str | None
     output_path: str

@@ -239,6 +239,11 @@ def test_index_asset_persists_profiled_metadata(
     reopened_metadata = reopened.get_asset_metadata(asset.id)
     assert reopened_metadata is not None
     assert reopened_metadata.message_count == 42
+    jobs = reopened.list_jobs()
+    assert len(jobs) == 1
+    assert jobs[0].kind == "index_asset"
+    assert jobs[0].status == "succeeded"
+    assert jobs[0].target_asset_ids == [asset.id]
 
 
 def test_index_asset_persists_failure_state(
@@ -265,6 +270,10 @@ def test_index_asset_persists_failure_state(
     assert metadata is not None
     assert metadata.indexing_error == "boom"
     assert metadata.message_count == 0
+    jobs = workspace.list_jobs()
+    assert len(jobs) == 1
+    assert jobs[0].status == "failed"
+    assert jobs[0].error_message == "boom"
 
 
 def test_reindex_failure_preserves_previous_metadata(
@@ -565,6 +574,8 @@ def test_run_conversion_registers_emitted_outputs(
     monkeypatch.setattr("hephaes.workspace.Converter", FakeConverter)
 
     outputs = workspace.run_conversion(asset.id, saved_config_selector=saved_config.id)
+    jobs = workspace.list_jobs()
+    runs = workspace.list_conversion_runs()
 
     assert len(outputs) == 2
     dataset_output = next(output for output in outputs if output.role == "dataset")
@@ -574,6 +585,55 @@ def test_run_conversion_registers_emitted_outputs(
     assert dataset_output.source_asset_path == str(tmp_mcap_file.resolve())
     assert dataset_output.manifest_available is True
     assert manifest_output.saved_config_id == saved_config.id
+    assert len(jobs) == 1
+    assert jobs[0].kind == "conversion"
+    assert jobs[0].status == "succeeded"
+    assert len(runs) == 1
+    assert runs[0].status == "succeeded"
+    assert runs[0].job_id == jobs[0].id
+    assert runs[0].saved_config_id == saved_config.id
+    assert dataset_output.conversion_run_id == runs[0].id
+    assert manifest_output.conversion_run_id == runs[0].id
+
+
+def test_run_conversion_failure_records_job_and_run(
+    tmp_path: Path,
+    tmp_mcap_file: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = Workspace.init(tmp_path)
+    asset = workspace.register_asset(tmp_mcap_file)
+    spec = ConversionSpec(
+        schema=SchemaSpec(name="demo", version=1),
+        output=OutputSpec(format="parquet"),
+    )
+    saved_config = workspace.save_conversion_config(
+        name="Demo Config",
+        spec_document=build_conversion_spec_document(spec),
+    )
+
+    class FailingConverter:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        def convert(self) -> list[Path]:
+            raise RuntimeError("convert boom")
+
+    monkeypatch.setattr("hephaes.workspace.Converter", FailingConverter)
+
+    with pytest.raises(RuntimeError, match="convert boom"):
+        workspace.run_conversion(asset.id, saved_config_selector=saved_config.id)
+
+    jobs = workspace.list_jobs()
+    runs = workspace.list_conversion_runs()
+
+    assert len(jobs) == 1
+    assert jobs[0].status == "failed"
+    assert jobs[0].error_message == "convert boom"
+    assert len(runs) == 1
+    assert runs[0].status == "failed"
+    assert runs[0].error_message == "convert boom"
+    assert runs[0].job_id == jobs[0].id
 
 
 def test_get_output_artifact_returns_metadata(tmp_path: Path) -> None:

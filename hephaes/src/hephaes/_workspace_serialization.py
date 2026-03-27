@@ -21,7 +21,9 @@ from ._workspace_models import (
     SavedConversionConfigSummary,
     SourceAssetMetadata,
     VisualizationSummary,
+    ConversionRun,
     WorkspaceTag,
+    WorkspaceJob,
 )
 from .conversion.spec_io import ConversionSpecDocument
 
@@ -320,9 +322,62 @@ def build_conversion_draft_revision(
     )
 
 
+def row_to_workspace_job(row: sqlite3.Row) -> WorkspaceJob:
+    return WorkspaceJob(
+        id=row["id"],
+        kind=row["kind"],
+        status=row["status"],
+        target_asset_ids=list(json.loads(row["target_asset_ids_json"])),
+        config=dict(json.loads(row["config_json"])),
+        conversion_run_id=row["conversion_run_id"],
+        error_message=row["error_message"],
+        created_at=from_db_timestamp(row["created_at"]),
+        updated_at=from_db_timestamp(row["updated_at"]),
+        started_at=(
+            from_db_timestamp(row["started_at"])
+            if row["started_at"] is not None
+            else None
+        ),
+        completed_at=(
+            from_db_timestamp(row["completed_at"])
+            if row["completed_at"] is not None
+            else None
+        ),
+    )
+
+
+def row_to_conversion_run(row: sqlite3.Row) -> ConversionRun:
+    return ConversionRun(
+        id=row["id"],
+        job_id=row["job_id"],
+        status=row["status"],
+        source_asset_ids=list(json.loads(row["source_asset_ids_json"])),
+        source_asset_paths=list(json.loads(row["source_asset_paths_json"])),
+        saved_config_id=row["saved_config_id"],
+        saved_config_revision_id=row["saved_config_revision_id"],
+        config=dict(json.loads(row["config_json"])),
+        output_dir=row["output_dir"],
+        output_paths=list(json.loads(row["output_paths_json"])),
+        error_message=row["error_message"],
+        created_at=from_db_timestamp(row["created_at"]),
+        updated_at=from_db_timestamp(row["updated_at"]),
+        started_at=(
+            from_db_timestamp(row["started_at"])
+            if row["started_at"] is not None
+            else None
+        ),
+        completed_at=(
+            from_db_timestamp(row["completed_at"])
+            if row["completed_at"] is not None
+            else None
+        ),
+    )
+
+
 def row_to_output_artifact(row: sqlite3.Row) -> OutputArtifact:
     return OutputArtifact(
         id=row["id"],
+        conversion_run_id=row["conversion_run_id"],
         source_asset_id=row["source_asset_id"],
         source_asset_path=row["source_asset_path"],
         output_path=row["output_path"],
@@ -346,6 +401,7 @@ def row_to_output_artifact_summary(row: sqlite3.Row) -> OutputArtifactSummary:
     artifact = row_to_output_artifact(row)
     return OutputArtifactSummary(
         id=artifact.id,
+        conversion_run_id=artifact.conversion_run_id,
         source_asset_id=artifact.source_asset_id,
         source_asset_path=artifact.source_asset_path,
         output_path=artifact.output_path,

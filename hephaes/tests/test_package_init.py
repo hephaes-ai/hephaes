@@ -91,6 +91,7 @@ class TestPublicExports:
             ConversionConfigAlreadyExistsError,
             ConversionConfigInvalidError,
             ConversionConfigNotFoundError,
+            ConversionRun,
             ConversionDraftRevision,
             ConversionDraftRevisionSummary,
             DefaultEpisodeSummary,
@@ -106,11 +107,13 @@ class TestPublicExports:
             TagAlreadyExistsError,
             TagNotFoundError,
             VisualizationSummary,
+            WorkspaceJob,
             WorkspaceTag,
         )
         assert ConversionConfigAlreadyExistsError is not None
         assert ConversionConfigInvalidError is not None
         assert ConversionConfigNotFoundError is not None
+        assert ConversionRun is not None
         assert ConversionDraftRevision is not None
         assert ConversionDraftRevisionSummary is not None
         assert DefaultEpisodeSummary is not None
@@ -126,6 +129,7 @@ class TestPublicExports:
         assert TagAlreadyExistsError is not None
         assert TagNotFoundError is not None
         assert VisualizationSummary is not None
+        assert WorkspaceJob is not None
         assert WorkspaceTag is not None
 
     def test_ros1_reader_exported(self):
@@ -200,6 +204,7 @@ class TestPublicExports:
             "ConversionConfigAlreadyExistsError",
             "ConversionConfigInvalidError",
             "ConversionConfigNotFoundError",
+            "ConversionRun",
             "ConversionDraftRevision",
             "ConversionDraftRevisionSummary",
             "DefaultEpisodeSummary",
@@ -221,6 +226,7 @@ class TestPublicExports:
             "TagAlreadyExistsError",
             "TagNotFoundError",
             "VisualizationSummary",
+            "WorkspaceJob",
             "WorkspaceTag",
             "Workspace",
             "WorkspaceAlreadyExistsError",

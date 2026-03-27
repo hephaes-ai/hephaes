@@ -13,6 +13,7 @@ from uuid import uuid4
 from ._workspace_indexing import build_index_metadata_payload, profile_asset_file
 from ._workspace_models import (
     AssetRegistrationMode,
+    ConversionRun,
     ConversionDraftRevision,
     ConversionDraftRevisionSummary,
     DefaultEpisodeSummary,
@@ -27,6 +28,7 @@ from ._workspace_models import (
     SavedConversionConfigSummary,
     SourceAssetMetadata,
     VisualizationSummary,
+    WorkspaceJob,
     WorkspaceTag,
     WorkspacePaths,
 )
@@ -42,6 +44,7 @@ from ._workspace_serialization import (
     build_saved_conversion_config,
     build_saved_conversion_config_revision,
     from_db_timestamp,
+    row_to_conversion_run,
     row_to_conversion_draft_revision_summary,
     row_to_indexed_asset_metadata,
     row_to_output_artifact,
@@ -49,6 +52,7 @@ from ._workspace_serialization import (
     row_to_registered_asset,
     row_to_saved_conversion_config_revision_summary,
     row_to_saved_conversion_config_summary,
+    row_to_workspace_job,
     row_to_workspace_tag,
     to_db_timestamp,
     upsert_asset_metadata,
@@ -990,6 +994,279 @@ class Workspace:
         )
         return build_conversion_draft_revision(summary, document=document)
 
+    def create_job(
+        self,
+        *,
+        kind: str,
+        target_asset_ids: list[str] | None = None,
+        config: dict | None = None,
+    ) -> WorkspaceJob:
+        timestamp = _utc_now()
+        job_id = str(uuid4())
+        with self._transaction() as connection:
+            connection.execute(
+                """
+                INSERT INTO jobs(
+                    id,
+                    kind,
+                    status,
+                    target_asset_ids_json,
+                    config_json,
+                    conversion_run_id,
+                    error_message,
+                    created_at,
+                    updated_at,
+                    started_at,
+                    completed_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    job_id,
+                    kind,
+                    "pending",
+                    json.dumps(target_asset_ids or []),
+                    json.dumps(config or {}),
+                    None,
+                    None,
+                    to_db_timestamp(timestamp),
+                    to_db_timestamp(timestamp),
+                    None,
+                    None,
+                ),
+            )
+        return self.get_job_or_raise(job_id)
+
+    def list_jobs(self) -> list[WorkspaceJob]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT *
+                FROM jobs
+                ORDER BY created_at DESC, id DESC
+                """
+            ).fetchall()
+        return [row_to_workspace_job(row) for row in rows]
+
+    def get_job(self, job_id: str) -> WorkspaceJob | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM jobs WHERE id = ?",
+                (job_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return row_to_workspace_job(row)
+
+    def get_job_or_raise(self, job_id: str) -> WorkspaceJob:
+        job = self.get_job(job_id)
+        if job is None:
+            raise WorkspaceError(f"job not found: {job_id}")
+        return job
+
+    def mark_job_running(self, job_id: str) -> WorkspaceJob:
+        timestamp = _utc_now()
+        with self._transaction() as connection:
+            connection.execute(
+                """
+                UPDATE jobs
+                SET status = 'running', updated_at = ?, started_at = COALESCE(started_at, ?)
+                WHERE id = ?
+                """,
+                (
+                    to_db_timestamp(timestamp),
+                    to_db_timestamp(timestamp),
+                    job_id,
+                ),
+            )
+        return self.get_job_or_raise(job_id)
+
+    def mark_job_succeeded(
+        self,
+        job_id: str,
+        *,
+        conversion_run_id: str | None = None,
+    ) -> WorkspaceJob:
+        timestamp = _utc_now()
+        with self._transaction() as connection:
+            connection.execute(
+                """
+                UPDATE jobs
+                SET status = 'succeeded', conversion_run_id = COALESCE(?, conversion_run_id),
+                    error_message = NULL, updated_at = ?, completed_at = ?
+                WHERE id = ?
+                """,
+                (
+                    conversion_run_id,
+                    to_db_timestamp(timestamp),
+                    to_db_timestamp(timestamp),
+                    job_id,
+                ),
+            )
+        return self.get_job_or_raise(job_id)
+
+    def mark_job_failed(self, job_id: str, *, error_message: str) -> WorkspaceJob:
+        timestamp = _utc_now()
+        with self._transaction() as connection:
+            connection.execute(
+                """
+                UPDATE jobs
+                SET status = 'failed', error_message = ?, updated_at = ?, completed_at = ?
+                WHERE id = ?
+                """,
+                (
+                    error_message,
+                    to_db_timestamp(timestamp),
+                    to_db_timestamp(timestamp),
+                    job_id,
+                ),
+            )
+        return self.get_job_or_raise(job_id)
+
+    def create_conversion_run(
+        self,
+        *,
+        source_asset_ids: list[str] | None,
+        source_asset_paths: list[str],
+        output_dir: str | Path,
+        saved_config_id: str | None = None,
+        saved_config_revision_id: str | None = None,
+        config: dict | None = None,
+        job_id: str | None = None,
+    ) -> ConversionRun:
+        timestamp = _utc_now()
+        run_id = str(uuid4())
+        with self._transaction() as connection:
+            connection.execute(
+                """
+                INSERT INTO conversion_runs(
+                    id,
+                    job_id,
+                    status,
+                    source_asset_ids_json,
+                    source_asset_paths_json,
+                    saved_config_id,
+                    saved_config_revision_id,
+                    config_json,
+                    output_dir,
+                    output_paths_json,
+                    error_message,
+                    created_at,
+                    updated_at,
+                    started_at,
+                    completed_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    run_id,
+                    job_id,
+                    "pending",
+                    json.dumps(source_asset_ids or []),
+                    json.dumps(source_asset_paths),
+                    saved_config_id,
+                    saved_config_revision_id,
+                    json.dumps(config or {}),
+                    str(Path(output_dir).expanduser().resolve(strict=False)),
+                    json.dumps([]),
+                    None,
+                    to_db_timestamp(timestamp),
+                    to_db_timestamp(timestamp),
+                    None,
+                    None,
+                ),
+            )
+            if job_id is not None:
+                connection.execute(
+                    "UPDATE jobs SET conversion_run_id = ?, updated_at = ? WHERE id = ?",
+                    (run_id, to_db_timestamp(timestamp), job_id),
+                )
+        return self.get_conversion_run_or_raise(run_id)
+
+    def list_conversion_runs(self) -> list[ConversionRun]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT *
+                FROM conversion_runs
+                ORDER BY created_at DESC, id DESC
+                """
+            ).fetchall()
+        return [row_to_conversion_run(row) for row in rows]
+
+    def get_conversion_run(self, run_id: str) -> ConversionRun | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM conversion_runs WHERE id = ?",
+                (run_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return row_to_conversion_run(row)
+
+    def get_conversion_run_or_raise(self, run_id: str) -> ConversionRun:
+        run = self.get_conversion_run(run_id)
+        if run is None:
+            raise WorkspaceError(f"conversion run not found: {run_id}")
+        return run
+
+    def mark_conversion_run_running(self, run_id: str) -> ConversionRun:
+        timestamp = _utc_now()
+        with self._transaction() as connection:
+            connection.execute(
+                """
+                UPDATE conversion_runs
+                SET status = 'running', updated_at = ?, started_at = COALESCE(started_at, ?)
+                WHERE id = ?
+                """,
+                (
+                    to_db_timestamp(timestamp),
+                    to_db_timestamp(timestamp),
+                    run_id,
+                ),
+            )
+        return self.get_conversion_run_or_raise(run_id)
+
+    def mark_conversion_run_succeeded(
+        self,
+        run_id: str,
+        *,
+        output_paths: list[str],
+    ) -> ConversionRun:
+        timestamp = _utc_now()
+        with self._transaction() as connection:
+            connection.execute(
+                """
+                UPDATE conversion_runs
+                SET status = 'succeeded', output_paths_json = ?, error_message = NULL,
+                    updated_at = ?, completed_at = ?
+                WHERE id = ?
+                """,
+                (
+                    json.dumps(output_paths),
+                    to_db_timestamp(timestamp),
+                    to_db_timestamp(timestamp),
+                    run_id,
+                ),
+            )
+        return self.get_conversion_run_or_raise(run_id)
+
+    def mark_conversion_run_failed(self, run_id: str, *, error_message: str) -> ConversionRun:
+        timestamp = _utc_now()
+        with self._transaction() as connection:
+            connection.execute(
+                """
+                UPDATE conversion_runs
+                SET status = 'failed', error_message = ?, updated_at = ?, completed_at = ?
+                WHERE id = ?
+                """,
+                (
+                    error_message,
+                    to_db_timestamp(timestamp),
+                    to_db_timestamp(timestamp),
+                    run_id,
+                ),
+            )
+        return self.get_conversion_run_or_raise(run_id)
+
     def list_conversion_draft_revisions(
         self,
         *,
@@ -1047,6 +1324,7 @@ class Workspace:
         *,
         output_root: str | Path,
         paths: list[str | Path] | None = None,
+        conversion_run_id: str | None = None,
         source_asset_id: str | None = None,
         source_asset_path: str | None = None,
         saved_config_id: str | None = None,
@@ -1106,6 +1384,7 @@ class Workspace:
                     """
                     INSERT INTO output_artifacts(
                         id,
+                        conversion_run_id,
                         source_asset_id,
                         source_asset_path,
                         saved_config_id,
@@ -1122,8 +1401,9 @@ class Workspace:
                         metadata_json,
                         created_at,
                         updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(output_path) DO UPDATE SET
+                        conversion_run_id = excluded.conversion_run_id,
                         source_asset_id = excluded.source_asset_id,
                         source_asset_path = excluded.source_asset_path,
                         saved_config_id = excluded.saved_config_id,
@@ -1141,6 +1421,7 @@ class Workspace:
                     """,
                     (
                         artifact_id,
+                        conversion_run_id,
                         source_asset_id,
                         source_asset_path,
                         saved_config_id,
@@ -1187,8 +1468,12 @@ class Workspace:
             source_path, _file_type, _file_size = _inspect_asset_path(source)
 
         saved_config: SavedConversionConfig | None = None
+        saved_config_revision_id: str | None = None
         if saved_config_selector is not None:
             saved_config = self.resolve_saved_conversion_config(saved_config_selector)
+            saved_config_revision_id = self._latest_saved_conversion_config_revision_id(
+                saved_config.id
+            )
             document = saved_config.document
         else:
             if spec_document is None:
@@ -1205,36 +1490,80 @@ class Workspace:
         )
         resolved_output_dir.mkdir(parents=True, exist_ok=True)
 
-        converter = Converter(
-            [str(source_path)],
-            None,
-            resolved_output_dir,
-            spec=document.spec,
-            max_workers=max_workers,
+        source_asset_ids = [registered_asset.id] if registered_asset is not None else []
+        source_asset_paths = [
+            registered_asset.source_path if registered_asset is not None and registered_asset.source_path is not None else str(source_path)
+        ]
+        config_snapshot = {
+            "saved_config_id": saved_config.id if saved_config is not None else None,
+            "saved_config_name": saved_config.name if saved_config is not None else None,
+            "saved_config_revision_id": saved_config_revision_id,
+            "spec_schema": {
+                "name": document.spec.schema.name,
+                "version": document.spec.schema.version,
+            },
+            "output_format": document.spec.output.format,
+            "max_workers": max_workers,
+        }
+        job = self.create_job(
+            kind="conversion",
+            target_asset_ids=source_asset_ids,
+            config=config_snapshot,
         )
-        dataset_paths = converter.convert()
-
-        artifact_paths: list[Path] = []
-        for dataset_path in dataset_paths:
-            artifact_paths.append(dataset_path)
-            manifest_path = dataset_path.with_suffix(".manifest.json")
-            report_path = dataset_path.with_name(f"{dataset_path.stem}.report.md")
-            if manifest_path.exists():
-                artifact_paths.append(manifest_path)
-            if report_path.exists():
-                artifact_paths.append(report_path)
-
-        return self.register_output_artifacts(
-            output_root=resolved_output_dir,
-            paths=[str(path) for path in artifact_paths],
-            source_asset_id=registered_asset.id if registered_asset is not None else None,
-            source_asset_path=(
-                registered_asset.source_path
-                if registered_asset is not None
-                else str(source_path)
-            ),
+        run = self.create_conversion_run(
+            source_asset_ids=source_asset_ids,
+            source_asset_paths=source_asset_paths,
+            output_dir=resolved_output_dir,
             saved_config_id=saved_config.id if saved_config is not None else None,
+            saved_config_revision_id=saved_config_revision_id,
+            config=config_snapshot,
+            job_id=job.id,
         )
+        self.mark_job_running(job.id)
+        self.mark_conversion_run_running(run.id)
+
+        try:
+            converter = Converter(
+                [str(source_path)],
+                None,
+                resolved_output_dir,
+                spec=document.spec,
+                max_workers=max_workers,
+            )
+            dataset_paths = converter.convert()
+
+            artifact_paths: list[Path] = []
+            for dataset_path in dataset_paths:
+                artifact_paths.append(dataset_path)
+                manifest_path = dataset_path.with_suffix(".manifest.json")
+                report_path = dataset_path.with_name(f"{dataset_path.stem}.report.md")
+                if manifest_path.exists():
+                    artifact_paths.append(manifest_path)
+                if report_path.exists():
+                    artifact_paths.append(report_path)
+
+            outputs = self.register_output_artifacts(
+                output_root=resolved_output_dir,
+                paths=[str(path) for path in artifact_paths],
+                conversion_run_id=run.id,
+                source_asset_id=registered_asset.id if registered_asset is not None else None,
+                source_asset_path=(
+                    registered_asset.source_path
+                    if registered_asset is not None
+                    else str(source_path)
+                ),
+                saved_config_id=saved_config.id if saved_config is not None else None,
+            )
+            self.mark_conversion_run_succeeded(
+                run.id,
+                output_paths=[output.output_path for output in outputs],
+            )
+            self.mark_job_succeeded(job.id, conversion_run_id=run.id)
+            return outputs
+        except Exception as exc:
+            self.mark_conversion_run_failed(run.id, error_message=str(exc))
+            self.mark_job_failed(job.id, error_message=str(exc))
+            raise
 
     def list_output_artifacts(self) -> list[OutputArtifactSummary]:
         with self._connect() as connection:
@@ -1274,6 +1603,13 @@ class Workspace:
         return row_to_output_artifact(row)
 
     def index_asset(self, asset_id: str, *, max_workers: int = 1) -> RegisteredAsset:
+        self.get_asset_or_raise(asset_id)
+        job = self.create_job(
+            kind="index_asset",
+            target_asset_ids=[asset_id],
+            config={"max_workers": max_workers},
+        )
+        self.mark_job_running(job.id)
         started_at = _utc_now()
         with self._transaction() as connection:
             connection.execute(
@@ -1286,7 +1622,6 @@ class Workspace:
             )
             if connection.total_changes == 0:
                 raise AssetNotFoundError(f"asset not found: {asset_id}")
-
         asset = self.get_asset_or_raise(asset_id)
 
         try:
@@ -1310,6 +1645,7 @@ class Workspace:
                     indexing_error=str(exc),
                     timestamp=failed_at,
                 )
+            self.mark_job_failed(job.id, error_message=str(exc))
             raise
 
         finished_at = _utc_now()
@@ -1333,6 +1669,7 @@ class Workspace:
                 indexing_error=None,
                 timestamp=finished_at,
             )
+        self.mark_job_succeeded(job.id)
 
         return self.get_asset_or_raise(asset_id)
 
@@ -1491,6 +1828,21 @@ class Workspace:
             row,
             document_path=str(self.paths.specs_dir / row["spec_document_path"]),
         )
+
+    def _latest_saved_conversion_config_revision_id(self, config_id: str) -> str | None:
+        self._ensure_saved_conversion_config_has_revision_history(config_id)
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT id
+                FROM conversion_config_revisions
+                WHERE config_id = ?
+                ORDER BY revision_number DESC, id DESC
+                LIMIT 1
+                """,
+                (config_id,),
+            ).fetchone()
+        return row["id"] if row is not None else None
 
     def _get_conversion_draft_revision_summary_or_raise(
         self,
