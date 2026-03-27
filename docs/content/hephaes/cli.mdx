@@ -1,0 +1,127 @@
+# CLI
+
+The `hephaes` package includes a command-line interface for workspace-based dataset management. The CLI wraps the workspace API and provides commands for asset registration, indexing, inspection, conversion, and output tracking.
+
+## Usage
+
+After installing the package, the `hephaes` command is available:
+
+```bash
+hephaes --version
+hephaes --help
+```
+
+Or via `python -m`:
+
+```bash
+python -m hephaes --version
+```
+
+## Workspace Initialization
+
+Create a new workspace in the current directory (or a specified path):
+
+```bash
+hephaes init
+hephaes init /path/to/workspace
+hephaes init --exist-ok
+```
+
+## Registering Assets
+
+Register one or more local ROS log files into the active workspace:
+
+```bash
+hephaes add data/run_001.mcap data/run_002.mcap
+hephaes add data/run_001.mcap --workspace /path/to/workspace
+```
+
+Duplicate handling can be configured with `--on-duplicate`:
+
+```bash
+hephaes add data/run_001.mcap --on-duplicate skip    # skip if already registered
+hephaes add data/run_001.mcap --on-duplicate refresh  # re-register
+```
+
+## Listing Assets
+
+```bash
+hephaes ls assets
+hephaes ls assets --workspace /path/to/workspace
+```
+
+## Indexing Assets
+
+Index registered assets to extract metadata (topics, message counts, durations, sensor types):
+
+```bash
+hephaes index --all
+hephaes index <asset-id>
+hephaes index data/run_001.mcap
+hephaes index --all --max-workers 4
+```
+
+Index output is JSON with fields: `asset_id`, `status`, `file_path`, `message_count`, `topic_count`, `duration`, `sensor_types`.
+
+## Inspecting Assets
+
+Inspect the structure and sampled messages of a local asset:
+
+```bash
+hephaes inspect <asset-id-or-path>
+hephaes inspect data/run_001.mcap
+```
+
+Options:
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--topic` | all | Topic filter (repeat for multiple) |
+| `--sample-n` | 8 | Max sampled messages per topic |
+| `--max-depth` | 4 | Max traversal depth for nested payloads |
+| `--max-sequence-items` | 4 | Max sequence items to inspect per message |
+| `--on-failure` | warn | Decode failure policy: `skip`, `warn`, `fail` |
+
+The inspect command works with or without an active workspace. If a workspace is available, selectors can be asset IDs or registered paths.
+
+## Conversion
+
+Run a local conversion on a source asset:
+
+```bash
+hephaes convert <source> --spec-document spec.yaml
+hephaes convert <source> --config my-saved-config
+hephaes convert <source> --spec-document spec.yaml --output-dir output/
+hephaes convert <source> --config my-saved-config --max-workers 4
+```
+
+Exactly one of `--config` or `--spec-document` must be provided. Outputs are registered in the workspace automatically.
+
+## Saved Conversion Configs
+
+Save and list reusable conversion configurations:
+
+```bash
+hephaes configs save my-config spec.yaml
+hephaes configs save my-config spec.yaml --description "10Hz resampled parquet"
+hephaes configs ls
+```
+
+## Output Artifacts
+
+List and inspect tracked conversion outputs:
+
+```bash
+hephaes outputs ls
+hephaes outputs show <output-id>
+```
+
+## Global Options
+
+All subcommands that operate on a workspace accept `--workspace` to specify the workspace root explicitly. When omitted, the CLI discovers the workspace by walking up from the current directory.
+
+## Related Docs
+
+- [How To Use (Python API)](./how-to-use)
+- [Overview](./overview)
+- [Current State](./current-state)
