@@ -1,8 +1,6 @@
 "use client";
 
 import * as React from "react";
-import Link from "next/link";
-import { useRouter } from "next/navigation";
 import {
   ArrowUpDown,
   ChevronDown,
@@ -32,6 +30,10 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import type { AssetSummary, IndexingStatus } from "@/lib/api";
+import {
+  AppLink as Link,
+  useAppRouter as useRouter,
+} from "@/lib/app-routing";
 import { formatDateTime, formatFileSize, getIndexActionLabel } from "@/lib/format";
 import { buildAssetDetailHref, buildInventoryReplayHref } from "@/lib/navigation";
 import { buildOutputsHref } from "@/lib/outputs";

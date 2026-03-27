@@ -1,8 +1,6 @@
 "use client";
 
 import * as React from "react";
-import Link from "next/link";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowRight,
   ArrowRightLeft,
@@ -41,6 +39,12 @@ import { useAssets, useBackendCache, useOutputs, useTags } from "@/hooks/use-bac
 import { useIndexAsset } from "@/hooks/use-index-asset";
 import type { AssetListQuery, AssetSummary, IndexingStatus, TagSummary } from "@/lib/api";
 import { attachTagToAsset, createTag, getErrorMessage } from "@/lib/api";
+import {
+  AppLink as Link,
+  useAppPathname as usePathname,
+  useAppRouter as useRouter,
+  useAppSearchParams as useSearchParams,
+} from "@/lib/app-routing";
 import { buildAssetDetailHref, buildConversionHref } from "@/lib/navigation";
 import { countOutputsByAsset } from "@/lib/outputs";
 import type { ActiveFilterChip, NoticeMessage } from "@/lib/types";

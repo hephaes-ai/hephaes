@@ -1,11 +1,9 @@
 "use client"
 
-import Image from "next/image"
-import Link from "next/link"
-import { usePathname } from "next/navigation"
 import { Menu } from "lucide-react"
 
 import { BackendStatus } from "@/components/backend-status"
+import { BackendConnectionNotice } from "@/components/backend-connection-notice"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { Button } from "@/components/ui/button"
 import {
@@ -14,9 +12,10 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { AppLink, useAppPathname } from "@/lib/app-routing"
 
 export function AppShell({ children }: { children: React.ReactNode }) {
-  const pathname = usePathname()
+  const pathname = useAppPathname()
   const isDashboardRoute = pathname === "/" || pathname === "/dashboard"
   const isInventoryRoute = pathname === "/inventory"
   const isJobsRoute = pathname === "/jobs" || pathname.startsWith("/jobs/")
@@ -29,32 +28,26 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <div className="mx-auto flex h-16 w-full max-w-6xl items-center justify-between px-4 sm:px-6">
           <div className="flex min-w-0 items-center gap-4">
             <div className="min-w-0">
-              <Link
+              <AppLink
                 className="flex items-center gap-2 text-sm font-semibold tracking-tight text-foreground"
                 href="/dashboard"
               >
                 <span className="relative block size-8 shrink-0">
-                  <Image
+                  <img
                     alt=""
                     aria-hidden="true"
-                    className="object-contain dark:hidden"
-                    fill
-                    priority
-                    sizes="32px"
+                    className="size-full object-contain dark:hidden"
                     src="/robot-head-logo-iso.png"
                   />
-                  <Image
+                  <img
                     alt=""
                     aria-hidden="true"
-                    className="hidden object-contain dark:block"
-                    fill
-                    priority
-                    sizes="32px"
+                    className="hidden size-full object-contain dark:block"
                     src="/robot-head-logo-dark-bg.png"
                   />
                 </span>
                 <span>Hephaes</span>
-              </Link>
+              </AppLink>
             </div>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -69,16 +62,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start">
                 <DropdownMenuItem asChild>
-                  <Link href="/dashboard">Dashboard</Link>
+                  <AppLink href="/dashboard">Dashboard</AppLink>
                 </DropdownMenuItem>
                 <DropdownMenuItem asChild>
-                  <Link href="/inventory">Inventory</Link>
+                  <AppLink href="/inventory">Inventory</AppLink>
                 </DropdownMenuItem>
                 <DropdownMenuItem asChild>
-                  <Link href="/outputs">Outputs</Link>
+                  <AppLink href="/outputs">Outputs</AppLink>
                 </DropdownMenuItem>
                 <DropdownMenuItem asChild>
-                  <Link href="/jobs">Jobs</Link>
+                  <AppLink href="/jobs">Jobs</AppLink>
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -89,28 +82,28 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   size="sm"
                   variant={isDashboardRoute ? "secondary" : "ghost"}
                 >
-                  <Link href="/dashboard">Dashboard</Link>
+                  <AppLink href="/dashboard">Dashboard</AppLink>
                 </Button>
                 <Button
                   asChild
                   size="sm"
                   variant={isInventoryRoute ? "secondary" : "ghost"}
                 >
-                  <Link href="/inventory">Inventory</Link>
+                  <AppLink href="/inventory">Inventory</AppLink>
                 </Button>
                 <Button
                   asChild
                   size="sm"
                   variant={isOutputsRoute ? "secondary" : "ghost"}
                 >
-                  <Link href="/outputs">Outputs</Link>
+                  <AppLink href="/outputs">Outputs</AppLink>
                 </Button>
                 <Button
                   asChild
                   size="sm"
                   variant={isJobsRoute ? "secondary" : "ghost"}
                 >
-                  <Link href="/jobs">Jobs</Link>
+                  <AppLink href="/jobs">Jobs</AppLink>
                 </Button>
               </div>
             </nav>
@@ -124,6 +117,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
       </header>
       <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col px-4 py-8 sm:px-6">
+        <BackendConnectionNotice />
         {children}
       </main>
     </div>

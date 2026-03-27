@@ -1,8 +1,6 @@
 "use client"
 
 import * as React from "react"
-import Link from "next/link"
-import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import {
   ArrowLeft,
   ArrowRight,
@@ -81,7 +79,6 @@ import {
   useAssets,
   useBackendCache,
   useConversion,
-  useConversionAuthoringCapabilities,
   useSavedConversionConfig,
   useSavedConversionConfigs,
 } from "@/hooks/use-backend"
@@ -107,6 +104,12 @@ import {
   type SavedConversionConfigSummaryResponse,
 } from "@/lib/api"
 import {
+  AppLink as Link,
+  useAppPathname as usePathname,
+  useAppRouter as useRouter,
+  useAppSearchParams as useSearchParams,
+} from "@/lib/app-routing"
+import {
   formatDateTime,
   formatFileSize,
   formatSentenceCase,
@@ -130,7 +133,6 @@ import {
 } from "@/lib/conversion-authoring"
 import {
   getImagePayloadContract,
-  normalizeOutputContractCapabilities,
 } from "@/lib/conversion-representation"
 
 type NoticeState = {
@@ -695,7 +697,6 @@ export function ConversionAuthoringWorkspace({
   const { isSubmitting, submit: submitConversion } = useCreateConversion()
   const assetsResponse = useAssets()
   const savedConfigsResponse = useSavedConversionConfigs()
-  const capabilitiesResponse = useConversionAuthoringCapabilities()
   const [createdConversion, setCreatedConversion] = React.useState<NonNullable<
     ReturnType<typeof useConversion>["data"]
   > | null>(null)
@@ -821,21 +822,10 @@ export function ConversionAuthoringWorkspace({
   )
   const missingAssetCount = Math.max(assetIds.length - selectedAssets.length, 0)
   const activeConversion = createdConversion ?? conversionResponse.data ?? null
-  const outputContract = React.useMemo(
-    () =>
-      normalizeOutputContractCapabilities(
-        capabilitiesResponse.data?.output_contract
-      ),
-    [capabilitiesResponse.data?.output_contract]
-  )
   const authoringRepresentationPolicy =
     previewResponse?.representation_policy ??
     draftResponse?.representation_policy ??
     inspectionResponse?.representation_policy ??
-    null
-  const statusRepresentationPolicy =
-    activeConversion?.representation_policy ??
-    activeConversion?.job.representation_policy ??
     null
   const isPendingConversionRoute =
     Boolean(queryConversionId) &&

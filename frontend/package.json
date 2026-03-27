@@ -7,14 +7,19 @@
     "dev": "next dev --turbopack",
     "build": "next build",
     "start": "next start",
+    "desktop:dev": "vite",
+    "desktop:build": "vite build",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build",
     "lint": "eslint",
     "test": "vitest run",
     "postinstall": "patch-package",
     "format": "prettier --write \"**/*.{ts,tsx}\"",
-    "typecheck": "rm -f tsconfig.tsbuildinfo .next/cache/.tsbuildinfo && next typegen && tsc --noEmit"
+    "typecheck": "rm -f tsconfig.tsbuildinfo .next/cache/.tsbuildinfo && next typegen && tsc -p tsconfig.typecheck.json --noEmit"
   },
   "dependencies": {
     "@rerun-io/web-viewer": "^0.22.1",
+    "@tauri-apps/api": "^2.10.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "lucide-react": "^0.577.0",
@@ -23,6 +28,7 @@
     "radix-ui": "^1.4.3",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
+    "react-router-dom": "^7.13.2",
     "shadcn": "^4.0.8",
     "sonner": "^2.0.7",
     "swr": "^2.4.1",
@@ -32,11 +38,13 @@
   "devDependencies": {
     "@eslint/eslintrc": "^3",
     "@tailwindcss/postcss": "^4.1.18",
+    "@tauri-apps/cli": "^2.10.1",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@types/node": "^25.1.0",
     "@types/react": "^19.2.10",
     "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.1",
     "eslint": "^9.39.2",
     "eslint-config-next": "16.1.6",
     "jsdom": "^29.0.1",
@@ -46,6 +54,7 @@
     "prettier-plugin-tailwindcss": "^0.7.2",
     "tailwindcss": "^4.1.18",
     "typescript": "^5.9.3",
+    "vite": "^8.0.3",
     "vitest": "^4.1.0"
   }
 }

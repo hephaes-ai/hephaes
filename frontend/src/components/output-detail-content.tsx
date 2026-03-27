@@ -1,7 +1,6 @@
 "use client";
 
 import * as React from "react";
-import Link from "next/link";
 import {
   ArrowRight,
   Copy,
@@ -19,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import type { AssetSummary, OutputActionDetail, OutputDetail, OutputRole } from "@/lib/api";
 import { getErrorMessage, resolveBackendUrl } from "@/lib/api";
+import { AppLink } from "@/lib/app-routing";
 import {
   formatDateTime,
   formatFileSize,
@@ -284,9 +284,9 @@ export function OutputSourceLinks({
     <div className="flex flex-wrap items-center gap-1.5" onClick={(event) => event.stopPropagation()}>
       {assetIds.map((assetId) => (
         <Button asChild key={assetId} size="xs" variant="outline">
-          <Link href={buildAssetDetailHref(assetId, currentHref)}>
+          <AppLink href={buildAssetDetailHref(assetId, currentHref)}>
             {assetsById.get(assetId)?.file_name ?? assetId}
-          </Link>
+          </AppLink>
         </Button>
       ))}
     </div>
@@ -454,17 +454,17 @@ export function OutputDetailContent({
 
           <div className="flex flex-wrap gap-2">
             <Button asChild size="sm" variant="outline">
-              <Link href={buildJobDetailHref(output.job_id, currentHref)}>
+              <AppLink href={buildJobDetailHref(output.job_id, currentHref)}>
                 Open job
                 <ArrowRight className="size-3.5" />
-              </Link>
+              </AppLink>
             </Button>
             {output.asset_ids.length === 1 ? (
               <Button asChild size="sm" variant="outline">
-                <Link href={buildAssetDetailHref(output.asset_ids[0], currentHref)}>
+                <AppLink href={buildAssetDetailHref(output.asset_ids[0], currentHref)}>
                   Open asset
                   <ArrowRight className="size-3.5" />
-                </Link>
+                </AppLink>
               </Button>
             ) : null}
           </div>

@@ -1,13 +1,17 @@
 "use client";
 
 import * as React from "react";
-import Link from "next/link";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { ChevronDown, ListFilter, RefreshCw } from "lucide-react";
 
 import { useAssets, useJobs } from "@/hooks/use-backend";
 import type { AssetSummary, JobStatus, JobType } from "@/lib/api";
 import { BackendApiError, getErrorMessage } from "@/lib/api";
+import {
+  AppLink as Link,
+  useAppPathname as usePathname,
+  useAppRouter as useRouter,
+  useAppSearchParams as useSearchParams,
+} from "@/lib/app-routing";
 import {
   formatDateTime,
   formatJobType,

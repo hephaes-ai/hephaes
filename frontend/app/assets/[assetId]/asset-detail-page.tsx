@@ -1,8 +1,6 @@
 "use client";
 
 import * as React from "react";
-import Link from "next/link";
-import { useSearchParams } from "next/navigation";
 import { ArrowLeft, ArrowRight, ArrowRightLeft, Database, Eye, RefreshCw, Waves } from "lucide-react";
 
 import { AssetStatusBadge } from "@/components/asset-status-badge";
@@ -33,10 +31,14 @@ import {
   createTag,
   getErrorMessage,
   indexAsset,
-    removeTagFromAsset,
-    type TagSummary,
-    type TopicModality,
-  } from "@/lib/api";
+  removeTagFromAsset,
+  type TagSummary,
+  type TopicModality,
+} from "@/lib/api";
+import {
+  AppLink as Link,
+  useAppSearchParams as useSearchParams,
+} from "@/lib/app-routing";
 import {
   formatDateTime,
   formatDuration,

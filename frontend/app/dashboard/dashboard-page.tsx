@@ -1,7 +1,6 @@
 "use client"
 
 import * as React from "react"
-import Link from "next/link"
 import {
   Activity,
   ArrowRight,
@@ -39,6 +38,7 @@ import type {
   JobStatus,
 } from "@/lib/api"
 import { getErrorMessage } from "@/lib/api"
+import { AppLink as Link } from "@/lib/app-routing"
 import { shapeDashboardTrendBuckets, type TrendBucket } from "@/lib/dashboard"
 import {
   formatDateTime,
