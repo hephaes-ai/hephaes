@@ -21,10 +21,10 @@ work while `frontend/` is migrated from Next.js to a Tauri-hosted React app.
 
 ## Data And Connectivity
 
-- [ ] frontend can talk to a separately started FastAPI backend
+- [x] frontend can talk to a separately started FastAPI backend
 - [ ] backend health state is surfaced in the UI
 - [ ] SWR polling and revalidation still work
-- [ ] REST requests still resolve against the configured backend base URL
+- [x] REST requests still resolve against the configured backend base URL
 - [ ] replay WebSocket still connects successfully
 
 ## Inventory Flows
@@ -62,4 +62,41 @@ npm run lint
 npm test
 npm run typecheck
 npm run build
+npm run desktop:build
+cargo check --manifest-path /Users/danielyoo/workspace/hephaes/frontend/src-tauri/Cargo.toml
+npm run tauri:dev
 ```
+
+## Validation Snapshot
+
+Validated on `2026-03-27` with the standalone backend running at
+`http://127.0.0.1:8000`.
+
+Verified:
+
+- automated frontend checks passed:
+  - `npm run lint`
+  - `npm test`
+  - `npm run typecheck`
+  - `npm run build`
+  - `npm run desktop:build`
+  - `cargo check --manifest-path /Users/danielyoo/workspace/hephaes/frontend/src-tauri/Cargo.toml`
+  - `npm run tauri:dev`
+- live backend endpoints returned real data for:
+  - `/health`
+  - `/assets`
+  - `/assets/:assetId`
+  - `/assets/:assetId/episodes`
+  - `/jobs`
+  - `/outputs`
+  - `/conversion-configs`
+  - `/conversions`
+- Vite desktop dev server served SPA entry responses for:
+  - `/dashboard`
+  - `/replay?asset_id=...`
+
+Still requires an interactive manual pass:
+
+- route-by-route UI confirmation inside the running desktop shell
+- mutation flows such as tagging, scanning, and conversion creation
+- replay WebSocket and embedded Rerun viewer confirmation
