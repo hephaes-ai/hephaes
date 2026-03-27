@@ -85,3 +85,23 @@ and the matching DMG is written to:
 ```text
 src-tauri/target/release/bundle/dmg/
 ```
+
+## Debugging
+
+The packaged desktop shell writes its own logs to:
+
+```text
+~/Library/Logs/ai.hephaes.desktop/desktop.log
+```
+
+The bundled FastAPI sidecar writes backend startup and request logs to:
+
+```text
+~/Library/Logs/ai.hephaes.desktop/backend/
+```
+
+The packaged app stores its local database, raw assets, and generated outputs in:
+
+```text
+~/Library/Application Support/ai.hephaes.desktop/backend/
+```

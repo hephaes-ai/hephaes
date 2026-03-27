@@ -60,27 +60,19 @@ def resolve_paths() -> tuple[Path, Path, Path]:
     return backend_dir, repo_root, hephaes_src_dir
 
 
-def main(argv: Sequence[str] | None = None) -> int:
-    args = parse_args(argv)
-    backend_dir, _repo_root, hephaes_src_dir = resolve_paths()
-
-    dist_dir = Path(args.dist_dir) if args.dist_dir else backend_dir / "dist"
-    build_dir = Path(args.build_dir) if args.build_dir else backend_dir / "build"
-    spec_dir = Path(args.spec_dir) if args.spec_dir else build_dir / "spec"
-
-    if args.clean:
-        for path in (dist_dir, build_dir):
-            if path.exists():
-                shutil.rmtree(path)
-
-    dist_dir.mkdir(parents=True, exist_ok=True)
-    build_dir.mkdir(parents=True, exist_ok=True)
-    spec_dir.mkdir(parents=True, exist_ok=True)
-
+def build_pyinstaller_command(
+    *,
+    args: argparse.Namespace,
+    backend_dir: Path,
+    hephaes_src_dir: Path,
+    dist_dir: Path,
+    build_dir: Path,
+    spec_dir: Path,
+) -> list[str]:
     entrypoint_path = backend_dir / "app" / "desktop_main.py"
     mode_flag = "--onedir" if args.mode == "onedir" else "--onefile"
 
-    command = [
+    return [
         sys.executable,
         "-m",
         "PyInstaller",
@@ -103,8 +95,37 @@ def main(argv: Sequence[str] | None = None) -> int:
         "app",
         "--collect-submodules",
         "hephaes",
+        "--collect-submodules",
+        "rosbags.typesys.stores",
         str(entrypoint_path),
     ]
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    args = parse_args(argv)
+    backend_dir, _repo_root, hephaes_src_dir = resolve_paths()
+
+    dist_dir = Path(args.dist_dir) if args.dist_dir else backend_dir / "dist"
+    build_dir = Path(args.build_dir) if args.build_dir else backend_dir / "build"
+    spec_dir = Path(args.spec_dir) if args.spec_dir else build_dir / "spec"
+
+    if args.clean:
+        for path in (dist_dir, build_dir):
+            if path.exists():
+                shutil.rmtree(path)
+
+    dist_dir.mkdir(parents=True, exist_ok=True)
+    build_dir.mkdir(parents=True, exist_ok=True)
+    spec_dir.mkdir(parents=True, exist_ok=True)
+
+    command = build_pyinstaller_command(
+        args=args,
+        backend_dir=backend_dir,
+        hephaes_src_dir=hephaes_src_dir,
+        dist_dir=dist_dir,
+        build_dir=build_dir,
+        spec_dir=spec_dir,
+    )
 
     subprocess.run(command, check=True, cwd=str(backend_dir))
     return 0
