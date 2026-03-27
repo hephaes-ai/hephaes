@@ -14,10 +14,13 @@ use tauri_plugin_shell::{
     process::{CommandChild, CommandEvent},
     ShellExt,
 };
+use url::{Host, Url};
 
 const BACKEND_SIDECAR_NAME: &str = "hephaes-backend-sidecar";
 const BACKEND_RUNTIME_EVENT: &str = "hephaes://backend-runtime";
 const BACKEND_HOST: &str = "127.0.0.1";
+const BACKEND_SHUTDOWN_GRACE_PERIOD: Duration = Duration::from_secs(3);
+const BACKEND_SHUTDOWN_POLL_INTERVAL: Duration = Duration::from_millis(100);
 const BACKEND_STARTUP_TIMEOUT: Duration = Duration::from_secs(20);
 const BACKEND_HEALTHCHECK_INTERVAL: Duration = Duration::from_millis(250);
 
@@ -169,12 +172,52 @@ fn pick_backend_port() -> Result<u16> {
     Ok(port)
 }
 
+fn is_loopback_url(url: &Url) -> bool {
+    match url.host() {
+        Some(Host::Domain(domain)) => domain.eq_ignore_ascii_case("localhost"),
+        Some(Host::Ipv4(address)) => address.is_loopback(),
+        Some(Host::Ipv6(address)) => address.is_loopback(),
+        None => false,
+    }
+}
+
 fn resolve_external_backend_base_url() -> Option<String> {
+    if !cfg!(debug_assertions) {
+        if std::env::var_os("VITE_BACKEND_BASE_URL").is_some() {
+            log::warn!("ignoring VITE_BACKEND_BASE_URL outside debug builds");
+        }
+        return None;
+    }
+
     let configured_base_url = std::env::var("VITE_BACKEND_BASE_URL").ok()?;
     let trimmed = configured_base_url.trim().trim_end_matches('/').to_string();
     if trimmed.is_empty() {
         return None;
     }
+
+    let parsed_url = match Url::parse(&trimmed) {
+        Ok(url) => url,
+        Err(error) => {
+            log::warn!("ignoring invalid VITE_BACKEND_BASE_URL: {error}");
+            return None;
+        }
+    };
+
+    if !matches!(parsed_url.scheme(), "http" | "https") {
+        log::warn!(
+            "ignoring VITE_BACKEND_BASE_URL because unsupported scheme {} was configured",
+            parsed_url.scheme()
+        );
+        return None;
+    }
+
+    if !is_loopback_url(&parsed_url) {
+        log::warn!(
+            "ignoring VITE_BACKEND_BASE_URL because it does not target a loopback host"
+        );
+        return None;
+    }
+
     Some(trimmed)
 }
 
@@ -240,6 +283,61 @@ fn wait_for_backend_health(runtime: &BackendRuntime) -> Result<()> {
     ))
 }
 
+#[cfg(unix)]
+fn request_backend_sidecar_shutdown(pid: u32) -> Result<()> {
+    let status = unsafe { libc::kill(pid as libc::pid_t, libc::SIGTERM) };
+    if status == 0 {
+        return Ok(());
+    }
+
+    let error = std::io::Error::last_os_error();
+    if error.raw_os_error() == Some(libc::ESRCH) {
+        return Ok(());
+    }
+
+    Err(error.into())
+}
+
+#[cfg(not(unix))]
+fn request_backend_sidecar_shutdown(_pid: u32) -> Result<()> {
+    Err(anyhow!(
+        "graceful shutdown signaling is not supported on this platform"
+    ))
+}
+
+#[cfg(unix)]
+fn is_process_running(pid: u32) -> bool {
+    let status = unsafe { libc::kill(pid as libc::pid_t, 0) };
+    if status == 0 {
+        return true;
+    }
+
+    matches!(
+        std::io::Error::last_os_error().raw_os_error(),
+        Some(code) if code == libc::EPERM
+    )
+}
+
+#[cfg(unix)]
+fn wait_for_process_exit(pid: u32, timeout: Duration) -> bool {
+    let deadline = Instant::now() + timeout;
+
+    while Instant::now() < deadline {
+        if !is_process_running(pid) {
+            return true;
+        }
+
+        thread::sleep(BACKEND_SHUTDOWN_POLL_INTERVAL);
+    }
+
+    !is_process_running(pid)
+}
+
+#[cfg(not(unix))]
+fn wait_for_process_exit(_pid: u32, _timeout: Duration) -> bool {
+    false
+}
+
 fn stop_backend_sidecar(app: &AppHandle) {
     set_backend_shutdown_requested(app, true);
     let backend_state = app.state::<BackendProcessState>();
@@ -250,10 +348,36 @@ fn stop_backend_sidecar(app: &AppHandle) {
         .take();
 
     if let Some(command_child) = child {
+        let pid = command_child.pid();
+
+        let exited_after_graceful_shutdown = match request_backend_sidecar_shutdown(pid) {
+            Ok(()) => {
+                log::info!("requested graceful shutdown for backend sidecar (pid {pid})");
+                wait_for_process_exit(pid, BACKEND_SHUTDOWN_GRACE_PERIOD)
+            }
+            Err(error) => {
+                log::warn!(
+                    "could not request graceful shutdown for backend sidecar: {error}"
+                );
+                false
+            }
+        };
+
+        if exited_after_graceful_shutdown {
+            log::info!("backend sidecar exited after graceful shutdown request");
+            return;
+        }
+
+        #[cfg(unix)]
+        if !is_process_running(pid) {
+            log::info!("backend sidecar exited before the force-stop signal was sent");
+            return;
+        }
+
         if let Err(error) = command_child.kill() {
             log::warn!("failed to stop backend sidecar cleanly: {error}");
         } else {
-            log::info!("stopped backend sidecar");
+            log::info!("force-stopped backend sidecar");
         }
     }
 }
