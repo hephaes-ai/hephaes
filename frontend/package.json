@@ -11,7 +11,7 @@
     "test": "vitest run",
     "postinstall": "patch-package",
     "format": "prettier --write \"**/*.{ts,tsx}\"",
-    "typecheck": "rm -f tsconfig.tsbuildinfo .next/cache/.tsbuildinfo && next typegen && tsc --noEmit"
+    "typecheck": "rm -f tsconfig.tsbuildinfo .next/cache/.tsbuildinfo && next typegen && tsc -p tsconfig.typecheck.json --noEmit"
   },
   "dependencies": {
     "@rerun-io/web-viewer": "^0.22.1",

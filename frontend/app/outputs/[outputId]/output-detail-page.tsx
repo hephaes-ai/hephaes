@@ -12,12 +12,11 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/sonner";
 import {
   useAssets,
-  useBackendCache,
   useCreateOutputAction,
   useOutput,
   useOutputActions,
 } from "@/hooks/use-backend";
-import type { AssetSummary, OutputActionDetail, OutputDetail } from "@/lib/api";
+import type { OutputActionDetail, OutputDetail } from "@/lib/api";
 import { BackendApiError, getErrorMessage } from "@/lib/api";
 import { isWorkflowActiveStatus } from "@/lib/format";
 import { resolveReturnHref } from "@/lib/navigation";
