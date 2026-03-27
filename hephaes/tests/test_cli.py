@@ -356,3 +356,153 @@ def test_cli_outputs_ls_and_show(tmp_path: Path, capsys) -> None:
     assert exit_code == 0
     assert '"format": "parquet"' in captured.out
     assert '"manifest_available": true' in captured.out
+
+
+def test_cli_convert_with_saved_config(
+    tmp_path: Path,
+    tmp_bag_file: Path,
+    capsys,
+    monkeypatch,
+) -> None:
+    main(["init", str(tmp_path)])
+    capsys.readouterr()
+    main(["add", "--workspace", str(tmp_path), str(tmp_bag_file)])
+    add_output = capsys.readouterr().out.strip()
+    asset_id = add_output.split("\t", 1)[0]
+
+    spec = ConversionSpec(
+        schema=SchemaSpec(name="convert_demo", version=1),
+        output=OutputSpec(format="parquet"),
+    )
+    document_path = tmp_path / "convert-spec.json"
+    document_path.write_text(
+        dump_conversion_spec_document(build_conversion_spec_document(spec), format="json"),
+        encoding="utf-8",
+    )
+    main(["configs", "save", "--workspace", str(tmp_path), "Convert Demo", str(document_path)])
+    capsys.readouterr()
+
+    class FakeConverter:
+        def __init__(
+            self,
+            file_paths,
+            mapping,
+            output_dir,
+            *,
+            spec,
+            max_workers=1,
+            **kwargs,
+        ) -> None:
+            assert file_paths == [str(tmp_bag_file.resolve())]
+            assert mapping is None
+            assert spec.schema.name == "convert_demo"
+            assert max_workers == 1
+            self.output_dir = Path(output_dir)
+
+        def convert(self) -> list[Path]:
+            dataset_path = self.output_dir / "episode_0001.parquet"
+            dataset_path.parent.mkdir(parents=True, exist_ok=True)
+            dataset_path.write_bytes(b"parquet")
+            dataset_path.with_suffix(".manifest.json").write_text(
+                '{"episode_id":"episode_0001"}',
+                encoding="utf-8",
+            )
+            return [dataset_path]
+
+    monkeypatch.setattr("hephaes.workspace.Converter", FakeConverter)
+
+    exit_code = main(
+        [
+            "convert",
+            "--workspace",
+            str(tmp_path),
+            "--config",
+            "Convert Demo",
+            asset_id,
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert '"output_count": 2' in captured.out
+    assert '"role": "dataset"' in captured.out
+    assert '"role": "manifest"' in captured.out
+
+
+def test_cli_convert_requires_exactly_one_config_source(
+    tmp_path: Path,
+    tmp_bag_file: Path,
+    capsys,
+) -> None:
+    main(["init", str(tmp_path)])
+    capsys.readouterr()
+
+    exit_code = main(["convert", "--workspace", str(tmp_path), str(tmp_bag_file)])
+
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert "provide exactly one of --config or --spec-document" in captured.err
+
+
+def test_cli_convert_with_direct_path_and_spec_document(
+    tmp_path: Path,
+    tmp_mcap_file: Path,
+    capsys,
+    monkeypatch,
+) -> None:
+    main(["init", str(tmp_path)])
+    capsys.readouterr()
+
+    spec = ConversionSpec(
+        schema=SchemaSpec(name="direct_demo", version=1),
+        output=OutputSpec(format="parquet"),
+    )
+    document_path = tmp_path / "direct-spec.json"
+    document_path.write_text(
+        dump_conversion_spec_document(build_conversion_spec_document(spec), format="json"),
+        encoding="utf-8",
+    )
+
+    class FakeConverter:
+        def __init__(
+            self,
+            file_paths,
+            mapping,
+            output_dir,
+            *,
+            spec,
+            max_workers=1,
+            **kwargs,
+        ) -> None:
+            assert file_paths == [str(tmp_mcap_file.resolve())]
+            assert mapping is None
+            assert spec.schema.name == "direct_demo"
+            self.output_dir = Path(output_dir)
+
+        def convert(self) -> list[Path]:
+            dataset_path = self.output_dir / "episode_0001.parquet"
+            dataset_path.parent.mkdir(parents=True, exist_ok=True)
+            dataset_path.write_bytes(b"parquet")
+            dataset_path.with_suffix(".manifest.json").write_text(
+                '{"episode_id":"episode_0001"}',
+                encoding="utf-8",
+            )
+            return [dataset_path]
+
+    monkeypatch.setattr("hephaes.workspace.Converter", FakeConverter)
+
+    exit_code = main(
+        [
+            "convert",
+            "--workspace",
+            str(tmp_path),
+            "--spec-document",
+            str(document_path),
+            str(tmp_mcap_file),
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert '"output_count": 2' in captured.out
+    assert str(tmp_mcap_file.resolve()) in captured.out

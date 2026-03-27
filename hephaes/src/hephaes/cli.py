@@ -142,6 +142,38 @@ def build_parser() -> argparse.ArgumentParser:
     )
     inspect_parser.set_defaults(handler=_handle_inspect)
 
+    convert_parser = subparsers.add_parser(
+        "convert",
+        help="Run a local conversion and register emitted outputs in the workspace.",
+    )
+    convert_parser.add_argument(
+        "source",
+        help="Registered asset id, registered asset path, or direct local file path.",
+    )
+    convert_parser.add_argument(
+        "--workspace",
+        help="Workspace root or any path inside the target workspace.",
+    )
+    convert_parser.add_argument(
+        "--config",
+        help="Saved conversion config id or name.",
+    )
+    convert_parser.add_argument(
+        "--spec-document",
+        help="Path to a conversion spec or conversion spec document.",
+    )
+    convert_parser.add_argument(
+        "--output-dir",
+        help="Directory where converted outputs should be written.",
+    )
+    convert_parser.add_argument(
+        "--max-workers",
+        type=int,
+        default=1,
+        help="Worker count for conversion.",
+    )
+    convert_parser.set_defaults(handler=_handle_convert)
+
     configs_parser = subparsers.add_parser(
         "configs",
         help="Manage saved conversion configs in the active workspace.",
@@ -377,6 +409,43 @@ def _handle_inspect(args: argparse.Namespace) -> int:
         on_failure=args.on_failure,
     )
     print(json.dumps(inspection.model_dump(mode="json"), sort_keys=True))
+    return 0
+
+
+def _handle_convert(args: argparse.Namespace) -> int:
+    workspace = _open_workspace(args.workspace)
+    if (args.config is None) == (args.spec_document is None):
+        raise WorkspaceError("provide exactly one of --config or --spec-document")
+
+    outputs = workspace.run_conversion(
+        args.source,
+        saved_config_selector=args.config,
+        spec_document=args.spec_document,
+        output_dir=args.output_dir,
+        max_workers=args.max_workers,
+    )
+    print(
+        json.dumps(
+            {
+                "output_count": len(outputs),
+                "outputs": [
+                    {
+                        "id": output.id,
+                        "format": output.format,
+                        "role": output.role,
+                        "output_path": output.output_path,
+                        "saved_config_id": output.saved_config_id,
+                        "source_asset_id": output.source_asset_id,
+                        "source_asset_path": output.source_asset_path,
+                        "manifest_available": output.manifest_available,
+                        "report_available": output.report_available,
+                    }
+                    for output in outputs
+                ],
+            },
+            sort_keys=True,
+        )
+    )
     return 0
 
 

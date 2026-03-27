@@ -339,6 +339,83 @@ def test_register_and_list_output_artifacts(tmp_path: Path) -> None:
     assert dataset.report_available is True
 
 
+def test_register_output_artifacts_can_limit_to_specific_paths(tmp_path: Path) -> None:
+    workspace = Workspace.init(tmp_path)
+    outputs_dir = tmp_path / "emitted"
+    outputs_dir.mkdir()
+    dataset_path = outputs_dir / "episode_0001.parquet"
+    dataset_path.write_bytes(b"parquet")
+    manifest_path = outputs_dir / "episode_0001.manifest.json"
+    manifest_path.write_text('{"episode_id":"episode_0001"}', encoding="utf-8")
+    unrelated_path = outputs_dir / "notes.json"
+    unrelated_path.write_text('{"note":"ignore"}', encoding="utf-8")
+
+    registered = workspace.register_output_artifacts(
+        output_root=outputs_dir,
+        paths=[dataset_path, manifest_path],
+        source_asset_path="/tmp/source.mcap",
+    )
+
+    assert len(registered) == 2
+    assert all(output.output_path != str(unrelated_path.resolve()) for output in registered)
+
+
+def test_run_conversion_registers_emitted_outputs(
+    tmp_path: Path,
+    tmp_mcap_file: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = Workspace.init(tmp_path)
+    asset = workspace.register_asset(tmp_mcap_file)
+    spec = ConversionSpec(
+        schema=SchemaSpec(name="demo", version=1),
+        output=OutputSpec(format="parquet"),
+    )
+    saved_config = workspace.save_conversion_config(
+        name="Demo Config",
+        spec_document=build_conversion_spec_document(spec),
+    )
+
+    class FakeConverter:
+        def __init__(
+            self,
+            file_paths,
+            mapping,
+            output_dir,
+            *,
+            spec,
+            max_workers=1,
+            **kwargs,
+        ) -> None:
+            assert file_paths == [str(tmp_mcap_file.resolve())]
+            assert mapping is None
+            assert spec.schema.name == "demo"
+            assert max_workers == 1
+            self.output_dir = Path(output_dir)
+
+        def convert(self) -> list[Path]:
+            dataset_path = self.output_dir / "episode_0001.parquet"
+            dataset_path.parent.mkdir(parents=True, exist_ok=True)
+            dataset_path.write_bytes(b"parquet")
+            dataset_path.with_suffix(".manifest.json").write_text(
+                '{"episode_id":"episode_0001"}',
+                encoding="utf-8",
+            )
+            return [dataset_path]
+
+    monkeypatch.setattr("hephaes.workspace.Converter", FakeConverter)
+
+    outputs = workspace.run_conversion(asset.id, saved_config_selector=saved_config.id)
+
+    assert len(outputs) == 2
+    dataset_output = next(output for output in outputs if output.role == "dataset")
+    manifest_output = next(output for output in outputs if output.role == "manifest")
+    assert dataset_output.source_asset_id == asset.id
+    assert dataset_output.saved_config_id == saved_config.id
+    assert dataset_output.manifest_available is True
+    assert manifest_output.saved_config_id == saved_config.id
+
+
 def test_get_output_artifact_returns_metadata(tmp_path: Path) -> None:
     workspace = Workspace.init(tmp_path)
     dataset_path = tmp_path / "episode_0001.tfrecord"

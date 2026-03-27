@@ -11,7 +11,14 @@ import pytest
 
 from hephaes._converter_helpers import _normalize_payload
 from hephaes.converter import _interpolate_json_leaves, _json_default, _resolve_mapping_for_bag
-from hephaes.models import MappingTemplate, ResampleConfig, TFRecordOutputConfig
+from hephaes.models import (
+    ConversionSpec,
+    MappingTemplate,
+    OutputSpec,
+    ResampleConfig,
+    SchemaSpec,
+    TFRecordOutputConfig,
+)
 
 _HAS_PYARROW = importlib.util.find_spec("pyarrow") is not None
 
@@ -326,6 +333,10 @@ class TestConverter:
         assert manifest["source"]["source_metadata"] is None
         assert manifest["conversion"]["mapping_requested"] == {"cmd_vel": ["/cmd_vel"]}
         assert manifest["conversion"]["mapping_resolved"] == {"cmd_vel": "/cmd_vel"}
+        assert manifest["conversion"]["schema"] == {
+            "name": "legacy_mapping",
+            "version": 1,
+        }
         assert manifest["robot_context"] == {"robot_id": "r2d2", "platform": "spot"}
         assert manifest["labels"] == {
             "auto_tags": None,
@@ -362,6 +373,36 @@ class TestConverter:
         assert manifest["source"]["storage_format"] == "mcap"
         assert manifest["source"]["source_metadata"] == {
             "rosbag2_bagfile_information": {"version": 5}
+        }
+
+    @pytest.mark.skipif(not _HAS_PYARROW, reason="pyarrow not installed")
+    def test_convert_with_spec_preserves_schema_metadata_in_manifest(self, tmp_bag_file, tmp_path):
+        from hephaes.converter import Converter
+
+        spec = ConversionSpec(
+            schema=SchemaSpec(name="demo_schema", version=7),
+            mapping=self._make_mapping(),
+            output=OutputSpec(format="parquet"),
+        )
+        mock_reader = make_mock_any_reader_with_payloads(
+            topics={"/cmd_vel": "geometry_msgs/Twist"},
+            messages=[("/cmd_vel", 1_000_000_000, {"v": 1})],
+        )
+
+        with _patch_any_reader(mock_reader):
+            converter = Converter(
+                [str(tmp_bag_file)],
+                None,
+                tmp_path,
+                spec=spec,
+                max_workers=1,
+            )
+            results = converter.convert()
+
+        manifest = json.loads(results[0].with_suffix(".manifest.json").read_text())
+        assert manifest["conversion"]["schema"] == {
+            "name": "demo_schema",
+            "version": 7,
         }
 
     def test_convert_can_disable_manifest_writes(self, tmp_bag_file, tmp_path):

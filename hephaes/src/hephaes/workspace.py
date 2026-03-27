@@ -50,6 +50,7 @@ from .conversion.spec_io import (
     load_conversion_spec_document,
     migrate_conversion_spec_document,
 )
+from .converter import Converter
 from .models import ConversionSpec
 
 SUPPORTED_ASSET_FILE_TYPES = frozenset({"bag", "mcap"})
@@ -579,6 +580,7 @@ class Workspace:
         self,
         *,
         output_root: str | Path,
+        paths: list[str | Path] | None = None,
         source_asset_id: str | None = None,
         source_asset_path: str | None = None,
         saved_config_id: str | None = None,
@@ -587,7 +589,15 @@ class Workspace:
         if not root.exists():
             raise WorkspaceError(f"output path does not exist: {root}")
 
-        if root.is_file():
+        if paths is not None:
+            candidate_paths = sorted(
+                {
+                    Path(candidate_path).expanduser().resolve(strict=False)
+                    for candidate_path in paths
+                }
+            )
+            output_root_path = root if root.is_dir() else root.parent
+        elif root.is_file():
             candidate_paths = [root]
             output_root_path = root.parent
         else:
@@ -686,6 +696,75 @@ class Workspace:
                 registered_paths.append(output_path)
 
         return [self.get_output_artifact_or_raise_by_path(path) for path in registered_paths]
+
+    def run_conversion(
+        self,
+        source: str | Path,
+        *,
+        saved_config_selector: str | None = None,
+        spec_document: ConversionSpecDocument | ConversionSpec | dict | str | Path | None = None,
+        output_dir: str | Path | None = None,
+        max_workers: int = 1,
+    ) -> list[OutputArtifact]:
+        if max_workers < 1:
+            raise WorkspaceError("--max-workers must be >= 1")
+        if (saved_config_selector is None) == (spec_document is None):
+            raise WorkspaceError(
+                "provide exactly one of saved_config_selector or spec_document"
+            )
+
+        registered_asset: RegisteredAsset | None = None
+        try:
+            registered_asset = self.resolve_asset(source)
+            source_path = Path(registered_asset.file_path)
+        except AssetNotFoundError:
+            source_path, _file_type, _file_size = _inspect_asset_path(source)
+
+        saved_config: SavedConversionConfig | None = None
+        if saved_config_selector is not None:
+            saved_config = self.resolve_saved_conversion_config(saved_config_selector)
+            document = saved_config.document
+        else:
+            if spec_document is None:
+                raise WorkspaceError("spec document is required")
+            if isinstance(spec_document, ConversionSpec):
+                document = build_conversion_spec_document(spec_document)
+            else:
+                document = load_conversion_spec_document(spec_document)
+
+        resolved_output_dir = (
+            Path(output_dir).expanduser().resolve(strict=False)
+            if output_dir is not None
+            else self.paths.outputs_dir / str(uuid4())
+        )
+        resolved_output_dir.mkdir(parents=True, exist_ok=True)
+
+        converter = Converter(
+            [str(source_path)],
+            None,
+            resolved_output_dir,
+            spec=document.spec,
+            max_workers=max_workers,
+        )
+        dataset_paths = converter.convert()
+
+        artifact_paths: list[Path] = []
+        for dataset_path in dataset_paths:
+            artifact_paths.append(dataset_path)
+            manifest_path = dataset_path.with_suffix(".manifest.json")
+            report_path = dataset_path.with_name(f"{dataset_path.stem}.report.md")
+            if manifest_path.exists():
+                artifact_paths.append(manifest_path)
+            if report_path.exists():
+                artifact_paths.append(report_path)
+
+        return self.register_output_artifacts(
+            output_root=resolved_output_dir,
+            paths=[str(path) for path in artifact_paths],
+            source_asset_id=registered_asset.id if registered_asset is not None else None,
+            source_asset_path=str(source_path),
+            saved_config_id=saved_config.id if saved_config is not None else None,
+        )
 
     def list_output_artifacts(self) -> list[OutputArtifactSummary]:
         with self._connect() as connection:
