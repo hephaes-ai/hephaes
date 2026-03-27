@@ -123,15 +123,18 @@ export function BootstrapApp({
       `The desktop app could not finish starting ${runtimeLabel}.`,
       baseUrl ? `Target URL: ${baseUrl}.` : null,
       errorText ? `Error: ${errorText}` : null,
+      state.runtime.backendLogDir
+        ? `Backend logs: ${state.runtime.backendLogDir}.`
+        : null,
+      state.runtime.desktopLogDir
+        ? `Desktop logs: ${state.runtime.desktopLogDir}.`
+        : null,
     ]
       .filter(Boolean)
       .join(" ")
 
     return (
-      <StartupScreen
-        description={details}
-        title="Backend startup failed"
-      />
+      <StartupScreen description={details} title="Backend startup failed" />
     )
   }
 

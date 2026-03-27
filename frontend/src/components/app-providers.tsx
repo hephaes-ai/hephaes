@@ -1,15 +1,21 @@
-"use client";
+"use client"
 
-import { SWRConfig } from "swr";
+import { SWRConfig } from "swr"
 
-import { FeedbackProvider } from "@/components/feedback-provider";
-import { JobStatusToaster } from "@/components/job-status-toaster";
-import { ThemeProvider } from "@/components/theme-provider";
-import { Toaster } from "@/components/ui/sonner";
+import { BackendRuntimeMonitor } from "@/components/backend-runtime-monitor"
+import { FeedbackProvider } from "@/components/feedback-provider"
+import { JobStatusToaster } from "@/components/job-status-toaster"
+import { ThemeProvider } from "@/components/theme-provider"
+import { Toaster } from "@/components/ui/sonner"
 
 export function AppProviders({ children }: { children: React.ReactNode }) {
   return (
-    <ThemeProvider attribute="class" defaultTheme="system" enableSystem storageKey="hephaes-theme">
+    <ThemeProvider
+      attribute="class"
+      defaultTheme="system"
+      enableSystem
+      storageKey="hephaes-theme"
+    >
       <SWRConfig
         value={{
           keepPreviousData: true,
@@ -18,11 +24,12 @@ export function AppProviders({ children }: { children: React.ReactNode }) {
         }}
       >
         <FeedbackProvider>
+          <BackendRuntimeMonitor />
           {children}
           <JobStatusToaster />
           <Toaster position="bottom-right" />
         </FeedbackProvider>
       </SWRConfig>
     </ThemeProvider>
-  );
+  )
 }
