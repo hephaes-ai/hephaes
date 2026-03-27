@@ -45,10 +45,13 @@ def client(
     backend_db_path: Path,
     backend_outputs_dir: Path,
     backend_raw_data_dir: Path,
+    tmp_path: Path,
 ):
+    monkeypatch.setenv("HEPHAES_BACKEND_DATA_DIR", str(tmp_path / "data"))
     monkeypatch.setenv("HEPHAES_BACKEND_DB_PATH", str(backend_db_path))
     monkeypatch.setenv("HEPHAES_BACKEND_OUTPUTS_DIR", str(backend_outputs_dir))
     monkeypatch.setenv("HEPHAES_BACKEND_RAW_DATA_DIR", str(backend_raw_data_dir))
+    monkeypatch.setenv("HEPHAES_BACKEND_LOG_DIR", str(tmp_path / "logs"))
 
     import app.config as app_config
     from app.config import get_settings

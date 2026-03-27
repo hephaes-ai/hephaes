@@ -22,23 +22,23 @@ work while `frontend/` is migrated from Next.js to a Tauri-hosted React app.
 ## Data And Connectivity
 
 - [x] frontend can talk to a separately started FastAPI backend
-- [ ] backend health state is surfaced in the UI
+- [x] backend health state is surfaced in the UI
 - [ ] SWR polling and revalidation still work
 - [x] REST requests still resolve against the configured backend base URL
-- [ ] replay WebSocket still connects successfully
+- [x] replay WebSocket still connects successfully
 
 ## Inventory Flows
 
 - [ ] search, type, status, tag, date, and size filters still work
-- [ ] tag creation and tag assignment still work
+- [x] tag creation and tag assignment still work
 - [ ] bulk selection and bulk indexing controls still work
-- [ ] directory scan still works against the backend route
+- [x] directory scan still works against the backend route
 - [ ] upload flow still works or is intentionally replaced with equivalent behavior
 
 ## Conversion And Output Flows
 
 - [ ] conversion authoring reads saved configs correctly
-- [ ] create conversion flow still works
+- [x] create conversion flow still works
 - [ ] saved-config use flow still works
 - [ ] outputs filtering and action triggers still work
 - [ ] output content links still resolve correctly
@@ -69,8 +69,8 @@ npm run tauri:dev
 
 ## Validation Snapshot
 
-Validated on `2026-03-27` with the standalone backend running at
-`http://127.0.0.1:8000`.
+Validated on `2026-03-27` with both the standalone backend and the bundled
+desktop sidecar.
 
 Verified:
 
@@ -94,9 +94,36 @@ Verified:
 - Vite desktop dev server served SPA entry responses for:
   - `/dashboard`
   - `/replay?asset_id=...`
+- packaged `Hephaes.app` launched its bundled sidecar automatically on dynamic
+  loopback ports
+- forced sidecar termination surfaced an actionable desktop error path and left
+  no orphan backend process behind
+- packaged app logs were written to:
+  - `~/Library/Logs/ai.hephaes.desktop/desktop.log`
+  - `~/Library/Logs/ai.hephaes.desktop/backend/backend.log`
+  - `~/Library/Logs/ai.hephaes.desktop/backend/backend-access.log`
+- packaged sidecar API smoke passed for:
+  - `/health`
+  - `/dashboard/summary`
+  - `/assets`
+  - `/jobs`
+  - `/outputs`
+  - `/conversion-configs`
+  - `/conversions`
+- packaged sidecar mutation smoke passed against
+  `/Users/danielyoo/workspace/hephaes/hephaes/demo/input/ros2.mcap` for:
+  - `POST /assets/scan-directory`
+  - `POST /tags`
+  - `POST /assets/:assetId/tags`
+  - `POST /assets/:assetId/index`
+  - replay websocket handshake at `/assets/:assetId/episodes/:episodeId/replay`
+  - `POST /conversions`
+  - `GET /outputs/:outputId`
+- packaged build parity uncovered and fixed a PyInstaller packaging gap for
+  `rosbags.typesys.stores.empty`, which had been breaking release-mode indexing
 
 Still requires an interactive manual pass:
 
 - route-by-route UI confirmation inside the running desktop shell
-- mutation flows such as tagging, scanning, and conversion creation
-- replay WebSocket and embedded Rerun viewer confirmation
+- filter-heavy UI behaviors such as inventory and outputs filtering
+- embedded Rerun viewer confirmation inside the packaged webview

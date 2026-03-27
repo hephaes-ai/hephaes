@@ -37,6 +37,8 @@ def create_app() -> FastAPI:
         settings.data_dir.mkdir(parents=True, exist_ok=True)
         settings.raw_data_dir.mkdir(parents=True, exist_ok=True)
         settings.outputs_dir.mkdir(parents=True, exist_ok=True)
+        settings.log_dir.mkdir(parents=True, exist_ok=True)
+        settings.database_path.parent.mkdir(parents=True, exist_ok=True)
         initialize_database(engine)
         app.state.engine = engine
         app.state.job_runner = job_runner
@@ -52,7 +54,7 @@ def create_app() -> FastAPI:
     )
     app.add_middleware(
         CORSMiddleware,
-        allow_origin_regex=r"https?://(localhost|127\.0\.0\.1|app\.rerun\.io)(:\d+)?",
+        allow_origin_regex=settings.cors_allow_origin_regex,
         allow_credentials=False,
         allow_methods=["*"],
         allow_headers=["*"],

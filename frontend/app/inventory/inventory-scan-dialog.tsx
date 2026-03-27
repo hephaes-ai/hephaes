@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { RefreshCw } from "lucide-react";
+import { FolderOpen, RefreshCw } from "lucide-react";
 
 import { InlineNotice } from "@/components/inline-notice";
 import { Button } from "@/components/ui/button";
@@ -18,6 +18,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "@/components/ui/sonner";
 import { useScanDirectory } from "@/hooks/use-scan-directory";
+import { openDirectoryDialog } from "@/lib/native-dialogs";
 import type { NoticeMessage } from "@/lib/types";
 
 interface DirectoryScanFormState {
@@ -54,6 +55,23 @@ export function InventoryScanDialog({
       setForm(DEFAULT_FORM);
       setDialogMessage(null);
     }
+  }
+
+  async function handleBrowseForDirectory() {
+    if (isScanning) {
+      return;
+    }
+
+    const selectedDirectory = await openDirectoryDialog();
+    if (!selectedDirectory) {
+      return;
+    }
+
+    setDialogMessage(null);
+    setForm((current) => ({
+      ...current,
+      directoryPath: selectedDirectory,
+    }));
   }
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
@@ -101,18 +119,31 @@ export function InventoryScanDialog({
             <Label className="text-xs uppercase tracking-wide text-muted-foreground" htmlFor="directory-scan-path">
               Directory path
             </Label>
-            <Input
-              disabled={isScanning}
-              id="directory-scan-path"
-              onChange={(event) =>
-                setForm((current) => ({
-                  ...current,
-                  directoryPath: event.target.value,
-                }))
-              }
-              placeholder="/path/to/recordings"
-              value={form.directoryPath}
-            />
+            <div className="flex gap-2">
+              <Input
+                disabled={isScanning}
+                id="directory-scan-path"
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    directoryPath: event.target.value,
+                  }))
+                }
+                placeholder="/path/to/recordings"
+                value={form.directoryPath}
+              />
+              <Button
+                disabled={isScanning}
+                onClick={() => {
+                  void handleBrowseForDirectory();
+                }}
+                type="button"
+                variant="outline"
+              >
+                <FolderOpen className="size-4" />
+                Browse
+              </Button>
+            </div>
           </div>
 
           <label className="flex items-start gap-3 rounded-lg border bg-muted/20 px-3 py-3">

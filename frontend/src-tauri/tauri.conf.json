@@ -6,8 +6,8 @@
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://127.0.0.1:1420",
-    "beforeDevCommand": "npm run desktop:dev",
-    "beforeBuildCommand": "npm run desktop:build"
+    "beforeDevCommand": "npm run desktop:tauri-dev",
+    "beforeBuildCommand": "npm run desktop:tauri-build"
   },
   "app": {
     "windows": [
@@ -28,6 +28,9 @@
   },
   "bundle": {
     "active": true,
+    "externalBin": [
+      "binaries/hephaes-backend-sidecar"
+    ],
     "targets": "all",
     "icon": [
       "icons/32x32.png",
