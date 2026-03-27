@@ -23,6 +23,7 @@ from ._workspace_models import (
     SavedConversionConfigSummary,
     SourceAssetMetadata,
     VisualizationSummary,
+    WorkspaceTag,
     WorkspacePaths,
 )
 from ._workspace_schema import (
@@ -40,6 +41,7 @@ from ._workspace_serialization import (
     row_to_output_artifact_summary,
     row_to_registered_asset,
     row_to_saved_conversion_config_summary,
+    row_to_workspace_tag,
     to_db_timestamp,
     upsert_asset_metadata,
 )
@@ -79,6 +81,14 @@ class AssetAlreadyRegisteredError(WorkspaceError):
 
 class AssetNotFoundError(WorkspaceError):
     """Raised when a requested asset cannot be found in the workspace."""
+
+
+class TagAlreadyExistsError(WorkspaceError):
+    """Raised when a tag with the requested name already exists."""
+
+
+class TagNotFoundError(WorkspaceError):
+    """Raised when a requested tag cannot be found in the workspace."""
 
 
 class ConversionConfigAlreadyExistsError(WorkspaceError):
@@ -433,15 +443,31 @@ class Workspace:
     ) -> RegisteredAsset:
         return self.import_asset(asset_path, on_duplicate=on_duplicate)
 
-    def list_assets(self) -> list[RegisteredAsset]:
+    def list_assets(self, *, tags: list[str] | None = None) -> list[RegisteredAsset]:
         with self._connect() as connection:
-            rows = connection.execute(
-                """
-                SELECT *
-                FROM assets
-                ORDER BY registered_at DESC, id DESC
-                """
-            ).fetchall()
+            if tags:
+                resolved_tags = [self.resolve_tag(tag) for tag in tags]
+                placeholders = ", ".join("?" for _ in resolved_tags)
+                rows = connection.execute(
+                    f"""
+                    SELECT assets.*
+                    FROM assets
+                    JOIN asset_tags ON asset_tags.asset_id = assets.id
+                    WHERE asset_tags.tag_id IN ({placeholders})
+                    GROUP BY assets.id
+                    HAVING COUNT(DISTINCT asset_tags.tag_id) = ?
+                    ORDER BY assets.registered_at DESC, assets.id DESC
+                    """,
+                    (*[tag.id for tag in resolved_tags], len(resolved_tags)),
+                ).fetchall()
+            else:
+                rows = connection.execute(
+                    """
+                    SELECT *
+                    FROM assets
+                    ORDER BY registered_at DESC, id DESC
+                    """
+                ).fetchall()
         return [row_to_registered_asset(row) for row in rows]
 
     def get_asset(self, asset_id: str) -> RegisteredAsset | None:
@@ -496,6 +522,122 @@ class Workspace:
         if row is None:
             return None
         return row_to_indexed_asset_metadata(row)
+
+    def list_tags(self) -> list[WorkspaceTag]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT *
+                FROM tags
+                ORDER BY name ASC, id ASC
+                """
+            ).fetchall()
+        return [row_to_workspace_tag(row) for row in rows]
+
+    def create_tag(self, name: str) -> WorkspaceTag:
+        normalized_name = _normalize_name(name)
+        if not normalized_name:
+            raise WorkspaceError("tag name must be non-empty")
+
+        now = _utc_now()
+        tag_id = str(uuid4())
+        with self._transaction() as connection:
+            existing = connection.execute(
+                "SELECT * FROM tags WHERE normalized_name = ?",
+                (normalized_name,),
+            ).fetchone()
+            if existing is not None:
+                raise TagAlreadyExistsError(f"tag already exists: {name}")
+            connection.execute(
+                """
+                INSERT INTO tags(id, name, normalized_name, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    tag_id,
+                    name.strip(),
+                    normalized_name,
+                    to_db_timestamp(now),
+                    to_db_timestamp(now),
+                ),
+            )
+            row = connection.execute(
+                "SELECT * FROM tags WHERE id = ?",
+                (tag_id,),
+            ).fetchone()
+        return row_to_workspace_tag(row)
+
+    def get_tag(self, tag_id: str) -> WorkspaceTag | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM tags WHERE id = ?",
+                (tag_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return row_to_workspace_tag(row)
+
+    def find_tag_by_name(self, name: str) -> WorkspaceTag | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM tags WHERE normalized_name = ?",
+                (_normalize_name(name),),
+            ).fetchone()
+        if row is None:
+            return None
+        return row_to_workspace_tag(row)
+
+    def resolve_tag(self, selector: str) -> WorkspaceTag:
+        tag = self.get_tag(selector)
+        if tag is not None:
+            return tag
+        tag = self.find_tag_by_name(selector)
+        if tag is not None:
+            return tag
+        raise TagNotFoundError(f"tag not found: {selector}")
+
+    def get_asset_tags(self, asset_id: str) -> list[WorkspaceTag]:
+        self.get_asset_or_raise(asset_id)
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT tags.*
+                FROM tags
+                JOIN asset_tags ON asset_tags.tag_id = tags.id
+                WHERE asset_tags.asset_id = ?
+                ORDER BY tags.name ASC, tags.id ASC
+                """,
+                (asset_id,),
+            ).fetchall()
+        return [row_to_workspace_tag(row) for row in rows]
+
+    def attach_tag_to_asset(self, asset_selector: str | Path, tag_selector: str) -> WorkspaceTag:
+        asset = self.resolve_asset(asset_selector)
+        tag = self.resolve_tag(tag_selector)
+        with self._transaction() as connection:
+            connection.execute(
+                """
+                INSERT INTO asset_tags(asset_id, tag_id, created_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(asset_id, tag_id) DO NOTHING
+                """,
+                (
+                    asset.id,
+                    tag.id,
+                    to_db_timestamp(_utc_now()),
+                ),
+            )
+        return tag
+
+    def remove_tag_from_asset(self, asset_selector: str | Path, tag_selector: str) -> WorkspaceTag:
+        asset = self.resolve_asset(asset_selector)
+        tag = self.resolve_tag(tag_selector)
+        with self._transaction() as connection:
+            connection.execute(
+                "DELETE FROM asset_tags WHERE asset_id = ? AND tag_id = ?",
+                (asset.id, tag.id),
+            )
+        return tag
 
     def list_saved_conversion_configs(self) -> list[SavedConversionConfigSummary]:
         with self._connect() as connection:

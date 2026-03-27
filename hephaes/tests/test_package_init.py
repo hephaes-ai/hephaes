@@ -99,7 +99,10 @@ class TestPublicExports:
             SavedConversionConfig,
             SavedConversionConfigSummary,
             SourceAssetMetadata,
+            TagAlreadyExistsError,
+            TagNotFoundError,
             VisualizationSummary,
+            WorkspaceTag,
         )
         assert ConversionConfigAlreadyExistsError is not None
         assert ConversionConfigInvalidError is not None
@@ -112,7 +115,10 @@ class TestPublicExports:
         assert SavedConversionConfig is not None
         assert SavedConversionConfigSummary is not None
         assert SourceAssetMetadata is not None
+        assert TagAlreadyExistsError is not None
+        assert TagNotFoundError is not None
         assert VisualizationSummary is not None
+        assert WorkspaceTag is not None
 
     def test_ros1_reader_exported(self):
         from hephaes import ROS1Reader
@@ -200,7 +206,10 @@ class TestPublicExports:
             "SavedConversionConfig",
             "SavedConversionConfigSummary",
             "SourceAssetMetadata",
+            "TagAlreadyExistsError",
+            "TagNotFoundError",
             "VisualizationSummary",
+            "WorkspaceTag",
             "Workspace",
             "WorkspaceAlreadyExistsError",
             "WorkspaceError",

@@ -39,6 +39,14 @@ class RegisteredAsset:
 
 
 @dataclass(frozen=True)
+class WorkspaceTag:
+    id: str
+    name: str
+    created_at: datetime
+    updated_at: datetime
+
+
+@dataclass(frozen=True)
 class IndexedTopicSummary:
     name: str
     message_type: str

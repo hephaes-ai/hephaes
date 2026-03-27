@@ -9,6 +9,7 @@ from hephaes import (
     AssetNotFoundError,
     ConversionConfigAlreadyExistsError,
     InvalidAssetPathError,
+    TagAlreadyExistsError,
     Workspace,
     WorkspaceAlreadyExistsError,
     WorkspaceNotFoundError,
@@ -107,6 +108,56 @@ def test_import_asset_copies_file_into_workspace(tmp_path: Path, tmp_bag_file: P
     assert imported_path.read_bytes() == tmp_bag_file.read_bytes()
     assert imported_path.parent.parent == tmp_path / ".hephaes" / "imports"
     assert asset.source_path == str(tmp_bag_file.resolve())
+
+
+def test_create_and_list_tags(tmp_path: Path) -> None:
+    workspace = Workspace.init(tmp_path)
+
+    created = workspace.create_tag("Priority")
+    tags = workspace.list_tags()
+
+    assert len(tags) == 1
+    assert tags[0].id == created.id
+    assert tags[0].name == "Priority"
+
+
+def test_create_tag_rejects_duplicate_names(tmp_path: Path) -> None:
+    workspace = Workspace.init(tmp_path)
+    workspace.create_tag("Priority")
+
+    with pytest.raises(TagAlreadyExistsError):
+        workspace.create_tag(" priority ")
+
+
+def test_attach_and_filter_assets_by_tags(tmp_path: Path, tmp_bag_file: Path, tmp_mcap_file: Path) -> None:
+    workspace = Workspace.init(tmp_path)
+    bag_asset = workspace.register_asset(tmp_bag_file)
+    mcap_asset = workspace.register_asset(tmp_mcap_file)
+    priority = workspace.create_tag("Priority")
+    workspace.create_tag("Review")
+
+    workspace.attach_tag_to_asset(bag_asset.id, priority.id)
+
+    priority_assets = workspace.list_assets(tags=["priority"])
+    all_assets = workspace.list_assets()
+    bag_tags = workspace.get_asset_tags(bag_asset.id)
+    mcap_tags = workspace.get_asset_tags(mcap_asset.id)
+
+    assert [asset.id for asset in priority_assets] == [bag_asset.id]
+    assert {asset.id for asset in all_assets} == {bag_asset.id, mcap_asset.id}
+    assert [tag.name for tag in bag_tags] == ["Priority"]
+    assert mcap_tags == []
+
+
+def test_remove_tag_from_asset(tmp_path: Path, tmp_bag_file: Path) -> None:
+    workspace = Workspace.init(tmp_path)
+    asset = workspace.register_asset(tmp_bag_file)
+    tag = workspace.create_tag("Priority")
+    workspace.attach_tag_to_asset(asset.id, tag.id)
+
+    workspace.remove_tag_from_asset(asset.id, tag.id)
+
+    assert workspace.get_asset_tags(asset.id) == []
 
 
 def test_register_asset_rejects_unsupported_types(tmp_path: Path) -> None:

@@ -4,7 +4,7 @@ import sqlite3
 
 WORKSPACE_DIRNAME = ".hephaes"
 WORKSPACE_DB_FILENAME = "workspace.sqlite3"
-WORKSPACE_SCHEMA_VERSION = 5
+WORKSPACE_SCHEMA_VERSION = 6
 
 
 def initialize_workspace_schema(connection: sqlite3.Connection) -> None:
@@ -50,6 +50,23 @@ def initialize_workspace_schema(connection: sqlite3.Connection) -> None:
             FOREIGN KEY(asset_id) REFERENCES assets(id) ON DELETE CASCADE
         );
 
+        CREATE TABLE IF NOT EXISTS tags (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            normalized_name TEXT NOT NULL UNIQUE,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS asset_tags (
+            asset_id TEXT NOT NULL,
+            tag_id TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            PRIMARY KEY(asset_id, tag_id),
+            FOREIGN KEY(asset_id) REFERENCES assets(id) ON DELETE CASCADE,
+            FOREIGN KEY(tag_id) REFERENCES tags(id) ON DELETE CASCADE
+        );
+
         CREATE TABLE IF NOT EXISTS conversion_configs (
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL,
@@ -92,6 +109,9 @@ def initialize_workspace_schema(connection: sqlite3.Connection) -> None:
 
         CREATE INDEX IF NOT EXISTS idx_assets_source_path
         ON assets(source_path);
+
+        CREATE INDEX IF NOT EXISTS idx_asset_tags_tag_id
+        ON asset_tags(tag_id);
         """
     )
     connection.execute(
@@ -223,6 +243,41 @@ def migrate_workspace_schema(connection: sqlite3.Connection, schema_version: int
             CREATE UNIQUE INDEX IF NOT EXISTS idx_assets_source_path
             ON assets(source_path)
             WHERE source_path IS NOT NULL
+            """
+        )
+        connection.execute(
+            "UPDATE workspace_meta SET value = ? WHERE key = 'schema_version'",
+            ("5",),
+        )
+        schema_version = 5
+    if schema_version == 5:
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS tags (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                normalized_name TEXT NOT NULL UNIQUE,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS asset_tags (
+                asset_id TEXT NOT NULL,
+                tag_id TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY(asset_id, tag_id),
+                FOREIGN KEY(asset_id) REFERENCES assets(id) ON DELETE CASCADE,
+                FOREIGN KEY(tag_id) REFERENCES tags(id) ON DELETE CASCADE
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_asset_tags_tag_id
+            ON asset_tags(tag_id)
             """
         )
         connection.execute(

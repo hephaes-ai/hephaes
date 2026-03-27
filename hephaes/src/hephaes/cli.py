@@ -13,6 +13,8 @@ from .workspace import (
     ConversionConfigAlreadyExistsError,
     InvalidAssetPathError,
     OutputArtifactNotFoundError,
+    TagAlreadyExistsError,
+    TagNotFoundError,
     Workspace,
     WorkspaceAlreadyExistsError,
     WorkspaceError,
@@ -70,6 +72,57 @@ def build_parser() -> argparse.ArgumentParser:
         help="Duplicate asset behavior.",
     )
     add_parser.set_defaults(handler=_handle_add)
+
+    tags_parser = subparsers.add_parser(
+        "tags",
+        help="Manage asset tags in the active workspace.",
+    )
+    tags_subparsers = tags_parser.add_subparsers(dest="tags_command")
+
+    tags_ls_parser = tags_subparsers.add_parser(
+        "ls",
+        help="List workspace tags.",
+    )
+    tags_ls_parser.add_argument(
+        "--workspace",
+        help="Workspace root or any path inside the target workspace.",
+    )
+    tags_ls_parser.set_defaults(handler=_handle_list_tags)
+
+    tags_create_parser = tags_subparsers.add_parser(
+        "create",
+        help="Create a new workspace tag.",
+    )
+    tags_create_parser.add_argument("name", help="Tag name.")
+    tags_create_parser.add_argument(
+        "--workspace",
+        help="Workspace root or any path inside the target workspace.",
+    )
+    tags_create_parser.set_defaults(handler=_handle_create_tag)
+
+    tags_attach_parser = tags_subparsers.add_parser(
+        "attach",
+        help="Attach a tag to a registered asset.",
+    )
+    tags_attach_parser.add_argument("asset", help="Asset id or path.")
+    tags_attach_parser.add_argument("tag", help="Tag id or name.")
+    tags_attach_parser.add_argument(
+        "--workspace",
+        help="Workspace root or any path inside the target workspace.",
+    )
+    tags_attach_parser.set_defaults(handler=_handle_attach_tag)
+
+    tags_detach_parser = tags_subparsers.add_parser(
+        "detach",
+        help="Detach a tag from a registered asset.",
+    )
+    tags_detach_parser.add_argument("asset", help="Asset id or path.")
+    tags_detach_parser.add_argument("tag", help="Tag id or name.")
+    tags_detach_parser.add_argument(
+        "--workspace",
+        help="Workspace root or any path inside the target workspace.",
+    )
+    tags_detach_parser.set_defaults(handler=_handle_detach_tag)
 
     index_parser = subparsers.add_parser(
         "index",
@@ -250,6 +303,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--workspace",
         help="Workspace root or any path inside the target workspace.",
     )
+    ls_assets_parser.add_argument(
+        "--tag",
+        dest="tags",
+        action="append",
+        default=[],
+        help="Filter assets that have the given tag. Repeat for multiple tags.",
+    )
     ls_assets_parser.set_defaults(handler=_handle_list_assets)
 
     return parser
@@ -275,6 +335,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         AssetAlreadyRegisteredError,
         ConversionConfigAlreadyExistsError,
         OutputArtifactNotFoundError,
+        TagAlreadyExistsError,
+        TagNotFoundError,
     ) as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
@@ -360,9 +422,44 @@ def _handle_add(args: argparse.Namespace) -> int:
     return 0
 
 
+def _handle_list_tags(args: argparse.Namespace) -> int:
+    workspace = _open_workspace(args.workspace)
+    tags = workspace.list_tags()
+    if not tags:
+        print("No tags defined.")
+        return 0
+
+    for tag in tags:
+        print("\t".join((tag.id, tag.name)))
+    return 0
+
+
+def _handle_create_tag(args: argparse.Namespace) -> int:
+    workspace = _open_workspace(args.workspace)
+    tag = workspace.create_tag(args.name)
+    print("\t".join((tag.id, tag.name)))
+    return 0
+
+
+def _handle_attach_tag(args: argparse.Namespace) -> int:
+    workspace = _open_workspace(args.workspace)
+    asset = workspace.resolve_asset(args.asset)
+    tag = workspace.attach_tag_to_asset(args.asset, args.tag)
+    print("\t".join((asset.id, tag.id, tag.name)))
+    return 0
+
+
+def _handle_detach_tag(args: argparse.Namespace) -> int:
+    workspace = _open_workspace(args.workspace)
+    asset = workspace.resolve_asset(args.asset)
+    tag = workspace.remove_tag_from_asset(args.asset, args.tag)
+    print("\t".join((asset.id, tag.id, tag.name)))
+    return 0
+
+
 def _handle_list_assets(args: argparse.Namespace) -> int:
     workspace = _open_workspace(args.workspace)
-    assets = workspace.list_assets()
+    assets = workspace.list_assets(tags=args.tags or None)
 
     if not assets:
         print("No assets registered.")

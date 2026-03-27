@@ -77,6 +77,36 @@ def test_cli_duplicate_add_returns_nonzero(
     assert "already registered" in captured.err
 
 
+def test_cli_tags_create_attach_and_filter_assets(
+    tmp_path: Path,
+    tmp_bag_file: Path,
+    tmp_mcap_file: Path,
+    capsys,
+) -> None:
+    main(["init", str(tmp_path)])
+    capsys.readouterr()
+    main(["add", "--workspace", str(tmp_path), str(tmp_bag_file), str(tmp_mcap_file)])
+    add_output = capsys.readouterr().out.strip().splitlines()
+    bag_asset_id = add_output[0].split("\t", 1)[0]
+
+    exit_code = main(["tags", "create", "--workspace", str(tmp_path), "Priority"])
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "\tPriority" in captured.out
+
+    exit_code = main(["tags", "attach", "--workspace", str(tmp_path), bag_asset_id, "Priority"])
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert bag_asset_id in captured.out
+    assert "Priority" in captured.out
+
+    exit_code = main(["ls", "assets", "--workspace", str(tmp_path), "--tag", "Priority"])
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert str(tmp_bag_file.resolve()) in captured.out
+    assert str(tmp_mcap_file.resolve()) not in captured.out
+
+
 def test_cli_requires_workspace_for_add(tmp_path: Path, tmp_bag_file: Path, capsys, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
 

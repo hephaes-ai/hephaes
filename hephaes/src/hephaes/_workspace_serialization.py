@@ -17,6 +17,7 @@ from ._workspace_models import (
     SavedConversionConfigSummary,
     SourceAssetMetadata,
     VisualizationSummary,
+    WorkspaceTag,
 )
 from .conversion.spec_io import ConversionSpecDocument
 
@@ -46,6 +47,15 @@ def row_to_registered_asset(row: sqlite3.Row) -> RegisteredAsset:
             if row["last_indexed_at"] is not None
             else None
         ),
+    )
+
+
+def row_to_workspace_tag(row: sqlite3.Row) -> WorkspaceTag:
+    return WorkspaceTag(
+        id=row["id"],
+        name=row["name"],
+        created_at=from_db_timestamp(row["created_at"]),
+        updated_at=from_db_timestamp(row["updated_at"]),
     )
 
 
