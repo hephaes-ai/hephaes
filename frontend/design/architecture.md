@@ -37,7 +37,9 @@ Today the frontend is a Next.js App Router app with:
 - shared UI logic under `frontend/components`, `frontend/hooks`, and
   `frontend/lib`
 - backend access through `frontend/lib/api.ts`
-- backend base URL configured through `NEXT_PUBLIC_BACKEND_BASE_URL`
+- desktop backend base URL configured through a runtime value or
+  `VITE_BACKEND_BASE_URL`
+- legacy Next.js fallback still available through `NEXT_PUBLIC_BACKEND_BASE_URL`
 
 This is already close to a SPA architecture. Most of the migration cost is in:
 

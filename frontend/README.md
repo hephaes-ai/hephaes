@@ -18,20 +18,33 @@ cd backend
 python -m uvicorn app.main:app --reload
 ```
 
-Then start the frontend:
+Then start the desktop frontend:
+
+```bash
+cd frontend
+npm run tauri:dev
+```
+
+The desktop frontend defaults to talking to:
+
+```text
+http://127.0.0.1:8000
+```
+
+If you need a different desktop backend URL, set:
+
+```bash
+VITE_BACKEND_BASE_URL=http://127.0.0.1:8000
+```
+
+If you still need to run the legacy Next.js frontend during migration, use:
 
 ```bash
 cd frontend
 npm run dev
 ```
 
-The frontend defaults to talking to:
-
-```text
-http://127.0.0.1:8000
-```
-
-If you need a different backend URL, set:
+and configure it with:
 
 ```bash
 NEXT_PUBLIC_BACKEND_BASE_URL=http://127.0.0.1:8000

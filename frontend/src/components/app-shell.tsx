@@ -3,6 +3,7 @@
 import { Menu } from "lucide-react"
 
 import { BackendStatus } from "@/components/backend-status"
+import { BackendConnectionNotice } from "@/components/backend-connection-notice"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { Button } from "@/components/ui/button"
 import {
@@ -116,6 +117,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
       </header>
       <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col px-4 py-8 sm:px-6">
+        <BackendConnectionNotice />
         {children}
       </main>
     </div>

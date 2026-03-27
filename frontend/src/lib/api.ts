@@ -830,9 +830,23 @@ export class BackendApiError extends Error {
 
 const DEFAULT_BACKEND_BASE_URL = "http://127.0.0.1:8000"
 
-function getBackendBaseUrl() {
-  const configuredBaseUrl = process.env.NEXT_PUBLIC_BACKEND_BASE_URL?.trim()
-  const resolvedBaseUrl = configuredBaseUrl || DEFAULT_BACKEND_BASE_URL
+declare global {
+  var __HEPHAES_BACKEND_BASE_URL__: string | undefined
+}
+
+export function getBackendBaseUrl() {
+  const configuredDesktopBaseUrl =
+    typeof globalThis !== "undefined"
+      ? globalThis.__HEPHAES_BACKEND_BASE_URL__?.trim()
+      : undefined
+  const configuredNextBaseUrl =
+    typeof process !== "undefined"
+      ? process.env.NEXT_PUBLIC_BACKEND_BASE_URL?.trim()
+      : undefined
+  const resolvedBaseUrl =
+    configuredDesktopBaseUrl ||
+    configuredNextBaseUrl ||
+    DEFAULT_BACKEND_BASE_URL
   return resolvedBaseUrl.replace(/\/+$/, "")
 }
 

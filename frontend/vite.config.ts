@@ -5,11 +5,6 @@ import { defineConfig } from "vite";
 
 export default defineConfig({
   plugins: [react()],
-  define: {
-    "process.env.NEXT_PUBLIC_BACKEND_BASE_URL": JSON.stringify(
-      process.env.NEXT_PUBLIC_BACKEND_BASE_URL ?? "",
-    ),
-  },
   resolve: {
     alias: [
       {
