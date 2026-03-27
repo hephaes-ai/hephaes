@@ -16,13 +16,21 @@ use tauri_plugin_shell::{
 
 const BACKEND_SIDECAR_NAME: &str = "hephaes-backend-sidecar";
 const BACKEND_HOST: &str = "127.0.0.1";
-const BACKEND_PORT: u16 = 8000;
 const BACKEND_STARTUP_TIMEOUT: Duration = Duration::from_secs(20);
 const BACKEND_HEALTHCHECK_INTERVAL: Duration = Duration::from_millis(250);
 
-#[derive(Default)]
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BackendRuntimeSnapshot {
+    base_url: String,
+    error: Option<String>,
+    mode: String,
+    status: String,
+}
+
 struct BackendProcessState {
     child: Mutex<Option<CommandChild>>,
+    runtime: Mutex<BackendRuntimeSnapshot>,
 }
 
 struct BackendRuntime {
@@ -32,21 +40,101 @@ struct BackendRuntime {
     outputs_dir: PathBuf,
     log_dir: PathBuf,
     database_path: PathBuf,
+    host: String,
+    port: u16,
+}
+
+enum BackendRuntimeMode {
+    External,
+    Sidecar,
+}
+
+impl BackendRuntimeSnapshot {
+    fn failed(mode: BackendRuntimeMode, base_url: String, error: String) -> Self {
+        Self {
+            base_url,
+            error: Some(error),
+            mode: mode.as_str().to_string(),
+            status: "failed".to_string(),
+        }
+    }
+
+    fn ready(mode: BackendRuntimeMode, base_url: String) -> Self {
+        Self {
+            base_url,
+            error: None,
+            mode: mode.as_str().to_string(),
+            status: "ready".to_string(),
+        }
+    }
+}
+
+impl BackendRuntimeMode {
+    const fn as_str(&self) -> &'static str {
+        match self {
+            Self::External => "external",
+            Self::Sidecar => "sidecar",
+        }
+    }
+}
+
+impl Default for BackendProcessState {
+    fn default() -> Self {
+        Self {
+            child: Mutex::new(None),
+            runtime: Mutex::new(BackendRuntimeSnapshot::failed(
+                BackendRuntimeMode::Sidecar,
+                String::new(),
+                "backend runtime has not been initialized".to_string(),
+            )),
+        }
+    }
+}
+
+fn set_backend_runtime_snapshot(app: &AppHandle, snapshot: BackendRuntimeSnapshot) {
+    *app
+        .state::<BackendProcessState>()
+        .runtime
+        .lock()
+        .expect("backend runtime mutex poisoned") = snapshot;
+}
+
+fn pick_backend_port() -> Result<u16> {
+    let listener = TcpListener::bind((BACKEND_HOST, 0))
+        .context("could not bind an ephemeral port for the backend sidecar")?;
+    let port = listener
+        .local_addr()
+        .context("could not resolve the ephemeral backend port")?
+        .port();
+    drop(listener);
+    Ok(port)
+}
+
+fn resolve_external_backend_base_url() -> Option<String> {
+    let configured_base_url = std::env::var("VITE_BACKEND_BASE_URL").ok()?;
+    let trimmed = configured_base_url.trim().trim_end_matches('/').to_string();
+    if trimmed.is_empty() {
+        return None;
+    }
+    Some(trimmed)
 }
 
 fn resolve_backend_runtime(app: &AppHandle) -> Result<BackendRuntime> {
+    let port = pick_backend_port()?;
     let data_root = app
         .path()
         .app_local_data_dir()
         .context("could not resolve app-local data directory")?
         .join("backend");
-    let base_url = format!("http://{BACKEND_HOST}:{BACKEND_PORT}");
+    let base_url = format!("http://{BACKEND_HOST}:{port}");
 
     Ok(BackendRuntime {
         base_url,
         raw_data_dir: data_root.join("raw"),
         outputs_dir: data_root.join("outputs"),
         database_path: data_root.join("app.db"),
+        host: BACKEND_HOST.to_string(),
+        port,
         log_dir: app
             .path()
             .app_log_dir()
@@ -56,20 +144,15 @@ fn resolve_backend_runtime(app: &AppHandle) -> Result<BackendRuntime> {
     })
 }
 
-fn ensure_backend_port_available() -> Result<()> {
-    TcpListener::bind((BACKEND_HOST, BACKEND_PORT))
-        .map(drop)
-        .with_context(|| format!("backend port {BACKEND_PORT} is already in use"))
-}
-
-fn wait_for_backend_health(base_url: &str) -> Result<()> {
+fn wait_for_backend_health(runtime: &BackendRuntime) -> Result<()> {
     let deadline = Instant::now() + BACKEND_STARTUP_TIMEOUT;
     let healthcheck_request = format!(
-        "GET /health HTTP/1.1\r\nHost: {BACKEND_HOST}:{BACKEND_PORT}\r\nConnection: close\r\n\r\n"
+        "GET /health HTTP/1.1\r\nHost: {}:{}\r\nConnection: close\r\n\r\n",
+        runtime.host, runtime.port
     );
 
     while Instant::now() < deadline {
-        match TcpStream::connect((BACKEND_HOST, BACKEND_PORT)) {
+        match TcpStream::connect((runtime.host.as_str(), runtime.port)) {
             Ok(mut stream) => {
                 stream.set_read_timeout(Some(Duration::from_secs(1)))?;
                 stream.set_write_timeout(Some(Duration::from_secs(1)))?;
@@ -79,7 +162,7 @@ fn wait_for_backend_health(base_url: &str) -> Result<()> {
                 stream.read_to_string(&mut response)?;
 
                 if response.starts_with("HTTP/1.1 200") || response.starts_with("HTTP/1.0 200") {
-                    log::info!("backend is healthy at {base_url}");
+                    log::info!("backend is healthy at {}", runtime.base_url);
                     return Ok(());
                 }
             }
@@ -89,7 +172,10 @@ fn wait_for_backend_health(base_url: &str) -> Result<()> {
         thread::sleep(BACKEND_HEALTHCHECK_INTERVAL);
     }
 
-    Err(anyhow!("backend did not become healthy at {base_url}"))
+    Err(anyhow!(
+        "backend did not become healthy at {}",
+        runtime.base_url
+    ))
 }
 
 fn stop_backend_sidecar(app: &AppHandle) {
@@ -109,15 +195,12 @@ fn stop_backend_sidecar(app: &AppHandle) {
     }
 }
 
-fn spawn_backend_sidecar(app: &AppHandle) -> Result<()> {
-    ensure_backend_port_available()?;
-    let runtime = resolve_backend_runtime(app)?;
-
+fn spawn_backend_sidecar(app: &AppHandle, runtime: &BackendRuntime) -> Result<()> {
     let sidecar = app
         .shell()
         .sidecar(BACKEND_SIDECAR_NAME)
         .context("could not prepare backend sidecar command")?
-        .args(["--host", BACKEND_HOST, "--port", &BACKEND_PORT.to_string()])
+        .args(["--host", runtime.host.as_str(), "--port", &runtime.port.to_string()])
         .env("HEPHAES_DESKTOP_MODE", "1")
         .env("HEPHAES_BACKEND_DATA_DIR", &runtime.data_dir)
         .env("HEPHAES_BACKEND_RAW_DATA_DIR", &runtime.raw_data_dir)
@@ -155,7 +238,7 @@ fn spawn_backend_sidecar(app: &AppHandle) -> Result<()> {
             .expect("backend process mutex poisoned") = Some(child);
     }
 
-    if let Err(error) = wait_for_backend_health(&runtime.base_url) {
+    if let Err(error) = wait_for_backend_health(runtime) {
         stop_backend_sidecar(app);
         return Err(error);
     }
@@ -163,11 +246,71 @@ fn spawn_backend_sidecar(app: &AppHandle) -> Result<()> {
     Ok(())
 }
 
+fn initialize_backend_runtime(app: &AppHandle) {
+    if let Some(external_base_url) = resolve_external_backend_base_url() {
+        log::info!("using configured external backend at {external_base_url}");
+        set_backend_runtime_snapshot(
+            app,
+            BackendRuntimeSnapshot::ready(BackendRuntimeMode::External, external_base_url),
+        );
+        return;
+    }
+
+    let runtime = match resolve_backend_runtime(app) {
+        Ok(runtime) => runtime,
+        Err(error) => {
+            log::error!("could not resolve backend runtime: {error:#}");
+            set_backend_runtime_snapshot(
+                app,
+                BackendRuntimeSnapshot::failed(
+                    BackendRuntimeMode::Sidecar,
+                    String::new(),
+                    error.to_string(),
+                ),
+            );
+            return;
+        }
+    };
+
+    match spawn_backend_sidecar(app, &runtime) {
+        Ok(()) => {
+            set_backend_runtime_snapshot(
+                app,
+                BackendRuntimeSnapshot::ready(
+                    BackendRuntimeMode::Sidecar,
+                    runtime.base_url.clone(),
+                ),
+            );
+        }
+        Err(error) => {
+            log::error!("backend sidecar failed to start: {error:#}");
+            set_backend_runtime_snapshot(
+                app,
+                BackendRuntimeSnapshot::failed(
+                    BackendRuntimeMode::Sidecar,
+                    runtime.base_url.clone(),
+                    error.to_string(),
+                ),
+            );
+        }
+    }
+}
+
+#[tauri::command]
+fn get_backend_runtime(state: tauri::State<'_, BackendProcessState>) -> BackendRuntimeSnapshot {
+    state
+        .runtime
+        .lock()
+        .expect("backend runtime mutex poisoned")
+        .clone()
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
-        .manage(BackendProcessState::default());
+        .manage(BackendProcessState::default())
+        .invoke_handler(tauri::generate_handler![get_backend_runtime]);
 
     let builder = if cfg!(debug_assertions) {
         builder.plugin(
@@ -181,7 +324,7 @@ pub fn run() {
 
     let app = builder
         .setup(|app| {
-            spawn_backend_sidecar(app.handle()).map_err(tauri::Error::from)?;
+            initialize_backend_runtime(app.handle());
             Ok(())
         })
         .build(tauri::generate_context!())
