@@ -4,6 +4,7 @@ from pathlib import Path
 
 import hephaes
 from hephaes.cli import main
+from hephaes.conversion.introspection import InspectionResult, TopicInspectionResult
 from hephaes.models import BagMetadata, Topic
 
 
@@ -180,3 +181,110 @@ def test_cli_index_requires_selector_or_all(tmp_path: Path, capsys) -> None:
     captured = capsys.readouterr()
     assert exit_code == 1
     assert "provide one or more asset selectors or use --all" in captured.err
+
+
+def test_cli_inspect_direct_path(
+    tmp_path: Path,
+    tmp_mcap_file: Path,
+    capsys,
+    monkeypatch,
+) -> None:
+    def fake_inspect_bag(
+        bag_path: str,
+        *,
+        topics=None,
+        sample_n: int = 8,
+        max_depth: int = 4,
+        max_sequence_items: int = 4,
+        on_failure: str = "warn",
+        topic_type_hints=None,
+    ) -> InspectionResult:
+        assert bag_path == str(tmp_mcap_file.resolve())
+        assert topics == ["/camera"]
+        assert sample_n == 2
+        assert max_depth == 3
+        assert max_sequence_items == 2
+        assert on_failure == "fail"
+        return InspectionResult(
+            bag_path=bag_path,
+            ros_version="ROS2",
+            sample_n=sample_n,
+            topics={
+                "/camera": TopicInspectionResult(
+                    topic="/camera",
+                    message_type="sensor_msgs/Image",
+                    sampled_message_count=1,
+                )
+            },
+        )
+
+    monkeypatch.setattr("hephaes.cli.inspect_bag", fake_inspect_bag)
+
+    exit_code = main(
+        [
+            "inspect",
+            str(tmp_mcap_file),
+            "--topic",
+            "/camera",
+            "--sample-n",
+            "2",
+            "--max-depth",
+            "3",
+            "--max-sequence-items",
+            "2",
+            "--on-failure",
+            "fail",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert '"bag_path": "' in captured.out
+    assert '"ros_version": "ROS2"' in captured.out
+    assert '"/camera"' in captured.out
+
+
+def test_cli_inspect_registered_asset_by_id(
+    tmp_path: Path,
+    tmp_bag_file: Path,
+    capsys,
+    monkeypatch,
+) -> None:
+    main(["init", str(tmp_path)])
+    capsys.readouterr()
+    main(["add", "--workspace", str(tmp_path), str(tmp_bag_file)])
+    add_output = capsys.readouterr().out.strip()
+    asset_id = add_output.split("\t", 1)[0]
+
+    def fake_inspect_bag(
+        bag_path: str,
+        *,
+        topics=None,
+        sample_n: int = 8,
+        max_depth: int = 4,
+        max_sequence_items: int = 4,
+        on_failure: str = "warn",
+        topic_type_hints=None,
+    ) -> InspectionResult:
+        assert bag_path == str(tmp_bag_file.resolve())
+        return InspectionResult(
+            bag_path=bag_path,
+            ros_version="ROS1",
+            sample_n=sample_n,
+            topics={
+                "/joy": TopicInspectionResult(
+                    topic="/joy",
+                    message_type="sensor_msgs/Joy",
+                    sampled_message_count=1,
+                )
+            },
+        )
+
+    monkeypatch.setattr("hephaes.cli.inspect_bag", fake_inspect_bag)
+
+    exit_code = main(["inspect", "--workspace", str(tmp_path), asset_id])
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert '"ros_version": "ROS1"' in captured.out
+    assert str(tmp_bag_file.resolve()) in captured.out

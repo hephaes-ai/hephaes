@@ -3,9 +3,11 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from pathlib import Path
 from typing import Sequence
 
 from . import __version__
+from .conversion.introspection import inspect_bag
 from .workspace import (
     AssetAlreadyRegisteredError,
     InvalidAssetPathError,
@@ -93,6 +95,51 @@ def build_parser() -> argparse.ArgumentParser:
     )
     index_parser.set_defaults(handler=_handle_index)
 
+    inspect_parser = subparsers.add_parser(
+        "inspect",
+        help="Inspect the structure of a local asset.",
+    )
+    inspect_parser.add_argument(
+        "selector",
+        help="Registered asset id, registered asset path, or direct local file path.",
+    )
+    inspect_parser.add_argument(
+        "--workspace",
+        help="Workspace root or any path inside the target workspace.",
+    )
+    inspect_parser.add_argument(
+        "--topic",
+        dest="topics",
+        action="append",
+        default=[],
+        help="Topic filter to inspect. Repeat for multiple topics.",
+    )
+    inspect_parser.add_argument(
+        "--sample-n",
+        type=int,
+        default=8,
+        help="Maximum number of sampled messages per topic.",
+    )
+    inspect_parser.add_argument(
+        "--max-depth",
+        type=int,
+        default=4,
+        help="Maximum traversal depth for nested payload inspection.",
+    )
+    inspect_parser.add_argument(
+        "--max-sequence-items",
+        type=int,
+        default=4,
+        help="Maximum number of sequence items to inspect per message.",
+    )
+    inspect_parser.add_argument(
+        "--on-failure",
+        choices=("skip", "warn", "fail"),
+        default="warn",
+        help="Decode failure policy while sampling messages.",
+    )
+    inspect_parser.set_defaults(handler=_handle_inspect)
+
     ls_parser = subparsers.add_parser(
         "ls",
         help="List workspace records.",
@@ -139,6 +186,22 @@ def _open_workspace(explicit_path: str | None) -> Workspace:
     if explicit_path is None:
         return Workspace.open()
     return Workspace.open(explicit_path)
+
+
+def _resolve_inspect_path(selector: str, workspace_path: str | None) -> str:
+    workspace: Workspace | None = None
+    try:
+        workspace = _open_workspace(workspace_path)
+    except WorkspaceNotFoundError:
+        workspace = None
+
+    if workspace is not None:
+        try:
+            return workspace.resolve_asset(selector).file_path
+        except WorkspaceError:
+            pass
+
+    return str(Path(selector).expanduser().resolve(strict=False))
 
 
 def _handle_init(args: argparse.Namespace) -> int:
@@ -230,4 +293,18 @@ def _handle_index(args: argparse.Namespace) -> int:
                 sort_keys=True,
             )
         )
+    return 0
+
+
+def _handle_inspect(args: argparse.Namespace) -> int:
+    bag_path = _resolve_inspect_path(args.selector, args.workspace)
+    inspection = inspect_bag(
+        bag_path,
+        topics=args.topics or None,
+        sample_n=args.sample_n,
+        max_depth=args.max_depth,
+        max_sequence_items=args.max_sequence_items,
+        on_failure=args.on_failure,
+    )
+    print(json.dumps(inspection.model_dump(mode="json"), sort_keys=True))
     return 0
