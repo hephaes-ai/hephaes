@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import mimetypes
+import shutil
 import sqlite3
 from contextlib import contextmanager
 from datetime import UTC, datetime
@@ -12,6 +13,9 @@ from uuid import uuid4
 from ._workspace_indexing import build_index_metadata_payload, profile_asset_file
 from ._workspace_models import (
     AssetRegistrationMode,
+    ConversionRun,
+    ConversionDraftRevision,
+    ConversionDraftRevisionSummary,
     DefaultEpisodeSummary,
     IndexedAssetMetadata,
     IndexedTopicSummary,
@@ -19,9 +23,13 @@ from ._workspace_models import (
     OutputArtifactSummary,
     RegisteredAsset,
     SavedConversionConfig,
+    SavedConversionConfigRevision,
+    SavedConversionConfigRevisionSummary,
     SavedConversionConfigSummary,
     SourceAssetMetadata,
     VisualizationSummary,
+    WorkspaceJob,
+    WorkspaceTag,
     WorkspacePaths,
 )
 from ._workspace_schema import (
@@ -32,13 +40,20 @@ from ._workspace_schema import (
     migrate_workspace_schema,
 )
 from ._workspace_serialization import (
+    build_conversion_draft_revision,
     build_saved_conversion_config,
+    build_saved_conversion_config_revision,
     from_db_timestamp,
+    row_to_conversion_run,
+    row_to_conversion_draft_revision_summary,
     row_to_indexed_asset_metadata,
     row_to_output_artifact,
     row_to_output_artifact_summary,
     row_to_registered_asset,
+    row_to_saved_conversion_config_revision_summary,
     row_to_saved_conversion_config_summary,
+    row_to_workspace_job,
+    row_to_workspace_tag,
     to_db_timestamp,
     upsert_asset_metadata,
 )
@@ -78,6 +93,14 @@ class AssetAlreadyRegisteredError(WorkspaceError):
 
 class AssetNotFoundError(WorkspaceError):
     """Raised when a requested asset cannot be found in the workspace."""
+
+
+class TagAlreadyExistsError(WorkspaceError):
+    """Raised when a tag with the requested name already exists."""
+
+
+class TagNotFoundError(WorkspaceError):
+    """Raised when a requested tag cannot be found in the workspace."""
 
 
 class ConversionConfigAlreadyExistsError(WorkspaceError):
@@ -148,6 +171,33 @@ def _write_text_atomically(path: Path, content: str) -> None:
     temporary_path = path.with_name(f".{path.name}.tmp")
     temporary_path.write_text(content, encoding="utf-8")
     temporary_path.replace(path)
+
+
+def _copy_file_atomically(source_path: Path, destination_path: Path) -> None:
+    destination_path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path = destination_path.with_name(f".{destination_path.name}.tmp")
+    shutil.copy2(source_path, temporary_path)
+    temporary_path.replace(destination_path)
+
+
+def _load_conversion_document_input(
+    spec_document: ConversionSpecDocument | ConversionSpec | dict | str | Path,
+) -> ConversionSpecDocument:
+    if isinstance(spec_document, ConversionSpec):
+        return build_conversion_spec_document(spec_document)
+    return load_conversion_spec_document(spec_document)
+
+
+def _build_config_document_relative_path(config_id: str) -> str:
+    return f"{config_id}.json"
+
+
+def _build_config_revision_relative_path(revision_id: str) -> str:
+    return f"revisions/{revision_id}.json"
+
+
+def _build_draft_revision_relative_path(draft_id: str) -> str:
+    return f"drafts/{draft_id}.json"
 
 
 def _infer_output_format_and_role(path: Path) -> tuple[str, str]:
@@ -244,8 +294,11 @@ class Workspace:
             root=normalized_root,
             workspace_dir=workspace_dir,
             database_path=workspace_dir / WORKSPACE_DB_FILENAME,
+            imports_dir=workspace_dir / "imports",
             outputs_dir=workspace_dir / "outputs",
             specs_dir=workspace_dir / "specs",
+            spec_revisions_dir=workspace_dir / "specs" / "revisions",
+            draft_revisions_dir=workspace_dir / "specs" / "drafts",
             jobs_dir=workspace_dir / "jobs",
         )
         cls._create_layout(paths)
@@ -261,10 +314,14 @@ class Workspace:
             root=workspace_dir.parent,
             workspace_dir=workspace_dir,
             database_path=workspace_dir / WORKSPACE_DB_FILENAME,
+            imports_dir=workspace_dir / "imports",
             outputs_dir=workspace_dir / "outputs",
             specs_dir=workspace_dir / "specs",
+            spec_revisions_dir=workspace_dir / "specs" / "revisions",
+            draft_revisions_dir=workspace_dir / "specs" / "drafts",
             jobs_dir=workspace_dir / "jobs",
         )
+        cls._create_layout(paths)
         workspace = cls(paths)
         workspace._validate_database()
         return workspace
@@ -283,8 +340,11 @@ class Workspace:
     @staticmethod
     def _create_layout(paths: WorkspacePaths) -> None:
         paths.workspace_dir.mkdir(parents=True, exist_ok=True)
+        paths.imports_dir.mkdir(parents=True, exist_ok=True)
         paths.outputs_dir.mkdir(parents=True, exist_ok=True)
         paths.specs_dir.mkdir(parents=True, exist_ok=True)
+        paths.spec_revisions_dir.mkdir(parents=True, exist_ok=True)
+        paths.draft_revisions_dir.mkdir(parents=True, exist_ok=True)
         paths.jobs_dir.mkdir(parents=True, exist_ok=True)
 
     def _initialize_database(self) -> None:
@@ -315,71 +375,94 @@ class Workspace:
             except ValueError as exc:
                 raise WorkspaceError(str(exc)) from exc
 
-    def register_asset(
+    def _build_import_destination(self, *, asset_id: str, source_path: Path) -> Path:
+        return self.paths.imports_dir / asset_id / source_path.name
+
+    def import_asset(
         self,
         asset_path: str | Path,
         *,
         on_duplicate: AssetRegistrationMode = "error",
     ) -> RegisteredAsset:
-        normalized_path, file_type, file_size = _inspect_asset_path(asset_path)
+        normalized_source_path, file_type, _file_size = _inspect_asset_path(asset_path)
         now = _utc_now()
-        file_path = str(normalized_path)
-        file_name = normalized_path.name
+        source_path = str(normalized_source_path)
+        file_name = normalized_source_path.name
 
         with self._transaction() as connection:
             existing = connection.execute(
-                "SELECT * FROM assets WHERE file_path = ?",
-                (file_path,),
+                """
+                SELECT *
+                FROM assets
+                WHERE source_path = ?
+                   OR file_path = ?
+                """,
+                (source_path, source_path),
             ).fetchone()
 
             if existing is not None:
+                existing_asset = row_to_registered_asset(existing)
                 if on_duplicate == "skip":
-                    return row_to_registered_asset(existing)
+                    return existing_asset
                 if on_duplicate == "refresh":
+                    imported_path = Path(existing_asset.file_path)
+                    _copy_file_atomically(normalized_source_path, imported_path)
                     connection.execute(
                         """
                         UPDATE assets
-                        SET file_name = ?, file_type = ?, file_size = ?, updated_at = ?
-                        WHERE file_path = ?
+                        SET source_path = ?, file_name = ?, file_type = ?, file_size = ?, updated_at = ?
+                        WHERE id = ?
                         """,
                         (
+                            source_path,
                             file_name,
                             file_type,
-                            file_size,
+                            imported_path.stat().st_size,
                             to_db_timestamp(now),
-                            file_path,
+                            existing_asset.id,
                         ),
                     )
                     refreshed = connection.execute(
-                        "SELECT * FROM assets WHERE file_path = ?",
-                        (file_path,),
+                        "SELECT * FROM assets WHERE id = ?",
+                        (existing_asset.id,),
                     ).fetchone()
                     return row_to_registered_asset(refreshed)
                 raise AssetAlreadyRegisteredError(
-                    f"asset already registered: {file_path}"
+                    f"asset already registered: {source_path}"
                 )
 
             asset_id = str(uuid4())
+            imported_path = self._build_import_destination(
+                asset_id=asset_id,
+                source_path=normalized_source_path,
+            )
+            _copy_file_atomically(normalized_source_path, imported_path)
+            imported_size = imported_path.stat().st_size
             timestamp = to_db_timestamp(now)
             connection.execute(
                 """
                 INSERT INTO assets(
                     id,
                     file_path,
+                    source_path,
                     file_name,
                     file_type,
                     file_size,
                     indexing_status,
+                    last_indexed_at,
+                    imported_at,
                     registered_at,
                     updated_at
-                ) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, 'pending', NULL, ?, ?, ?)
                 """,
                 (
                     asset_id,
-                    file_path,
+                    str(imported_path),
+                    source_path,
                     file_name,
                     file_type,
-                    file_size,
+                    imported_size,
+                    timestamp,
                     timestamp,
                     timestamp,
                 ),
@@ -390,15 +473,39 @@ class Workspace:
             ).fetchone()
             return row_to_registered_asset(row)
 
-    def list_assets(self) -> list[RegisteredAsset]:
+    def register_asset(
+        self,
+        asset_path: str | Path,
+        *,
+        on_duplicate: AssetRegistrationMode = "error",
+    ) -> RegisteredAsset:
+        return self.import_asset(asset_path, on_duplicate=on_duplicate)
+
+    def list_assets(self, *, tags: list[str] | None = None) -> list[RegisteredAsset]:
         with self._connect() as connection:
-            rows = connection.execute(
-                """
-                SELECT *
-                FROM assets
-                ORDER BY registered_at DESC, id DESC
-                """
-            ).fetchall()
+            if tags:
+                resolved_tags = [self.resolve_tag(tag) for tag in tags]
+                placeholders = ", ".join("?" for _ in resolved_tags)
+                rows = connection.execute(
+                    f"""
+                    SELECT assets.*
+                    FROM assets
+                    JOIN asset_tags ON asset_tags.asset_id = assets.id
+                    WHERE asset_tags.tag_id IN ({placeholders})
+                    GROUP BY assets.id
+                    HAVING COUNT(DISTINCT asset_tags.tag_id) = ?
+                    ORDER BY assets.registered_at DESC, assets.id DESC
+                    """,
+                    (*[tag.id for tag in resolved_tags], len(resolved_tags)),
+                ).fetchall()
+            else:
+                rows = connection.execute(
+                    """
+                    SELECT *
+                    FROM assets
+                    ORDER BY registered_at DESC, id DESC
+                    """
+                ).fetchall()
         return [row_to_registered_asset(row) for row in rows]
 
     def get_asset(self, asset_id: str) -> RegisteredAsset | None:
@@ -415,8 +522,13 @@ class Workspace:
         normalized_path = str(_normalize_asset_path(asset_path))
         with self._connect() as connection:
             row = connection.execute(
-                "SELECT * FROM assets WHERE file_path = ?",
-                (normalized_path,),
+                """
+                SELECT *
+                FROM assets
+                WHERE file_path = ?
+                   OR source_path = ?
+                """,
+                (normalized_path, normalized_path),
             ).fetchone()
         if row is None:
             return None
@@ -448,6 +560,122 @@ class Workspace:
         if row is None:
             return None
         return row_to_indexed_asset_metadata(row)
+
+    def list_tags(self) -> list[WorkspaceTag]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT *
+                FROM tags
+                ORDER BY name ASC, id ASC
+                """
+            ).fetchall()
+        return [row_to_workspace_tag(row) for row in rows]
+
+    def create_tag(self, name: str) -> WorkspaceTag:
+        normalized_name = _normalize_name(name)
+        if not normalized_name:
+            raise WorkspaceError("tag name must be non-empty")
+
+        now = _utc_now()
+        tag_id = str(uuid4())
+        with self._transaction() as connection:
+            existing = connection.execute(
+                "SELECT * FROM tags WHERE normalized_name = ?",
+                (normalized_name,),
+            ).fetchone()
+            if existing is not None:
+                raise TagAlreadyExistsError(f"tag already exists: {name}")
+            connection.execute(
+                """
+                INSERT INTO tags(id, name, normalized_name, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    tag_id,
+                    name.strip(),
+                    normalized_name,
+                    to_db_timestamp(now),
+                    to_db_timestamp(now),
+                ),
+            )
+            row = connection.execute(
+                "SELECT * FROM tags WHERE id = ?",
+                (tag_id,),
+            ).fetchone()
+        return row_to_workspace_tag(row)
+
+    def get_tag(self, tag_id: str) -> WorkspaceTag | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM tags WHERE id = ?",
+                (tag_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return row_to_workspace_tag(row)
+
+    def find_tag_by_name(self, name: str) -> WorkspaceTag | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM tags WHERE normalized_name = ?",
+                (_normalize_name(name),),
+            ).fetchone()
+        if row is None:
+            return None
+        return row_to_workspace_tag(row)
+
+    def resolve_tag(self, selector: str) -> WorkspaceTag:
+        tag = self.get_tag(selector)
+        if tag is not None:
+            return tag
+        tag = self.find_tag_by_name(selector)
+        if tag is not None:
+            return tag
+        raise TagNotFoundError(f"tag not found: {selector}")
+
+    def get_asset_tags(self, asset_id: str) -> list[WorkspaceTag]:
+        self.get_asset_or_raise(asset_id)
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT tags.*
+                FROM tags
+                JOIN asset_tags ON asset_tags.tag_id = tags.id
+                WHERE asset_tags.asset_id = ?
+                ORDER BY tags.name ASC, tags.id ASC
+                """,
+                (asset_id,),
+            ).fetchall()
+        return [row_to_workspace_tag(row) for row in rows]
+
+    def attach_tag_to_asset(self, asset_selector: str | Path, tag_selector: str) -> WorkspaceTag:
+        asset = self.resolve_asset(asset_selector)
+        tag = self.resolve_tag(tag_selector)
+        with self._transaction() as connection:
+            connection.execute(
+                """
+                INSERT INTO asset_tags(asset_id, tag_id, created_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(asset_id, tag_id) DO NOTHING
+                """,
+                (
+                    asset.id,
+                    tag.id,
+                    to_db_timestamp(_utc_now()),
+                ),
+            )
+        return tag
+
+    def remove_tag_from_asset(self, asset_selector: str | Path, tag_selector: str) -> WorkspaceTag:
+        asset = self.resolve_asset(asset_selector)
+        tag = self.resolve_tag(tag_selector)
+        with self._transaction() as connection:
+            connection.execute(
+                "DELETE FROM asset_tags WHERE asset_id = ? AND tag_id = ?",
+                (asset.id, tag.id),
+            )
+        return tag
 
     def list_saved_conversion_configs(self) -> list[SavedConversionConfigSummary]:
         with self._connect() as connection:
@@ -513,13 +741,10 @@ class Workspace:
         if not normalized_name:
             raise WorkspaceError("saved conversion config name must be non-empty")
 
-        if isinstance(spec_document, ConversionSpec):
-            document = build_conversion_spec_document(spec_document)
-        else:
-            document = load_conversion_spec_document(spec_document)
+        document = _load_conversion_document_input(spec_document)
 
         config_id = str(uuid4())
-        relative_document_path = f"{config_id}.json"
+        relative_document_path = _build_config_document_relative_path(config_id)
         document_path = self.paths.specs_dir / relative_document_path
         timestamp = _utc_now()
         payload = dump_conversion_spec_document(document, format="json")
@@ -565,6 +790,14 @@ class Workspace:
                     None,
                 ),
             )
+            self._insert_conversion_config_revision(
+                connection,
+                config_id=config_id,
+                revision_number=1,
+                description=_normalize_optional_text(description),
+                document=document,
+                timestamp=timestamp,
+            )
             row = connection.execute(
                 "SELECT * FROM conversion_configs WHERE id = ?",
                 (config_id,),
@@ -576,11 +809,522 @@ class Workspace:
         )
         return build_saved_conversion_config(summary, document=document)
 
+    def update_saved_conversion_config(
+        self,
+        selector: str,
+        *,
+        spec_document: ConversionSpecDocument | ConversionSpec | dict | str | Path,
+        name: str | None = None,
+        description: str | None = None,
+    ) -> SavedConversionConfig:
+        current = self.resolve_saved_conversion_config(selector)
+        resolved_name = _normalize_optional_text(name) or current.name
+        normalized_name = _normalize_name(resolved_name)
+        if not normalized_name:
+            raise WorkspaceError("saved conversion config name must be non-empty")
+
+        document = _load_conversion_document_input(spec_document)
+        payload = dump_conversion_spec_document(document, format="json")
+        timestamp = _utc_now()
+        description_value = description if description is not None else current.description
+
+        with self._transaction() as connection:
+            self._ensure_saved_conversion_config_has_revision_history(
+                current.id,
+                connection=connection,
+            )
+            existing = connection.execute(
+                "SELECT id FROM conversion_configs WHERE normalized_name = ? AND id != ?",
+                (normalized_name, current.id),
+            ).fetchone()
+            if existing is not None:
+                raise ConversionConfigAlreadyExistsError(
+                    f"saved conversion config already exists: {resolved_name}"
+                )
+
+            _write_text_atomically(Path(current.document_path), payload)
+            revision_number = self._next_conversion_config_revision_number(connection, current.id)
+            connection.execute(
+                """
+                UPDATE conversion_configs
+                SET name = ?, normalized_name = ?, description = ?, metadata_json = ?,
+                    spec_document_version = ?, invalid_reason = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    resolved_name,
+                    normalized_name,
+                    _normalize_optional_text(description_value),
+                    json.dumps(document.metadata),
+                    document.spec_version,
+                    None,
+                    to_db_timestamp(timestamp),
+                    current.id,
+                ),
+            )
+            self._insert_conversion_config_revision(
+                connection,
+                config_id=current.id,
+                revision_number=revision_number,
+                description=_normalize_optional_text(description_value),
+                document=document,
+                timestamp=timestamp,
+            )
+
+        return self.resolve_saved_conversion_config(current.id)
+
+    def duplicate_saved_conversion_config(
+        self,
+        selector: str,
+        *,
+        name: str,
+        description: str | None = None,
+    ) -> SavedConversionConfig:
+        source = self.resolve_saved_conversion_config(selector)
+        return self.save_conversion_config(
+            name=name,
+            spec_document=source.document,
+            description=description if description is not None else source.description,
+        )
+
+    def list_saved_conversion_config_revisions(
+        self,
+        selector: str,
+    ) -> list[SavedConversionConfigRevisionSummary]:
+        config = self.resolve_saved_conversion_config(selector)
+        self._ensure_saved_conversion_config_has_revision_history(config.id)
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT *
+                FROM conversion_config_revisions
+                WHERE config_id = ?
+                ORDER BY revision_number DESC, id DESC
+                """,
+                (config.id,),
+            ).fetchall()
+        return [
+            row_to_saved_conversion_config_revision_summary(
+                row,
+                document_path=str(self.paths.specs_dir / row["spec_document_path"]),
+            )
+            for row in rows
+        ]
+
+    def get_saved_conversion_config_revision(
+        self,
+        revision_id: str,
+    ) -> SavedConversionConfigRevision | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM conversion_config_revisions WHERE id = ?",
+                (revision_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        summary = row_to_saved_conversion_config_revision_summary(
+            row,
+            document_path=str(self.paths.specs_dir / row["spec_document_path"]),
+        )
+        return self._resolve_saved_conversion_config_revision(summary, persist_migration=True)
+
+    def record_conversion_draft_revision(
+        self,
+        *,
+        spec_document: ConversionSpecDocument | ConversionSpec | dict | str | Path,
+        label: str | None = None,
+        saved_config_selector: str | None = None,
+        source_asset_selector: str | Path | None = None,
+    ) -> ConversionDraftRevision:
+        document = _load_conversion_document_input(spec_document)
+        draft_id = str(uuid4())
+        relative_document_path = _build_draft_revision_relative_path(draft_id)
+        document_path = self.paths.specs_dir / relative_document_path
+        timestamp = _utc_now()
+        saved_config_id = (
+            self.resolve_saved_conversion_config(saved_config_selector).id
+            if saved_config_selector is not None
+            else None
+        )
+        source_asset_id = (
+            self.resolve_asset(source_asset_selector).id
+            if source_asset_selector is not None
+            else None
+        )
+
+        with self._transaction() as connection:
+            _write_text_atomically(
+                document_path,
+                dump_conversion_spec_document(document, format="json"),
+            )
+            connection.execute(
+                """
+                INSERT INTO conversion_draft_revisions(
+                    id,
+                    label,
+                    saved_config_id,
+                    source_asset_id,
+                    metadata_json,
+                    spec_document_path,
+                    spec_document_version,
+                    invalid_reason,
+                    created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    draft_id,
+                    _normalize_optional_text(label),
+                    saved_config_id,
+                    source_asset_id,
+                    json.dumps(document.metadata),
+                    relative_document_path,
+                    document.spec_version,
+                    None,
+                    to_db_timestamp(timestamp),
+                ),
+            )
+            row = connection.execute(
+                "SELECT * FROM conversion_draft_revisions WHERE id = ?",
+                (draft_id,),
+            ).fetchone()
+
+        summary = row_to_conversion_draft_revision_summary(
+            row,
+            document_path=str(document_path),
+        )
+        return build_conversion_draft_revision(summary, document=document)
+
+    def create_job(
+        self,
+        *,
+        kind: str,
+        target_asset_ids: list[str] | None = None,
+        config: dict | None = None,
+    ) -> WorkspaceJob:
+        timestamp = _utc_now()
+        job_id = str(uuid4())
+        with self._transaction() as connection:
+            connection.execute(
+                """
+                INSERT INTO jobs(
+                    id,
+                    kind,
+                    status,
+                    target_asset_ids_json,
+                    config_json,
+                    conversion_run_id,
+                    error_message,
+                    created_at,
+                    updated_at,
+                    started_at,
+                    completed_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    job_id,
+                    kind,
+                    "pending",
+                    json.dumps(target_asset_ids or []),
+                    json.dumps(config or {}),
+                    None,
+                    None,
+                    to_db_timestamp(timestamp),
+                    to_db_timestamp(timestamp),
+                    None,
+                    None,
+                ),
+            )
+        return self.get_job_or_raise(job_id)
+
+    def list_jobs(self) -> list[WorkspaceJob]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT *
+                FROM jobs
+                ORDER BY created_at DESC, id DESC
+                """
+            ).fetchall()
+        return [row_to_workspace_job(row) for row in rows]
+
+    def get_job(self, job_id: str) -> WorkspaceJob | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM jobs WHERE id = ?",
+                (job_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return row_to_workspace_job(row)
+
+    def get_job_or_raise(self, job_id: str) -> WorkspaceJob:
+        job = self.get_job(job_id)
+        if job is None:
+            raise WorkspaceError(f"job not found: {job_id}")
+        return job
+
+    def mark_job_running(self, job_id: str) -> WorkspaceJob:
+        timestamp = _utc_now()
+        with self._transaction() as connection:
+            connection.execute(
+                """
+                UPDATE jobs
+                SET status = 'running', updated_at = ?, started_at = COALESCE(started_at, ?)
+                WHERE id = ?
+                """,
+                (
+                    to_db_timestamp(timestamp),
+                    to_db_timestamp(timestamp),
+                    job_id,
+                ),
+            )
+        return self.get_job_or_raise(job_id)
+
+    def mark_job_succeeded(
+        self,
+        job_id: str,
+        *,
+        conversion_run_id: str | None = None,
+    ) -> WorkspaceJob:
+        timestamp = _utc_now()
+        with self._transaction() as connection:
+            connection.execute(
+                """
+                UPDATE jobs
+                SET status = 'succeeded', conversion_run_id = COALESCE(?, conversion_run_id),
+                    error_message = NULL, updated_at = ?, completed_at = ?
+                WHERE id = ?
+                """,
+                (
+                    conversion_run_id,
+                    to_db_timestamp(timestamp),
+                    to_db_timestamp(timestamp),
+                    job_id,
+                ),
+            )
+        return self.get_job_or_raise(job_id)
+
+    def mark_job_failed(self, job_id: str, *, error_message: str) -> WorkspaceJob:
+        timestamp = _utc_now()
+        with self._transaction() as connection:
+            connection.execute(
+                """
+                UPDATE jobs
+                SET status = 'failed', error_message = ?, updated_at = ?, completed_at = ?
+                WHERE id = ?
+                """,
+                (
+                    error_message,
+                    to_db_timestamp(timestamp),
+                    to_db_timestamp(timestamp),
+                    job_id,
+                ),
+            )
+        return self.get_job_or_raise(job_id)
+
+    def create_conversion_run(
+        self,
+        *,
+        source_asset_ids: list[str] | None,
+        source_asset_paths: list[str],
+        output_dir: str | Path,
+        saved_config_id: str | None = None,
+        saved_config_revision_id: str | None = None,
+        config: dict | None = None,
+        job_id: str | None = None,
+    ) -> ConversionRun:
+        timestamp = _utc_now()
+        run_id = str(uuid4())
+        with self._transaction() as connection:
+            connection.execute(
+                """
+                INSERT INTO conversion_runs(
+                    id,
+                    job_id,
+                    status,
+                    source_asset_ids_json,
+                    source_asset_paths_json,
+                    saved_config_id,
+                    saved_config_revision_id,
+                    config_json,
+                    output_dir,
+                    output_paths_json,
+                    error_message,
+                    created_at,
+                    updated_at,
+                    started_at,
+                    completed_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    run_id,
+                    job_id,
+                    "pending",
+                    json.dumps(source_asset_ids or []),
+                    json.dumps(source_asset_paths),
+                    saved_config_id,
+                    saved_config_revision_id,
+                    json.dumps(config or {}),
+                    str(Path(output_dir).expanduser().resolve(strict=False)),
+                    json.dumps([]),
+                    None,
+                    to_db_timestamp(timestamp),
+                    to_db_timestamp(timestamp),
+                    None,
+                    None,
+                ),
+            )
+            if job_id is not None:
+                connection.execute(
+                    "UPDATE jobs SET conversion_run_id = ?, updated_at = ? WHERE id = ?",
+                    (run_id, to_db_timestamp(timestamp), job_id),
+                )
+        return self.get_conversion_run_or_raise(run_id)
+
+    def list_conversion_runs(self) -> list[ConversionRun]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT *
+                FROM conversion_runs
+                ORDER BY created_at DESC, id DESC
+                """
+            ).fetchall()
+        return [row_to_conversion_run(row) for row in rows]
+
+    def get_conversion_run(self, run_id: str) -> ConversionRun | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM conversion_runs WHERE id = ?",
+                (run_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return row_to_conversion_run(row)
+
+    def get_conversion_run_or_raise(self, run_id: str) -> ConversionRun:
+        run = self.get_conversion_run(run_id)
+        if run is None:
+            raise WorkspaceError(f"conversion run not found: {run_id}")
+        return run
+
+    def mark_conversion_run_running(self, run_id: str) -> ConversionRun:
+        timestamp = _utc_now()
+        with self._transaction() as connection:
+            connection.execute(
+                """
+                UPDATE conversion_runs
+                SET status = 'running', updated_at = ?, started_at = COALESCE(started_at, ?)
+                WHERE id = ?
+                """,
+                (
+                    to_db_timestamp(timestamp),
+                    to_db_timestamp(timestamp),
+                    run_id,
+                ),
+            )
+        return self.get_conversion_run_or_raise(run_id)
+
+    def mark_conversion_run_succeeded(
+        self,
+        run_id: str,
+        *,
+        output_paths: list[str],
+    ) -> ConversionRun:
+        timestamp = _utc_now()
+        with self._transaction() as connection:
+            connection.execute(
+                """
+                UPDATE conversion_runs
+                SET status = 'succeeded', output_paths_json = ?, error_message = NULL,
+                    updated_at = ?, completed_at = ?
+                WHERE id = ?
+                """,
+                (
+                    json.dumps(output_paths),
+                    to_db_timestamp(timestamp),
+                    to_db_timestamp(timestamp),
+                    run_id,
+                ),
+            )
+        return self.get_conversion_run_or_raise(run_id)
+
+    def mark_conversion_run_failed(self, run_id: str, *, error_message: str) -> ConversionRun:
+        timestamp = _utc_now()
+        with self._transaction() as connection:
+            connection.execute(
+                """
+                UPDATE conversion_runs
+                SET status = 'failed', error_message = ?, updated_at = ?, completed_at = ?
+                WHERE id = ?
+                """,
+                (
+                    error_message,
+                    to_db_timestamp(timestamp),
+                    to_db_timestamp(timestamp),
+                    run_id,
+                ),
+            )
+        return self.get_conversion_run_or_raise(run_id)
+
+    def list_conversion_draft_revisions(
+        self,
+        *,
+        saved_config_selector: str | None = None,
+        source_asset_selector: str | Path | None = None,
+    ) -> list[ConversionDraftRevisionSummary]:
+        where_clauses: list[str] = []
+        params: list[str] = []
+        if saved_config_selector is not None:
+            where_clauses.append("saved_config_id = ?")
+            params.append(self.resolve_saved_conversion_config(saved_config_selector).id)
+        if source_asset_selector is not None:
+            where_clauses.append("source_asset_id = ?")
+            params.append(self.resolve_asset(source_asset_selector).id)
+        where_sql = ""
+        if where_clauses:
+            where_sql = "WHERE " + " AND ".join(where_clauses)
+        with self._connect() as connection:
+            rows = connection.execute(
+                f"""
+                SELECT *
+                FROM conversion_draft_revisions
+                {where_sql}
+                ORDER BY created_at DESC, id DESC
+                """,
+                params,
+            ).fetchall()
+        return [
+            row_to_conversion_draft_revision_summary(
+                row,
+                document_path=str(self.paths.specs_dir / row["spec_document_path"]),
+            )
+            for row in rows
+        ]
+
+    def get_conversion_draft_revision(
+        self,
+        draft_id: str,
+    ) -> ConversionDraftRevision | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM conversion_draft_revisions WHERE id = ?",
+                (draft_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        summary = row_to_conversion_draft_revision_summary(
+            row,
+            document_path=str(self.paths.specs_dir / row["spec_document_path"]),
+        )
+        return self._resolve_conversion_draft_revision(summary, persist_migration=True)
+
     def register_output_artifacts(
         self,
         *,
         output_root: str | Path,
         paths: list[str | Path] | None = None,
+        conversion_run_id: str | None = None,
         source_asset_id: str | None = None,
         source_asset_path: str | None = None,
         saved_config_id: str | None = None,
@@ -640,6 +1384,7 @@ class Workspace:
                     """
                     INSERT INTO output_artifacts(
                         id,
+                        conversion_run_id,
                         source_asset_id,
                         source_asset_path,
                         saved_config_id,
@@ -656,8 +1401,9 @@ class Workspace:
                         metadata_json,
                         created_at,
                         updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(output_path) DO UPDATE SET
+                        conversion_run_id = excluded.conversion_run_id,
                         source_asset_id = excluded.source_asset_id,
                         source_asset_path = excluded.source_asset_path,
                         saved_config_id = excluded.saved_config_id,
@@ -675,6 +1421,7 @@ class Workspace:
                     """,
                     (
                         artifact_id,
+                        conversion_run_id,
                         source_asset_id,
                         source_asset_path,
                         saved_config_id,
@@ -721,8 +1468,12 @@ class Workspace:
             source_path, _file_type, _file_size = _inspect_asset_path(source)
 
         saved_config: SavedConversionConfig | None = None
+        saved_config_revision_id: str | None = None
         if saved_config_selector is not None:
             saved_config = self.resolve_saved_conversion_config(saved_config_selector)
+            saved_config_revision_id = self._latest_saved_conversion_config_revision_id(
+                saved_config.id
+            )
             document = saved_config.document
         else:
             if spec_document is None:
@@ -739,32 +1490,80 @@ class Workspace:
         )
         resolved_output_dir.mkdir(parents=True, exist_ok=True)
 
-        converter = Converter(
-            [str(source_path)],
-            None,
-            resolved_output_dir,
-            spec=document.spec,
-            max_workers=max_workers,
+        source_asset_ids = [registered_asset.id] if registered_asset is not None else []
+        source_asset_paths = [
+            registered_asset.source_path if registered_asset is not None and registered_asset.source_path is not None else str(source_path)
+        ]
+        config_snapshot = {
+            "saved_config_id": saved_config.id if saved_config is not None else None,
+            "saved_config_name": saved_config.name if saved_config is not None else None,
+            "saved_config_revision_id": saved_config_revision_id,
+            "spec_schema": {
+                "name": document.spec.schema.name,
+                "version": document.spec.schema.version,
+            },
+            "output_format": document.spec.output.format,
+            "max_workers": max_workers,
+        }
+        job = self.create_job(
+            kind="conversion",
+            target_asset_ids=source_asset_ids,
+            config=config_snapshot,
         )
-        dataset_paths = converter.convert()
-
-        artifact_paths: list[Path] = []
-        for dataset_path in dataset_paths:
-            artifact_paths.append(dataset_path)
-            manifest_path = dataset_path.with_suffix(".manifest.json")
-            report_path = dataset_path.with_name(f"{dataset_path.stem}.report.md")
-            if manifest_path.exists():
-                artifact_paths.append(manifest_path)
-            if report_path.exists():
-                artifact_paths.append(report_path)
-
-        return self.register_output_artifacts(
-            output_root=resolved_output_dir,
-            paths=[str(path) for path in artifact_paths],
-            source_asset_id=registered_asset.id if registered_asset is not None else None,
-            source_asset_path=str(source_path),
+        run = self.create_conversion_run(
+            source_asset_ids=source_asset_ids,
+            source_asset_paths=source_asset_paths,
+            output_dir=resolved_output_dir,
             saved_config_id=saved_config.id if saved_config is not None else None,
+            saved_config_revision_id=saved_config_revision_id,
+            config=config_snapshot,
+            job_id=job.id,
         )
+        self.mark_job_running(job.id)
+        self.mark_conversion_run_running(run.id)
+
+        try:
+            converter = Converter(
+                [str(source_path)],
+                None,
+                resolved_output_dir,
+                spec=document.spec,
+                max_workers=max_workers,
+            )
+            dataset_paths = converter.convert()
+
+            artifact_paths: list[Path] = []
+            for dataset_path in dataset_paths:
+                artifact_paths.append(dataset_path)
+                manifest_path = dataset_path.with_suffix(".manifest.json")
+                report_path = dataset_path.with_name(f"{dataset_path.stem}.report.md")
+                if manifest_path.exists():
+                    artifact_paths.append(manifest_path)
+                if report_path.exists():
+                    artifact_paths.append(report_path)
+
+            outputs = self.register_output_artifacts(
+                output_root=resolved_output_dir,
+                paths=[str(path) for path in artifact_paths],
+                conversion_run_id=run.id,
+                source_asset_id=registered_asset.id if registered_asset is not None else None,
+                source_asset_path=(
+                    registered_asset.source_path
+                    if registered_asset is not None
+                    else str(source_path)
+                ),
+                saved_config_id=saved_config.id if saved_config is not None else None,
+            )
+            self.mark_conversion_run_succeeded(
+                run.id,
+                output_paths=[output.output_path for output in outputs],
+            )
+            self.mark_job_succeeded(job.id, conversion_run_id=run.id)
+            return outputs
+        except Exception as exc:
+            self.mark_conversion_run_failed(run.id, error_message=str(exc))
+            self.mark_job_failed(job.id, error_message=str(exc))
+            raise
 
     def list_output_artifacts(self) -> list[OutputArtifactSummary]:
         with self._connect() as connection:
@@ -804,6 +1603,13 @@ class Workspace:
         return row_to_output_artifact(row)
 
     def index_asset(self, asset_id: str, *, max_workers: int = 1) -> RegisteredAsset:
+        self.get_asset_or_raise(asset_id)
+        job = self.create_job(
+            kind="index_asset",
+            target_asset_ids=[asset_id],
+            config={"max_workers": max_workers},
+        )
+        self.mark_job_running(job.id)
         started_at = _utc_now()
         with self._transaction() as connection:
             connection.execute(
@@ -816,7 +1622,6 @@ class Workspace:
             )
             if connection.total_changes == 0:
                 raise AssetNotFoundError(f"asset not found: {asset_id}")
-
         asset = self.get_asset_or_raise(asset_id)
 
         try:
@@ -840,6 +1645,7 @@ class Workspace:
                     indexing_error=str(exc),
                     timestamp=failed_at,
                 )
+            self.mark_job_failed(job.id, error_message=str(exc))
             raise
 
         finished_at = _utc_now()
@@ -863,6 +1669,7 @@ class Workspace:
                 indexing_error=None,
                 timestamp=finished_at,
             )
+        self.mark_job_succeeded(job.id)
 
         return self.get_asset_or_raise(asset_id)
 
@@ -904,6 +1711,90 @@ class Workspace:
 
         return build_saved_conversion_config(summary, document=document)
 
+    def _resolve_saved_conversion_config_revision(
+        self,
+        summary: SavedConversionConfigRevisionSummary,
+        *,
+        persist_migration: bool,
+    ) -> SavedConversionConfigRevision:
+        document_path = Path(summary.document_path)
+        try:
+            document = load_conversion_spec_document(document_path)
+        except Exception as exc:
+            if persist_migration:
+                self._update_saved_conversion_config_revision_invalid_reason(summary.id, str(exc))
+            raise ConversionConfigInvalidError(str(exc)) from exc
+
+        needs_migration = document.spec_version < CONVERSION_SPEC_DOCUMENT_VERSION
+        if needs_migration and persist_migration:
+            migrated_document = migrate_conversion_spec_document(document)
+            _write_text_atomically(
+                document_path,
+                dump_conversion_spec_document(migrated_document, format="json"),
+            )
+            self._update_saved_conversion_config_revision_metadata(
+                summary.id,
+                spec_document_version=migrated_document.spec_version,
+                invalid_reason=None,
+            )
+            refreshed_summary = self._get_saved_conversion_config_revision_summary_or_raise(summary.id)
+            return build_saved_conversion_config_revision(
+                refreshed_summary,
+                document=migrated_document,
+            )
+
+        if persist_migration:
+            self._update_saved_conversion_config_revision_metadata(
+                summary.id,
+                spec_document_version=document.spec_version,
+                invalid_reason=None,
+            )
+            summary = self._get_saved_conversion_config_revision_summary_or_raise(summary.id)
+
+        return build_saved_conversion_config_revision(summary, document=document)
+
+    def _resolve_conversion_draft_revision(
+        self,
+        summary: ConversionDraftRevisionSummary,
+        *,
+        persist_migration: bool,
+    ) -> ConversionDraftRevision:
+        document_path = Path(summary.document_path)
+        try:
+            document = load_conversion_spec_document(document_path)
+        except Exception as exc:
+            if persist_migration:
+                self._update_conversion_draft_revision_invalid_reason(summary.id, str(exc))
+            raise ConversionConfigInvalidError(str(exc)) from exc
+
+        needs_migration = document.spec_version < CONVERSION_SPEC_DOCUMENT_VERSION
+        if needs_migration and persist_migration:
+            migrated_document = migrate_conversion_spec_document(document)
+            _write_text_atomically(
+                document_path,
+                dump_conversion_spec_document(migrated_document, format="json"),
+            )
+            self._update_conversion_draft_revision_metadata(
+                summary.id,
+                spec_document_version=migrated_document.spec_version,
+                invalid_reason=None,
+            )
+            refreshed_summary = self._get_conversion_draft_revision_summary_or_raise(summary.id)
+            return build_conversion_draft_revision(
+                refreshed_summary,
+                document=migrated_document,
+            )
+
+        if persist_migration:
+            self._update_conversion_draft_revision_metadata(
+                summary.id,
+                spec_document_version=document.spec_version,
+                invalid_reason=None,
+            )
+            summary = self._get_conversion_draft_revision_summary_or_raise(summary.id)
+
+        return build_conversion_draft_revision(summary, document=document)
+
     def _get_saved_conversion_config_summary_or_raise(
         self,
         config_id: str,
@@ -920,6 +1811,57 @@ class Workspace:
             document_path=str(self.paths.specs_dir / row["spec_document_path"]),
         )
 
+    def _get_saved_conversion_config_revision_summary_or_raise(
+        self,
+        revision_id: str,
+    ) -> SavedConversionConfigRevisionSummary:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM conversion_config_revisions WHERE id = ?",
+                (revision_id,),
+            ).fetchone()
+        if row is None:
+            raise ConversionConfigNotFoundError(
+                f"saved conversion config revision not found: {revision_id}"
+            )
+        return row_to_saved_conversion_config_revision_summary(
+            row,
+            document_path=str(self.paths.specs_dir / row["spec_document_path"]),
+        )
+
+    def _latest_saved_conversion_config_revision_id(self, config_id: str) -> str | None:
+        self._ensure_saved_conversion_config_has_revision_history(config_id)
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT id
+                FROM conversion_config_revisions
+                WHERE config_id = ?
+                ORDER BY revision_number DESC, id DESC
+                LIMIT 1
+                """,
+                (config_id,),
+            ).fetchone()
+        return row["id"] if row is not None else None
+
+    def _get_conversion_draft_revision_summary_or_raise(
+        self,
+        draft_id: str,
+    ) -> ConversionDraftRevisionSummary:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM conversion_draft_revisions WHERE id = ?",
+                (draft_id,),
+            ).fetchone()
+        if row is None:
+            raise ConversionConfigNotFoundError(
+                f"conversion draft revision not found: {draft_id}"
+            )
+        return row_to_conversion_draft_revision_summary(
+            row,
+            document_path=str(self.paths.specs_dir / row["spec_document_path"]),
+        )
+
     def _update_saved_conversion_config_invalid_reason(self, config_id: str, invalid_reason: str) -> None:
         with self._transaction() as connection:
             connection.execute(
@@ -932,6 +1874,24 @@ class Workspace:
                     invalid_reason,
                     to_db_timestamp(_utc_now()),
                     config_id,
+                ),
+            )
+
+    def _update_saved_conversion_config_revision_invalid_reason(
+        self,
+        revision_id: str,
+        invalid_reason: str,
+    ) -> None:
+        with self._transaction() as connection:
+            connection.execute(
+                """
+                UPDATE conversion_config_revisions
+                SET invalid_reason = ?
+                WHERE id = ?
+                """,
+                (
+                    invalid_reason,
+                    revision_id,
                 ),
             )
 
@@ -959,6 +1919,176 @@ class Workspace:
                     config_id,
                 ),
             )
+
+    def _update_saved_conversion_config_revision_metadata(
+        self,
+        revision_id: str,
+        *,
+        spec_document_version: int,
+        invalid_reason: str | None,
+    ) -> None:
+        with self._transaction() as connection:
+            connection.execute(
+                """
+                UPDATE conversion_config_revisions
+                SET spec_document_version = ?, invalid_reason = ?
+                WHERE id = ?
+                """,
+                (
+                    spec_document_version,
+                    invalid_reason,
+                    revision_id,
+                ),
+            )
+
+    def _update_conversion_draft_revision_invalid_reason(
+        self,
+        draft_id: str,
+        invalid_reason: str,
+    ) -> None:
+        with self._transaction() as connection:
+            connection.execute(
+                """
+                UPDATE conversion_draft_revisions
+                SET invalid_reason = ?
+                WHERE id = ?
+                """,
+                (
+                    invalid_reason,
+                    draft_id,
+                ),
+            )
+
+    def _update_conversion_draft_revision_metadata(
+        self,
+        draft_id: str,
+        *,
+        spec_document_version: int,
+        invalid_reason: str | None,
+    ) -> None:
+        with self._transaction() as connection:
+            connection.execute(
+                """
+                UPDATE conversion_draft_revisions
+                SET spec_document_version = ?, invalid_reason = ?
+                WHERE id = ?
+                """,
+                (
+                    spec_document_version,
+                    invalid_reason,
+                    draft_id,
+                ),
+            )
+
+    def _next_conversion_config_revision_number(
+        self,
+        connection: sqlite3.Connection,
+        config_id: str,
+    ) -> int:
+        row = connection.execute(
+            """
+            SELECT COALESCE(MAX(revision_number), 0) AS max_revision_number
+            FROM conversion_config_revisions
+            WHERE config_id = ?
+            """,
+            (config_id,),
+        ).fetchone()
+        return int(row["max_revision_number"]) + 1
+
+    def _ensure_saved_conversion_config_has_revision_history(
+        self,
+        config_id: str,
+        *,
+        connection: sqlite3.Connection | None = None,
+    ) -> None:
+        owns_connection = connection is None
+        connection_cm = None
+        if connection is None:
+            connection_cm = self._transaction()
+            connection = connection_cm.__enter__()
+        try:
+            row = connection.execute(
+                """
+                SELECT COALESCE(COUNT(*), 0) AS revision_count
+                FROM conversion_config_revisions
+                WHERE config_id = ?
+                """,
+                (config_id,),
+            ).fetchone()
+            if int(row["revision_count"]) > 0:
+                return
+
+            config_row = connection.execute(
+                "SELECT * FROM conversion_configs WHERE id = ?",
+                (config_id,),
+            ).fetchone()
+            if config_row is None:
+                raise ConversionConfigNotFoundError(
+                    f"saved conversion config not found: {config_id}"
+                )
+
+            document_path = self.paths.specs_dir / config_row["spec_document_path"]
+            document = load_conversion_spec_document(document_path)
+            timestamp = from_db_timestamp(config_row["updated_at"])
+            self._insert_conversion_config_revision(
+                connection,
+                config_id=config_id,
+                revision_number=1,
+                description=config_row["description"],
+                document=document,
+                timestamp=timestamp,
+            )
+        except Exception as exc:
+            if owns_connection and connection_cm is not None:
+                connection_cm.__exit__(type(exc), exc, exc.__traceback__)
+            raise
+        else:
+            if owns_connection and connection_cm is not None:
+                connection_cm.__exit__(None, None, None)
+
+    def _insert_conversion_config_revision(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        config_id: str,
+        revision_number: int,
+        description: str | None,
+        document: ConversionSpecDocument,
+        timestamp: datetime,
+    ) -> None:
+        revision_id = str(uuid4())
+        relative_document_path = _build_config_revision_relative_path(revision_id)
+        document_path = self.paths.specs_dir / relative_document_path
+        _write_text_atomically(
+            document_path,
+            dump_conversion_spec_document(document, format="json"),
+        )
+        connection.execute(
+            """
+            INSERT INTO conversion_config_revisions(
+                id,
+                config_id,
+                revision_number,
+                description,
+                metadata_json,
+                spec_document_path,
+                spec_document_version,
+                invalid_reason,
+                created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                revision_id,
+                config_id,
+                revision_number,
+                description,
+                json.dumps(document.metadata),
+                relative_document_path,
+                document.spec_version,
+                None,
+                to_db_timestamp(timestamp),
+            ),
+        )
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:

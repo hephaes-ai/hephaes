@@ -77,6 +77,36 @@ def test_cli_duplicate_add_returns_nonzero(
     assert "already registered" in captured.err
 
 
+def test_cli_tags_create_attach_and_filter_assets(
+    tmp_path: Path,
+    tmp_bag_file: Path,
+    tmp_mcap_file: Path,
+    capsys,
+) -> None:
+    main(["init", str(tmp_path)])
+    capsys.readouterr()
+    main(["add", "--workspace", str(tmp_path), str(tmp_bag_file), str(tmp_mcap_file)])
+    add_output = capsys.readouterr().out.strip().splitlines()
+    bag_asset_id = add_output[0].split("\t", 1)[0]
+
+    exit_code = main(["tags", "create", "--workspace", str(tmp_path), "Priority"])
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "\tPriority" in captured.out
+
+    exit_code = main(["tags", "attach", "--workspace", str(tmp_path), bag_asset_id, "Priority"])
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert bag_asset_id in captured.out
+    assert "Priority" in captured.out
+
+    exit_code = main(["ls", "assets", "--workspace", str(tmp_path), "--tag", "Priority"])
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert str(tmp_bag_file.resolve()) in captured.out
+    assert str(tmp_mcap_file.resolve()) not in captured.out
+
+
 def test_cli_requires_workspace_for_add(tmp_path: Path, tmp_bag_file: Path, capsys, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
 
@@ -100,7 +130,9 @@ def test_cli_index_by_asset_id(
     asset_id = add_output.split("\t", 1)[0]
 
     def fake_profile_asset_file(file_path: str, *, max_workers: int = 1) -> BagMetadata:
-        assert file_path == str(tmp_mcap_file.resolve())
+        assert Path(file_path).is_file()
+        assert Path(file_path).name == tmp_mcap_file.name
+        assert str(tmp_path / ".hephaes" / "imports") in file_path
         assert max_workers == 1
         return BagMetadata(
             path=file_path,
@@ -170,6 +202,7 @@ def test_cli_index_by_file_path(
     captured = capsys.readouterr()
     assert exit_code == 0
     assert '"file_path": "' in captured.out
+    assert '"source_path": "' in captured.out
     assert str(tmp_bag_file.resolve()) in captured.out
 
 
@@ -267,7 +300,9 @@ def test_cli_inspect_registered_asset_by_id(
         on_failure: str = "warn",
         topic_type_hints=None,
     ) -> InspectionResult:
-        assert bag_path == str(tmp_bag_file.resolve())
+        assert Path(bag_path).is_file()
+        assert Path(bag_path).name == tmp_bag_file.name
+        assert str(tmp_path / ".hephaes" / "imports") in bag_path
         return InspectionResult(
             bag_path=bag_path,
             ros_version="ROS1",
@@ -288,7 +323,7 @@ def test_cli_inspect_registered_asset_by_id(
     captured = capsys.readouterr()
     assert exit_code == 0
     assert '"ros_version": "ROS1"' in captured.out
-    assert str(tmp_bag_file.resolve()) in captured.out
+    assert str(tmp_path / ".hephaes" / "imports") in captured.out
 
 
 def test_cli_configs_save_and_ls(tmp_path: Path, capsys) -> None:
@@ -323,6 +358,89 @@ def test_cli_configs_save_and_ls(tmp_path: Path, capsys) -> None:
     assert "\tSaved Demo\t" in captured.out
 
 
+def test_cli_configs_show_update_duplicate_and_revisions(tmp_path: Path, capsys) -> None:
+    main(["init", str(tmp_path)])
+    capsys.readouterr()
+
+    first_spec = ConversionSpec(
+        schema=SchemaSpec(name="saved_demo", version=1),
+        output=OutputSpec(format="parquet"),
+    )
+    first_document_path = tmp_path / "saved-spec.json"
+    first_document_path.write_text(
+        dump_conversion_spec_document(build_conversion_spec_document(first_spec), format="json"),
+        encoding="utf-8",
+    )
+
+    exit_code = main(
+        [
+            "configs",
+            "save",
+            "--workspace",
+            str(tmp_path),
+            "Saved Demo",
+            str(first_document_path),
+        ]
+    )
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    config_id = captured.out.strip().split("\t", 1)[0]
+
+    exit_code = main(["configs", "show", "--workspace", str(tmp_path), config_id])
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert '"name": "Saved Demo"' in captured.out
+    assert '"revision_count": 1' in captured.out
+
+    second_spec = ConversionSpec(
+        schema=SchemaSpec(name="saved_demo_v2", version=2),
+        output=OutputSpec(format="tfrecord"),
+    )
+    second_document_path = tmp_path / "saved-spec-v2.json"
+    second_document_path.write_text(
+        dump_conversion_spec_document(build_conversion_spec_document(second_spec), format="json"),
+        encoding="utf-8",
+    )
+
+    exit_code = main(
+        [
+            "configs",
+            "update",
+            "--workspace",
+            str(tmp_path),
+            config_id,
+            str(second_document_path),
+            "--name",
+            "Saved Demo V2",
+            "--description",
+            "updated",
+        ]
+    )
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "\tSaved Demo V2\t" in captured.out
+
+    exit_code = main(["configs", "revisions", "--workspace", str(tmp_path), config_id])
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "\t2\t" in captured.out
+    assert "\t1\t" in captured.out
+
+    exit_code = main(
+        [
+            "configs",
+            "duplicate",
+            "--workspace",
+            str(tmp_path),
+            config_id,
+            "Saved Demo Copy",
+        ]
+    )
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "\tSaved Demo Copy\t" in captured.out
+
+
 def test_cli_outputs_ls_and_show(tmp_path: Path, capsys) -> None:
     main(["init", str(tmp_path)])
     capsys.readouterr()
@@ -347,7 +465,7 @@ def test_cli_outputs_ls_and_show(tmp_path: Path, capsys) -> None:
     captured = capsys.readouterr()
     assert exit_code == 0
     assert str(dataset_path.resolve()) in captured.out
-    assert "\tparquet\tdataset\t" in captured.out
+    assert "\t-\tparquet\tdataset\t" in captured.out
 
     dataset_id = next(output.id for output in registered if output.role == "dataset")
     exit_code = main(["outputs", "show", "--workspace", str(tmp_path), dataset_id])
@@ -355,6 +473,7 @@ def test_cli_outputs_ls_and_show(tmp_path: Path, capsys) -> None:
     captured = capsys.readouterr()
     assert exit_code == 0
     assert '"format": "parquet"' in captured.out
+    assert '"conversion_run_id": null' in captured.out
     assert '"manifest_available": true' in captured.out
 
 
@@ -393,7 +512,10 @@ def test_cli_convert_with_saved_config(
             max_workers=1,
             **kwargs,
         ) -> None:
-            assert file_paths == [str(tmp_bag_file.resolve())]
+            assert len(file_paths) == 1
+            assert Path(file_paths[0]).is_file()
+            assert Path(file_paths[0]).name == tmp_bag_file.name
+            assert str(tmp_path / ".hephaes" / "imports") in file_paths[0]
             assert mapping is None
             assert spec.schema.name == "convert_demo"
             assert max_workers == 1
@@ -427,6 +549,30 @@ def test_cli_convert_with_saved_config(
     assert '"output_count": 2' in captured.out
     assert '"role": "dataset"' in captured.out
     assert '"role": "manifest"' in captured.out
+
+    exit_code = main(["jobs", "ls", "--workspace", str(tmp_path)])
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "\tconversion\tsucceeded\t" in captured.out
+
+    job_id = captured.out.strip().split("\t", 1)[0]
+    exit_code = main(["jobs", "show", "--workspace", str(tmp_path), job_id])
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert '"status": "succeeded"' in captured.out
+    assert '"kind": "conversion"' in captured.out
+
+    exit_code = main(["runs", "ls", "--workspace", str(tmp_path)])
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "\tsucceeded\t" in captured.out
+
+    run_id = captured.out.strip().split("\t", 1)[0]
+    exit_code = main(["runs", "show", "--workspace", str(tmp_path), run_id])
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert '"status": "succeeded"' in captured.out
+    assert '"saved_config_id":' in captured.out
 
 
 def test_cli_convert_requires_exactly_one_config_source(

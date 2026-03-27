@@ -13,6 +13,8 @@ from .workspace import (
     ConversionConfigAlreadyExistsError,
     InvalidAssetPathError,
     OutputArtifactNotFoundError,
+    TagAlreadyExistsError,
+    TagNotFoundError,
     Workspace,
     WorkspaceAlreadyExistsError,
     WorkspaceError,
@@ -70,6 +72,57 @@ def build_parser() -> argparse.ArgumentParser:
         help="Duplicate asset behavior.",
     )
     add_parser.set_defaults(handler=_handle_add)
+
+    tags_parser = subparsers.add_parser(
+        "tags",
+        help="Manage asset tags in the active workspace.",
+    )
+    tags_subparsers = tags_parser.add_subparsers(dest="tags_command")
+
+    tags_ls_parser = tags_subparsers.add_parser(
+        "ls",
+        help="List workspace tags.",
+    )
+    tags_ls_parser.add_argument(
+        "--workspace",
+        help="Workspace root or any path inside the target workspace.",
+    )
+    tags_ls_parser.set_defaults(handler=_handle_list_tags)
+
+    tags_create_parser = tags_subparsers.add_parser(
+        "create",
+        help="Create a new workspace tag.",
+    )
+    tags_create_parser.add_argument("name", help="Tag name.")
+    tags_create_parser.add_argument(
+        "--workspace",
+        help="Workspace root or any path inside the target workspace.",
+    )
+    tags_create_parser.set_defaults(handler=_handle_create_tag)
+
+    tags_attach_parser = tags_subparsers.add_parser(
+        "attach",
+        help="Attach a tag to a registered asset.",
+    )
+    tags_attach_parser.add_argument("asset", help="Asset id or path.")
+    tags_attach_parser.add_argument("tag", help="Tag id or name.")
+    tags_attach_parser.add_argument(
+        "--workspace",
+        help="Workspace root or any path inside the target workspace.",
+    )
+    tags_attach_parser.set_defaults(handler=_handle_attach_tag)
+
+    tags_detach_parser = tags_subparsers.add_parser(
+        "detach",
+        help="Detach a tag from a registered asset.",
+    )
+    tags_detach_parser.add_argument("asset", help="Asset id or path.")
+    tags_detach_parser.add_argument("tag", help="Tag id or name.")
+    tags_detach_parser.add_argument(
+        "--workspace",
+        help="Workspace root or any path inside the target workspace.",
+    )
+    tags_detach_parser.set_defaults(handler=_handle_detach_tag)
 
     index_parser = subparsers.add_parser(
         "index",
@@ -190,6 +243,17 @@ def build_parser() -> argparse.ArgumentParser:
     )
     configs_ls_parser.set_defaults(handler=_handle_list_configs)
 
+    configs_show_parser = configs_subparsers.add_parser(
+        "show",
+        help="Show one saved conversion config.",
+    )
+    configs_show_parser.add_argument("selector", help="Saved config id or name.")
+    configs_show_parser.add_argument(
+        "--workspace",
+        help="Workspace root or any path inside the target workspace.",
+    )
+    configs_show_parser.set_defaults(handler=_handle_show_config)
+
     configs_save_parser = configs_subparsers.add_parser(
         "save",
         help="Save a conversion spec document into the workspace config store.",
@@ -208,6 +272,110 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional saved config description.",
     )
     configs_save_parser.set_defaults(handler=_handle_save_config)
+
+    configs_update_parser = configs_subparsers.add_parser(
+        "update",
+        help="Replace a saved conversion config document and record a new revision.",
+    )
+    configs_update_parser.add_argument("selector", help="Saved config id or name.")
+    configs_update_parser.add_argument(
+        "spec_document",
+        help="Path to a conversion spec or conversion spec document.",
+    )
+    configs_update_parser.add_argument(
+        "--workspace",
+        help="Workspace root or any path inside the target workspace.",
+    )
+    configs_update_parser.add_argument(
+        "--name",
+        help="Optional new display name for the saved config.",
+    )
+    configs_update_parser.add_argument(
+        "--description",
+        help="Optional updated description.",
+    )
+    configs_update_parser.set_defaults(handler=_handle_update_config)
+
+    configs_duplicate_parser = configs_subparsers.add_parser(
+        "duplicate",
+        help="Duplicate a saved conversion config under a new name.",
+    )
+    configs_duplicate_parser.add_argument("selector", help="Saved config id or name.")
+    configs_duplicate_parser.add_argument("name", help="Name for the duplicated config.")
+    configs_duplicate_parser.add_argument(
+        "--workspace",
+        help="Workspace root or any path inside the target workspace.",
+    )
+    configs_duplicate_parser.add_argument(
+        "--description",
+        help="Optional description for the duplicated config.",
+    )
+    configs_duplicate_parser.set_defaults(handler=_handle_duplicate_config)
+
+    configs_revisions_parser = configs_subparsers.add_parser(
+        "revisions",
+        help="List saved conversion config revisions.",
+    )
+    configs_revisions_parser.add_argument("selector", help="Saved config id or name.")
+    configs_revisions_parser.add_argument(
+        "--workspace",
+        help="Workspace root or any path inside the target workspace.",
+    )
+    configs_revisions_parser.set_defaults(handler=_handle_list_config_revisions)
+
+    jobs_parser = subparsers.add_parser(
+        "jobs",
+        help="Inspect durable workspace jobs.",
+    )
+    jobs_subparsers = jobs_parser.add_subparsers(dest="jobs_command")
+
+    jobs_ls_parser = jobs_subparsers.add_parser(
+        "ls",
+        help="List workspace jobs.",
+    )
+    jobs_ls_parser.add_argument(
+        "--workspace",
+        help="Workspace root or any path inside the target workspace.",
+    )
+    jobs_ls_parser.set_defaults(handler=_handle_list_jobs)
+
+    jobs_show_parser = jobs_subparsers.add_parser(
+        "show",
+        help="Show one workspace job.",
+    )
+    jobs_show_parser.add_argument("job_id", help="Workspace job id.")
+    jobs_show_parser.add_argument(
+        "--workspace",
+        help="Workspace root or any path inside the target workspace.",
+    )
+    jobs_show_parser.set_defaults(handler=_handle_show_job)
+
+    runs_parser = subparsers.add_parser(
+        "runs",
+        help="Inspect durable conversion runs.",
+    )
+    runs_subparsers = runs_parser.add_subparsers(dest="runs_command")
+
+    runs_ls_parser = runs_subparsers.add_parser(
+        "ls",
+        help="List conversion runs.",
+    )
+    runs_ls_parser.add_argument(
+        "--workspace",
+        help="Workspace root or any path inside the target workspace.",
+    )
+    runs_ls_parser.set_defaults(handler=_handle_list_runs)
+
+    runs_show_parser = runs_subparsers.add_parser(
+        "show",
+        help="Show one conversion run.",
+    )
+    runs_show_parser.add_argument("run_id", help="Conversion run id.")
+    runs_show_parser.add_argument(
+        "--workspace",
+        help="Workspace root or any path inside the target workspace.",
+    )
+    runs_show_parser.set_defaults(handler=_handle_show_run)
 
     outputs_parser = subparsers.add_parser(
         "outputs",
@@ -250,6 +418,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--workspace",
         help="Workspace root or any path inside the target workspace.",
     )
+    ls_assets_parser.add_argument(
+        "--tag",
+        dest="tags",
+        action="append",
+        default=[],
+        help="Filter assets that have the given tag. Repeat for multiple tags.",
+    )
     ls_assets_parser.set_defaults(handler=_handle_list_assets)
 
     return parser
@@ -275,6 +450,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         AssetAlreadyRegisteredError,
         ConversionConfigAlreadyExistsError,
         OutputArtifactNotFoundError,
+        TagAlreadyExistsError,
+        TagNotFoundError,
     ) as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
@@ -346,22 +523,58 @@ def _handle_add(args: argparse.Namespace) -> int:
             print(f"Warning: skipping already registered asset: {file_path}", file=sys.stderr)
 
     for asset in registered:
+        display_path = asset.source_path or asset.file_path
         print(
             "\t".join(
                 (
                     asset.id,
                     asset.indexing_status,
                     asset.file_type,
-                    asset.file_path,
+                    display_path,
                 )
             )
         )
     return 0
 
 
+def _handle_list_tags(args: argparse.Namespace) -> int:
+    workspace = _open_workspace(args.workspace)
+    tags = workspace.list_tags()
+    if not tags:
+        print("No tags defined.")
+        return 0
+
+    for tag in tags:
+        print("\t".join((tag.id, tag.name)))
+    return 0
+
+
+def _handle_create_tag(args: argparse.Namespace) -> int:
+    workspace = _open_workspace(args.workspace)
+    tag = workspace.create_tag(args.name)
+    print("\t".join((tag.id, tag.name)))
+    return 0
+
+
+def _handle_attach_tag(args: argparse.Namespace) -> int:
+    workspace = _open_workspace(args.workspace)
+    asset = workspace.resolve_asset(args.asset)
+    tag = workspace.attach_tag_to_asset(args.asset, args.tag)
+    print("\t".join((asset.id, tag.id, tag.name)))
+    return 0
+
+
+def _handle_detach_tag(args: argparse.Namespace) -> int:
+    workspace = _open_workspace(args.workspace)
+    asset = workspace.resolve_asset(args.asset)
+    tag = workspace.remove_tag_from_asset(args.asset, args.tag)
+    print("\t".join((asset.id, tag.id, tag.name)))
+    return 0
+
+
 def _handle_list_assets(args: argparse.Namespace) -> int:
     workspace = _open_workspace(args.workspace)
-    assets = workspace.list_assets()
+    assets = workspace.list_assets(tags=args.tags or None)
 
     if not assets:
         print("No assets registered.")
@@ -371,6 +584,7 @@ def _handle_list_assets(args: argparse.Namespace) -> int:
         last_indexed_at = (
             asset.last_indexed_at.isoformat() if asset.last_indexed_at is not None else "-"
         )
+        display_path = asset.source_path or asset.file_path
         print(
             "\t".join(
                 (
@@ -379,7 +593,7 @@ def _handle_list_assets(args: argparse.Namespace) -> int:
                     asset.file_type,
                     str(asset.file_size),
                     last_indexed_at,
-                    asset.file_path,
+                    display_path,
                 )
             )
         )
@@ -413,6 +627,7 @@ def _handle_index(args: argparse.Namespace) -> int:
                     "asset_id": indexed_asset.id,
                     "status": indexed_asset.indexing_status,
                     "file_path": indexed_asset.file_path,
+                    "source_path": indexed_asset.source_path,
                     "message_count": metadata.message_count,
                     "topic_count": metadata.topic_count,
                     "duration": metadata.duration,
@@ -496,6 +711,39 @@ def _handle_list_configs(args: argparse.Namespace) -> int:
     return 0
 
 
+def _handle_show_config(args: argparse.Namespace) -> int:
+    workspace = _open_workspace(args.workspace)
+    config = workspace.resolve_saved_conversion_config(args.selector)
+    revisions = workspace.list_saved_conversion_config_revisions(config.id)
+    print(
+        json.dumps(
+            {
+                "id": config.id,
+                "name": config.name,
+                "description": config.description,
+                "metadata": config.metadata,
+                "spec_document_version": config.spec_document_version,
+                "document_path": config.document_path,
+                "created_at": config.created_at.isoformat(),
+                "updated_at": config.updated_at.isoformat(),
+                "last_opened_at": (
+                    config.last_opened_at.isoformat()
+                    if config.last_opened_at is not None
+                    else None
+                ),
+                "invalid_reason": config.invalid_reason,
+                "revision_count": len(revisions),
+                "current_schema": {
+                    "name": config.document.spec.schema.name,
+                    "version": config.document.spec.schema.version,
+                },
+            },
+            sort_keys=True,
+        )
+    )
+    return 0
+
+
 def _handle_save_config(args: argparse.Namespace) -> int:
     workspace = _open_workspace(args.workspace)
     config = workspace.save_conversion_config(
@@ -516,6 +764,169 @@ def _handle_save_config(args: argparse.Namespace) -> int:
     return 0
 
 
+def _handle_update_config(args: argparse.Namespace) -> int:
+    workspace = _open_workspace(args.workspace)
+    config = workspace.update_saved_conversion_config(
+        args.selector,
+        spec_document=args.spec_document,
+        name=args.name,
+        description=args.description,
+    )
+    print(
+        "\t".join(
+            (
+                config.id,
+                str(config.spec_document_version),
+                config.name,
+                config.document_path,
+            )
+        )
+    )
+    return 0
+
+
+def _handle_duplicate_config(args: argparse.Namespace) -> int:
+    workspace = _open_workspace(args.workspace)
+    config = workspace.duplicate_saved_conversion_config(
+        args.selector,
+        name=args.name,
+        description=args.description,
+    )
+    print(
+        "\t".join(
+            (
+                config.id,
+                str(config.spec_document_version),
+                config.name,
+                config.document_path,
+            )
+        )
+    )
+    return 0
+
+
+def _handle_list_config_revisions(args: argparse.Namespace) -> int:
+    workspace = _open_workspace(args.workspace)
+    revisions = workspace.list_saved_conversion_config_revisions(args.selector)
+    if not revisions:
+        print("No saved conversion config revisions.")
+        return 0
+
+    for revision in revisions:
+        print(
+            "\t".join(
+                (
+                    revision.id,
+                    revision.config_id,
+                    str(revision.revision_number),
+                    str(revision.spec_document_version),
+                    revision.document_path,
+                )
+            )
+        )
+    return 0
+
+
+def _handle_list_jobs(args: argparse.Namespace) -> int:
+    workspace = _open_workspace(args.workspace)
+    jobs = workspace.list_jobs()
+    if not jobs:
+        print("No jobs.")
+        return 0
+
+    for job in jobs:
+        print(
+            "\t".join(
+                (
+                    job.id,
+                    job.kind,
+                    job.status,
+                    job.conversion_run_id or "-",
+                    ",".join(job.target_asset_ids) or "-",
+                )
+            )
+        )
+    return 0
+
+
+def _handle_show_job(args: argparse.Namespace) -> int:
+    workspace = _open_workspace(args.workspace)
+    job = workspace.get_job_or_raise(args.job_id)
+    print(
+        json.dumps(
+            {
+                "id": job.id,
+                "kind": job.kind,
+                "status": job.status,
+                "target_asset_ids": job.target_asset_ids,
+                "config": job.config,
+                "conversion_run_id": job.conversion_run_id,
+                "error_message": job.error_message,
+                "created_at": job.created_at.isoformat(),
+                "updated_at": job.updated_at.isoformat(),
+                "started_at": job.started_at.isoformat() if job.started_at is not None else None,
+                "completed_at": (
+                    job.completed_at.isoformat() if job.completed_at is not None else None
+                ),
+            },
+            sort_keys=True,
+        )
+    )
+    return 0
+
+
+def _handle_list_runs(args: argparse.Namespace) -> int:
+    workspace = _open_workspace(args.workspace)
+    runs = workspace.list_conversion_runs()
+    if not runs:
+        print("No conversion runs.")
+        return 0
+
+    for run in runs:
+        print(
+            "\t".join(
+                (
+                    run.id,
+                    run.status,
+                    run.job_id or "-",
+                    run.saved_config_id or "-",
+                    run.output_dir,
+                )
+            )
+        )
+    return 0
+
+
+def _handle_show_run(args: argparse.Namespace) -> int:
+    workspace = _open_workspace(args.workspace)
+    run = workspace.get_conversion_run_or_raise(args.run_id)
+    print(
+        json.dumps(
+            {
+                "id": run.id,
+                "job_id": run.job_id,
+                "status": run.status,
+                "source_asset_ids": run.source_asset_ids,
+                "source_asset_paths": run.source_asset_paths,
+                "saved_config_id": run.saved_config_id,
+                "saved_config_revision_id": run.saved_config_revision_id,
+                "config": run.config,
+                "output_dir": run.output_dir,
+                "output_paths": run.output_paths,
+                "error_message": run.error_message,
+                "created_at": run.created_at.isoformat(),
+                "updated_at": run.updated_at.isoformat(),
+                "started_at": run.started_at.isoformat() if run.started_at is not None else None,
+                "completed_at": (
+                    run.completed_at.isoformat() if run.completed_at is not None else None
+                ),
+            },
+            sort_keys=True,
+        )
+    )
+    return 0
+
+
 def _handle_list_outputs(args: argparse.Namespace) -> int:
     workspace = _open_workspace(args.workspace)
     outputs = workspace.list_output_artifacts()
@@ -528,6 +939,7 @@ def _handle_list_outputs(args: argparse.Namespace) -> int:
             "\t".join(
                 (
                     output.id,
+                    output.conversion_run_id or "-",
                     output.format,
                     output.role,
                     output.source_asset_id or output.source_asset_path or "-",
@@ -546,6 +958,7 @@ def _handle_show_output(args: argparse.Namespace) -> int:
         json.dumps(
             {
                 "id": output.id,
+                "conversion_run_id": output.conversion_run_id,
                 "source_asset_id": output.source_asset_id,
                 "source_asset_path": output.source_asset_path,
                 "saved_config_id": output.saved_config_id,

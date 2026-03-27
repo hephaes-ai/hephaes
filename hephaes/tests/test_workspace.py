@@ -9,6 +9,7 @@ from hephaes import (
     AssetNotFoundError,
     ConversionConfigAlreadyExistsError,
     InvalidAssetPathError,
+    TagAlreadyExistsError,
     Workspace,
     WorkspaceAlreadyExistsError,
     WorkspaceNotFoundError,
@@ -24,8 +25,11 @@ def test_workspace_init_creates_layout(tmp_path: Path) -> None:
     assert workspace.root == tmp_path
     assert (tmp_path / ".hephaes").is_dir()
     assert (tmp_path / ".hephaes" / "workspace.sqlite3").is_file()
+    assert (tmp_path / ".hephaes" / "imports").is_dir()
     assert (tmp_path / ".hephaes" / "outputs").is_dir()
     assert (tmp_path / ".hephaes" / "specs").is_dir()
+    assert (tmp_path / ".hephaes" / "specs" / "revisions").is_dir()
+    assert (tmp_path / ".hephaes" / "specs" / "drafts").is_dir()
     assert (tmp_path / ".hephaes" / "jobs").is_dir()
 
 
@@ -60,7 +64,9 @@ def test_register_asset_persists_across_reopen(tmp_path: Path, tmp_mcap_file: Pa
 
     assert len(assets) == 1
     assert assets[0].id == registered.id
-    assert assets[0].file_path == str(tmp_mcap_file.resolve())
+    assert Path(assets[0].file_path).is_file()
+    assert str(tmp_path / ".hephaes" / "imports") in assets[0].file_path
+    assert assets[0].source_path == str(tmp_mcap_file.resolve())
     assert assets[0].file_type == "mcap"
     assert assets[0].indexing_status == "pending"
 
@@ -94,6 +100,68 @@ def test_register_asset_supports_duplicate_refresh(tmp_path: Path, tmp_bag_file:
     assert refreshed.updated_at >= first.updated_at
 
 
+def test_import_asset_copies_file_into_workspace(tmp_path: Path, tmp_bag_file: Path) -> None:
+    workspace = Workspace.init(tmp_path)
+
+    asset = workspace.import_asset(tmp_bag_file)
+
+    imported_path = Path(asset.file_path)
+    assert imported_path.is_file()
+    assert imported_path.read_bytes() == tmp_bag_file.read_bytes()
+    assert imported_path.parent.parent == tmp_path / ".hephaes" / "imports"
+    assert asset.source_path == str(tmp_bag_file.resolve())
+
+
+def test_create_and_list_tags(tmp_path: Path) -> None:
+    workspace = Workspace.init(tmp_path)
+
+    created = workspace.create_tag("Priority")
+    tags = workspace.list_tags()
+
+    assert len(tags) == 1
+    assert tags[0].id == created.id
+    assert tags[0].name == "Priority"
+
+
+def test_create_tag_rejects_duplicate_names(tmp_path: Path) -> None:
+    workspace = Workspace.init(tmp_path)
+    workspace.create_tag("Priority")
+
+    with pytest.raises(TagAlreadyExistsError):
+        workspace.create_tag(" priority ")
+
+
+def test_attach_and_filter_assets_by_tags(tmp_path: Path, tmp_bag_file: Path, tmp_mcap_file: Path) -> None:
+    workspace = Workspace.init(tmp_path)
+    bag_asset = workspace.register_asset(tmp_bag_file)
+    mcap_asset = workspace.register_asset(tmp_mcap_file)
+    priority = workspace.create_tag("Priority")
+    workspace.create_tag("Review")
+
+    workspace.attach_tag_to_asset(bag_asset.id, priority.id)
+
+    priority_assets = workspace.list_assets(tags=["priority"])
+    all_assets = workspace.list_assets()
+    bag_tags = workspace.get_asset_tags(bag_asset.id)
+    mcap_tags = workspace.get_asset_tags(mcap_asset.id)
+
+    assert [asset.id for asset in priority_assets] == [bag_asset.id]
+    assert {asset.id for asset in all_assets} == {bag_asset.id, mcap_asset.id}
+    assert [tag.name for tag in bag_tags] == ["Priority"]
+    assert mcap_tags == []
+
+
+def test_remove_tag_from_asset(tmp_path: Path, tmp_bag_file: Path) -> None:
+    workspace = Workspace.init(tmp_path)
+    asset = workspace.register_asset(tmp_bag_file)
+    tag = workspace.create_tag("Priority")
+    workspace.attach_tag_to_asset(asset.id, tag.id)
+
+    workspace.remove_tag_from_asset(asset.id, tag.id)
+
+    assert workspace.get_asset_tags(asset.id) == []
+
+
 def test_register_asset_rejects_unsupported_types(tmp_path: Path) -> None:
     workspace = Workspace.init(tmp_path)
     unsupported = tmp_path / "notes.txt"
@@ -112,7 +180,9 @@ def test_index_asset_persists_profiled_metadata(
     asset = workspace.register_asset(tmp_mcap_file)
 
     def fake_profile_asset_file(file_path: str, *, max_workers: int = 1) -> BagMetadata:
-        assert file_path == str(tmp_mcap_file.resolve())
+        assert Path(file_path).is_file()
+        assert Path(file_path).name == tmp_mcap_file.name
+        assert str(tmp_path / ".hephaes" / "imports") in file_path
         assert max_workers == 1
         return BagMetadata(
             path=file_path,
@@ -169,6 +239,11 @@ def test_index_asset_persists_profiled_metadata(
     reopened_metadata = reopened.get_asset_metadata(asset.id)
     assert reopened_metadata is not None
     assert reopened_metadata.message_count == 42
+    jobs = reopened.list_jobs()
+    assert len(jobs) == 1
+    assert jobs[0].kind == "index_asset"
+    assert jobs[0].status == "succeeded"
+    assert jobs[0].target_asset_ids == [asset.id]
 
 
 def test_index_asset_persists_failure_state(
@@ -195,6 +270,10 @@ def test_index_asset_persists_failure_state(
     assert metadata is not None
     assert metadata.indexing_error == "boom"
     assert metadata.message_count == 0
+    jobs = workspace.list_jobs()
+    assert len(jobs) == 1
+    assert jobs[0].status == "failed"
+    assert jobs[0].error_message == "boom"
 
 
 def test_reindex_failure_preserves_previous_metadata(
@@ -313,6 +392,92 @@ def test_resolve_saved_conversion_config_by_name(tmp_path: Path) -> None:
     assert resolved.document.spec.output.format == "tfrecord"
 
 
+def test_update_saved_conversion_config_creates_revision(tmp_path: Path) -> None:
+    workspace = Workspace.init(tmp_path)
+    original_spec = ConversionSpec(
+        schema=SchemaSpec(name="demo", version=1),
+        output=OutputSpec(format="parquet"),
+    )
+    saved = workspace.save_conversion_config(
+        name="Demo Config",
+        spec_document=build_conversion_spec_document(original_spec, metadata={"stage": "initial"}),
+        description="first",
+    )
+    updated_spec = ConversionSpec(
+        schema=SchemaSpec(name="demo_updated", version=2),
+        output=OutputSpec(format="tfrecord"),
+    )
+
+    updated = workspace.update_saved_conversion_config(
+        saved.id,
+        spec_document=build_conversion_spec_document(updated_spec, metadata={"stage": "updated"}),
+        name="Demo Config v2",
+        description="second",
+    )
+    revisions = workspace.list_saved_conversion_config_revisions(saved.id)
+
+    assert updated.id == saved.id
+    assert updated.name == "Demo Config v2"
+    assert updated.description == "second"
+    assert updated.document.spec.schema.name == "demo_updated"
+    assert updated.metadata == {"stage": "updated"}
+    assert [revision.revision_number for revision in revisions] == [2, 1]
+    latest_revision = workspace.get_saved_conversion_config_revision(revisions[0].id)
+    assert latest_revision is not None
+    assert latest_revision.document.spec.output.format == "tfrecord"
+    assert latest_revision.metadata == {"stage": "updated"}
+
+
+def test_duplicate_saved_conversion_config_creates_new_config(tmp_path: Path) -> None:
+    workspace = Workspace.init(tmp_path)
+    spec = ConversionSpec(
+        schema=SchemaSpec(name="demo", version=1),
+        output=OutputSpec(format="parquet"),
+    )
+    saved = workspace.save_conversion_config(
+        name="Demo Config",
+        spec_document=build_conversion_spec_document(spec),
+    )
+
+    duplicate = workspace.duplicate_saved_conversion_config(saved.id, name="Demo Config Copy")
+    duplicate_revisions = workspace.list_saved_conversion_config_revisions(duplicate.id)
+
+    assert duplicate.id != saved.id
+    assert duplicate.name == "Demo Config Copy"
+    assert duplicate.document.spec.schema.name == "demo"
+    assert [revision.revision_number for revision in duplicate_revisions] == [1]
+
+
+def test_record_and_list_conversion_draft_revisions(tmp_path: Path, tmp_mcap_file: Path) -> None:
+    workspace = Workspace.init(tmp_path)
+    asset = workspace.register_asset(tmp_mcap_file)
+    spec = ConversionSpec(
+        schema=SchemaSpec(name="draft_demo", version=1),
+        output=OutputSpec(format="parquet"),
+    )
+    saved = workspace.save_conversion_config(
+        name="Draft Config",
+        spec_document=build_conversion_spec_document(spec),
+    )
+
+    draft = workspace.record_conversion_draft_revision(
+        label="Draft 1",
+        saved_config_selector=saved.id,
+        source_asset_selector=asset.id,
+        spec_document=build_conversion_spec_document(spec, metadata={"draft": True}),
+    )
+    drafts = workspace.list_conversion_draft_revisions(saved_config_selector=saved.id)
+    resolved = workspace.get_conversion_draft_revision(draft.id)
+
+    assert len(drafts) == 1
+    assert drafts[0].id == draft.id
+    assert drafts[0].saved_config_id == saved.id
+    assert drafts[0].source_asset_id == asset.id
+    assert resolved is not None
+    assert resolved.label == "Draft 1"
+    assert resolved.metadata == {"draft": True}
+
+
 def test_register_and_list_output_artifacts(tmp_path: Path) -> None:
     workspace = Workspace.init(tmp_path)
     outputs_dir = tmp_path / "emitted"
@@ -387,7 +552,10 @@ def test_run_conversion_registers_emitted_outputs(
             max_workers=1,
             **kwargs,
         ) -> None:
-            assert file_paths == [str(tmp_mcap_file.resolve())]
+            assert len(file_paths) == 1
+            assert Path(file_paths[0]).is_file()
+            assert Path(file_paths[0]).name == tmp_mcap_file.name
+            assert str(tmp_path / ".hephaes" / "imports") in file_paths[0]
             assert mapping is None
             assert spec.schema.name == "demo"
             assert max_workers == 1
@@ -406,14 +574,66 @@ def test_run_conversion_registers_emitted_outputs(
     monkeypatch.setattr("hephaes.workspace.Converter", FakeConverter)
 
     outputs = workspace.run_conversion(asset.id, saved_config_selector=saved_config.id)
+    jobs = workspace.list_jobs()
+    runs = workspace.list_conversion_runs()
 
     assert len(outputs) == 2
     dataset_output = next(output for output in outputs if output.role == "dataset")
     manifest_output = next(output for output in outputs if output.role == "manifest")
     assert dataset_output.source_asset_id == asset.id
     assert dataset_output.saved_config_id == saved_config.id
+    assert dataset_output.source_asset_path == str(tmp_mcap_file.resolve())
     assert dataset_output.manifest_available is True
     assert manifest_output.saved_config_id == saved_config.id
+    assert len(jobs) == 1
+    assert jobs[0].kind == "conversion"
+    assert jobs[0].status == "succeeded"
+    assert len(runs) == 1
+    assert runs[0].status == "succeeded"
+    assert runs[0].job_id == jobs[0].id
+    assert runs[0].saved_config_id == saved_config.id
+    assert dataset_output.conversion_run_id == runs[0].id
+    assert manifest_output.conversion_run_id == runs[0].id
+
+
+def test_run_conversion_failure_records_job_and_run(
+    tmp_path: Path,
+    tmp_mcap_file: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = Workspace.init(tmp_path)
+    asset = workspace.register_asset(tmp_mcap_file)
+    spec = ConversionSpec(
+        schema=SchemaSpec(name="demo", version=1),
+        output=OutputSpec(format="parquet"),
+    )
+    saved_config = workspace.save_conversion_config(
+        name="Demo Config",
+        spec_document=build_conversion_spec_document(spec),
+    )
+
+    class FailingConverter:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        def convert(self) -> list[Path]:
+            raise RuntimeError("convert boom")
+
+    monkeypatch.setattr("hephaes.workspace.Converter", FailingConverter)
+
+    with pytest.raises(RuntimeError, match="convert boom"):
+        workspace.run_conversion(asset.id, saved_config_selector=saved_config.id)
+
+    jobs = workspace.list_jobs()
+    runs = workspace.list_conversion_runs()
+
+    assert len(jobs) == 1
+    assert jobs[0].status == "failed"
+    assert jobs[0].error_message == "convert boom"
+    assert len(runs) == 1
+    assert runs[0].status == "failed"
+    assert runs[0].error_message == "convert boom"
+    assert runs[0].job_id == jobs[0].id
 
 
 def test_get_output_artifact_returns_metadata(tmp_path: Path) -> None:

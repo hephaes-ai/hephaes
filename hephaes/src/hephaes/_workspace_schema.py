@@ -4,7 +4,7 @@ import sqlite3
 
 WORKSPACE_DIRNAME = ".hephaes"
 WORKSPACE_DB_FILENAME = "workspace.sqlite3"
-WORKSPACE_SCHEMA_VERSION = 4
+WORKSPACE_SCHEMA_VERSION = 8
 
 
 def initialize_workspace_schema(connection: sqlite3.Connection) -> None:
@@ -21,11 +21,13 @@ def initialize_workspace_schema(connection: sqlite3.Connection) -> None:
         CREATE TABLE IF NOT EXISTS assets (
             id TEXT PRIMARY KEY,
             file_path TEXT NOT NULL UNIQUE,
+            source_path TEXT NULL UNIQUE,
             file_name TEXT NOT NULL,
             file_type TEXT NOT NULL,
             file_size INTEGER NOT NULL,
             indexing_status TEXT NOT NULL DEFAULT 'pending',
             last_indexed_at TEXT NULL,
+            imported_at TEXT NOT NULL,
             registered_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
         );
@@ -48,6 +50,23 @@ def initialize_workspace_schema(connection: sqlite3.Connection) -> None:
             FOREIGN KEY(asset_id) REFERENCES assets(id) ON DELETE CASCADE
         );
 
+        CREATE TABLE IF NOT EXISTS tags (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            normalized_name TEXT NOT NULL UNIQUE,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS asset_tags (
+            asset_id TEXT NOT NULL,
+            tag_id TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            PRIMARY KEY(asset_id, tag_id),
+            FOREIGN KEY(asset_id) REFERENCES assets(id) ON DELETE CASCADE,
+            FOREIGN KEY(tag_id) REFERENCES tags(id) ON DELETE CASCADE
+        );
+
         CREATE TABLE IF NOT EXISTS conversion_configs (
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL,
@@ -62,8 +81,86 @@ def initialize_workspace_schema(connection: sqlite3.Connection) -> None:
             last_opened_at TEXT NULL
         );
 
+        CREATE TABLE IF NOT EXISTS conversion_config_revisions (
+            id TEXT PRIMARY KEY,
+            config_id TEXT NOT NULL,
+            revision_number INTEGER NOT NULL,
+            description TEXT NULL,
+            metadata_json TEXT NOT NULL DEFAULT '{}',
+            spec_document_path TEXT NOT NULL,
+            spec_document_version INTEGER NOT NULL,
+            invalid_reason TEXT NULL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(config_id) REFERENCES conversion_configs(id) ON DELETE CASCADE
+        );
+
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_conversion_config_revisions_config_revision
+        ON conversion_config_revisions(config_id, revision_number);
+
+        CREATE TABLE IF NOT EXISTS conversion_draft_revisions (
+            id TEXT PRIMARY KEY,
+            label TEXT NULL,
+            saved_config_id TEXT NULL,
+            source_asset_id TEXT NULL,
+            metadata_json TEXT NOT NULL DEFAULT '{}',
+            spec_document_path TEXT NOT NULL,
+            spec_document_version INTEGER NOT NULL,
+            invalid_reason TEXT NULL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(saved_config_id) REFERENCES conversion_configs(id) ON DELETE SET NULL,
+            FOREIGN KEY(source_asset_id) REFERENCES assets(id) ON DELETE SET NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_conversion_draft_revisions_saved_config_id
+        ON conversion_draft_revisions(saved_config_id);
+
+        CREATE INDEX IF NOT EXISTS idx_conversion_draft_revisions_source_asset_id
+        ON conversion_draft_revisions(source_asset_id);
+
+        CREATE TABLE IF NOT EXISTS jobs (
+            id TEXT PRIMARY KEY,
+            kind TEXT NOT NULL,
+            status TEXT NOT NULL,
+            target_asset_ids_json TEXT NOT NULL DEFAULT '[]',
+            config_json TEXT NOT NULL DEFAULT '{}',
+            conversion_run_id TEXT NULL,
+            error_message TEXT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            started_at TEXT NULL,
+            completed_at TEXT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_jobs_created_at
+        ON jobs(created_at DESC, id DESC);
+
+        CREATE TABLE IF NOT EXISTS conversion_runs (
+            id TEXT PRIMARY KEY,
+            job_id TEXT NULL,
+            status TEXT NOT NULL,
+            source_asset_ids_json TEXT NOT NULL DEFAULT '[]',
+            source_asset_paths_json TEXT NOT NULL DEFAULT '[]',
+            saved_config_id TEXT NULL,
+            saved_config_revision_id TEXT NULL,
+            config_json TEXT NOT NULL DEFAULT '{}',
+            output_dir TEXT NOT NULL,
+            output_paths_json TEXT NOT NULL DEFAULT '[]',
+            error_message TEXT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            started_at TEXT NULL,
+            completed_at TEXT NULL,
+            FOREIGN KEY(job_id) REFERENCES jobs(id) ON DELETE SET NULL,
+            FOREIGN KEY(saved_config_id) REFERENCES conversion_configs(id) ON DELETE SET NULL,
+            FOREIGN KEY(saved_config_revision_id) REFERENCES conversion_config_revisions(id) ON DELETE SET NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_conversion_runs_created_at
+        ON conversion_runs(created_at DESC, id DESC);
+
         CREATE TABLE IF NOT EXISTS output_artifacts (
             id TEXT PRIMARY KEY,
+            conversion_run_id TEXT NULL,
             source_asset_id TEXT NULL,
             source_asset_path TEXT NULL,
             saved_config_id TEXT NULL,
@@ -79,7 +176,8 @@ def initialize_workspace_schema(connection: sqlite3.Connection) -> None:
             report_available INTEGER NOT NULL DEFAULT 0,
             metadata_json TEXT NOT NULL DEFAULT '{}',
             created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY(conversion_run_id) REFERENCES conversion_runs(id) ON DELETE SET NULL
         );
 
         CREATE UNIQUE INDEX IF NOT EXISTS idx_output_artifacts_output_path
@@ -87,6 +185,12 @@ def initialize_workspace_schema(connection: sqlite3.Connection) -> None:
 
         CREATE INDEX IF NOT EXISTS idx_assets_registered_at
         ON assets(registered_at DESC, id DESC);
+
+        CREATE INDEX IF NOT EXISTS idx_assets_source_path
+        ON assets(source_path);
+
+        CREATE INDEX IF NOT EXISTS idx_asset_tags_tag_id
+        ON asset_tags(tag_id);
         """
     )
     connection.execute(
@@ -190,6 +294,192 @@ def migrate_workspace_schema(connection: sqlite3.Connection, schema_version: int
             """
             CREATE UNIQUE INDEX IF NOT EXISTS idx_output_artifacts_output_path
             ON output_artifacts(output_path)
+            """
+        )
+        connection.execute(
+            "UPDATE workspace_meta SET value = ? WHERE key = 'schema_version'",
+            ("4",),
+        )
+        schema_version = 4
+    if schema_version == 4:
+        columns = {
+            row["name"]
+            for row in connection.execute("PRAGMA table_info(assets)").fetchall()
+        }
+        if "source_path" not in columns:
+            connection.execute("ALTER TABLE assets ADD COLUMN source_path TEXT NULL")
+        if "imported_at" not in columns:
+            connection.execute("ALTER TABLE assets ADD COLUMN imported_at TEXT NULL")
+            connection.execute(
+                """
+                UPDATE assets
+                SET imported_at = COALESCE(registered_at, updated_at)
+                WHERE imported_at IS NULL
+                """
+            )
+        connection.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_assets_source_path
+            ON assets(source_path)
+            WHERE source_path IS NOT NULL
+            """
+        )
+        connection.execute(
+            "UPDATE workspace_meta SET value = ? WHERE key = 'schema_version'",
+            ("5",),
+        )
+        schema_version = 5
+    if schema_version == 5:
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS tags (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                normalized_name TEXT NOT NULL UNIQUE,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS asset_tags (
+                asset_id TEXT NOT NULL,
+                tag_id TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY(asset_id, tag_id),
+                FOREIGN KEY(asset_id) REFERENCES assets(id) ON DELETE CASCADE,
+                FOREIGN KEY(tag_id) REFERENCES tags(id) ON DELETE CASCADE
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_asset_tags_tag_id
+            ON asset_tags(tag_id)
+            """
+        )
+        connection.execute(
+            "UPDATE workspace_meta SET value = ? WHERE key = 'schema_version'",
+            ("6",),
+        )
+        schema_version = 6
+
+    if schema_version == 6:
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS conversion_config_revisions (
+                id TEXT PRIMARY KEY,
+                config_id TEXT NOT NULL,
+                revision_number INTEGER NOT NULL,
+                description TEXT NULL,
+                metadata_json TEXT NOT NULL DEFAULT '{}',
+                spec_document_path TEXT NOT NULL,
+                spec_document_version INTEGER NOT NULL,
+                invalid_reason TEXT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(config_id) REFERENCES conversion_configs(id) ON DELETE CASCADE
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_conversion_config_revisions_config_revision
+            ON conversion_config_revisions(config_id, revision_number)
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS conversion_draft_revisions (
+                id TEXT PRIMARY KEY,
+                label TEXT NULL,
+                saved_config_id TEXT NULL,
+                source_asset_id TEXT NULL,
+                metadata_json TEXT NOT NULL DEFAULT '{}',
+                spec_document_path TEXT NOT NULL,
+                spec_document_version INTEGER NOT NULL,
+                invalid_reason TEXT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(saved_config_id) REFERENCES conversion_configs(id) ON DELETE SET NULL,
+                FOREIGN KEY(source_asset_id) REFERENCES assets(id) ON DELETE SET NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_conversion_draft_revisions_saved_config_id
+            ON conversion_draft_revisions(saved_config_id)
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_conversion_draft_revisions_source_asset_id
+            ON conversion_draft_revisions(source_asset_id)
+            """
+        )
+        connection.execute(
+            "UPDATE workspace_meta SET value = ? WHERE key = 'schema_version'",
+            ("7",),
+        )
+        schema_version = 7
+
+    if schema_version == 7:
+        columns = {
+            row["name"]
+            for row in connection.execute("PRAGMA table_info(output_artifacts)").fetchall()
+        }
+        if "conversion_run_id" not in columns:
+            connection.execute(
+                "ALTER TABLE output_artifacts ADD COLUMN conversion_run_id TEXT NULL"
+            )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS jobs (
+                id TEXT PRIMARY KEY,
+                kind TEXT NOT NULL,
+                status TEXT NOT NULL,
+                target_asset_ids_json TEXT NOT NULL DEFAULT '[]',
+                config_json TEXT NOT NULL DEFAULT '{}',
+                conversion_run_id TEXT NULL,
+                error_message TEXT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                started_at TEXT NULL,
+                completed_at TEXT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_jobs_created_at
+            ON jobs(created_at DESC, id DESC)
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS conversion_runs (
+                id TEXT PRIMARY KEY,
+                job_id TEXT NULL,
+                status TEXT NOT NULL,
+                source_asset_ids_json TEXT NOT NULL DEFAULT '[]',
+                source_asset_paths_json TEXT NOT NULL DEFAULT '[]',
+                saved_config_id TEXT NULL,
+                saved_config_revision_id TEXT NULL,
+                config_json TEXT NOT NULL DEFAULT '{}',
+                output_dir TEXT NOT NULL,
+                output_paths_json TEXT NOT NULL DEFAULT '[]',
+                error_message TEXT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                started_at TEXT NULL,
+                completed_at TEXT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_conversion_runs_created_at
+            ON conversion_runs(created_at DESC, id DESC)
             """
         )
         connection.execute(

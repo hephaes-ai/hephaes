@@ -17,8 +17,11 @@ class WorkspacePaths:
     root: Path
     workspace_dir: Path
     database_path: Path
+    imports_dir: Path
     outputs_dir: Path
     specs_dir: Path
+    spec_revisions_dir: Path
+    draft_revisions_dir: Path
     jobs_dir: Path
 
 
@@ -26,13 +29,23 @@ class WorkspacePaths:
 class RegisteredAsset:
     id: str
     file_path: str
+    source_path: str | None
     file_name: str
     file_type: str
     file_size: int
+    imported_at: datetime
     registered_at: datetime
     updated_at: datetime
     indexing_status: str
     last_indexed_at: datetime | None
+
+
+@dataclass(frozen=True)
+class WorkspaceTag:
+    id: str
+    name: str
+    created_at: datetime
+    updated_at: datetime
 
 
 @dataclass(frozen=True)
@@ -129,8 +142,97 @@ class SavedConversionConfig:
 
 
 @dataclass(frozen=True)
+class SavedConversionConfigRevisionSummary:
+    id: str
+    config_id: str
+    revision_number: int
+    description: str | None
+    metadata: dict[str, Any]
+    spec_document_version: int
+    document_path: str
+    created_at: datetime
+    invalid_reason: str | None
+
+
+@dataclass(frozen=True)
+class SavedConversionConfigRevision:
+    id: str
+    config_id: str
+    revision_number: int
+    description: str | None
+    metadata: dict[str, Any]
+    document: ConversionSpecDocument
+    spec_document_version: int
+    document_path: str
+    created_at: datetime
+    invalid_reason: str | None
+
+
+@dataclass(frozen=True)
+class ConversionDraftRevisionSummary:
+    id: str
+    label: str | None
+    saved_config_id: str | None
+    source_asset_id: str | None
+    metadata: dict[str, Any]
+    spec_document_version: int
+    document_path: str
+    created_at: datetime
+    invalid_reason: str | None
+
+
+@dataclass(frozen=True)
+class ConversionDraftRevision:
+    id: str
+    label: str | None
+    saved_config_id: str | None
+    source_asset_id: str | None
+    metadata: dict[str, Any]
+    document: ConversionSpecDocument
+    spec_document_version: int
+    document_path: str
+    created_at: datetime
+    invalid_reason: str | None
+
+
+@dataclass(frozen=True)
+class WorkspaceJob:
+    id: str
+    kind: str
+    status: str
+    target_asset_ids: list[str]
+    config: dict[str, Any]
+    conversion_run_id: str | None
+    error_message: str | None
+    created_at: datetime
+    updated_at: datetime
+    started_at: datetime | None
+    completed_at: datetime | None
+
+
+@dataclass(frozen=True)
+class ConversionRun:
+    id: str
+    job_id: str | None
+    status: str
+    source_asset_ids: list[str]
+    source_asset_paths: list[str]
+    saved_config_id: str | None
+    saved_config_revision_id: str | None
+    config: dict[str, Any]
+    output_dir: str
+    output_paths: list[str]
+    error_message: str | None
+    created_at: datetime
+    updated_at: datetime
+    started_at: datetime | None
+    completed_at: datetime | None
+
+
+@dataclass(frozen=True)
 class OutputArtifactSummary:
     id: str
+    conversion_run_id: str | None
     source_asset_id: str | None
     source_asset_path: str | None
     output_path: str
@@ -145,6 +247,7 @@ class OutputArtifactSummary:
 @dataclass(frozen=True)
 class OutputArtifact:
     id: str
+    conversion_run_id: str | None
     source_asset_id: str | None
     source_asset_path: str | None
     output_path: str
