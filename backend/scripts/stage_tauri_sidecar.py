@@ -31,6 +31,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Clean previous PyInstaller artifacts before building.",
     )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Rebuild even if the staged sidecar already looks current.",
+    )
     return parser
 
 
@@ -43,6 +48,29 @@ def resolve_paths() -> tuple[Path, Path]:
     backend_dir = script_path.parents[1]
     frontend_tauri_dir = backend_dir.parent / "frontend" / "src-tauri"
     return backend_dir, frontend_tauri_dir
+
+
+def collect_source_paths(backend_dir: Path) -> list[Path]:
+    source_paths = [
+        backend_dir / "pyproject.toml",
+        backend_dir / "app",
+        backend_dir / "scripts" / "build_sidecar.py",
+        backend_dir / "scripts" / "stage_tauri_sidecar.py",
+        backend_dir.parent / "hephaes" / "pyproject.toml",
+        backend_dir.parent / "hephaes" / "src",
+    ]
+    return [path for path in source_paths if path.exists()]
+
+
+def newest_mtime(path: Path) -> float:
+    if path.is_file():
+        return path.stat().st_mtime
+
+    latest_mtime = path.stat().st_mtime
+    for child in path.rglob("*"):
+        if child.is_file():
+            latest_mtime = max(latest_mtime, child.stat().st_mtime)
+    return latest_mtime
 
 
 def resolve_target_triple() -> str:
@@ -71,24 +99,32 @@ def main(argv: Sequence[str] | None = None) -> int:
     else:
         source_name = "hephaes-backend-sidecar"
 
-    build_command = [
-        sys.executable,
-        str(backend_dir / "scripts" / "build_sidecar.py"),
-        "--mode",
-        "onefile",
-    ]
-    if args.clean:
-        build_command.append("--clean")
-
-    subprocess.run(build_command, check=True, cwd=str(backend_dir))
-
-    built_binary_path = backend_dir / "dist" / source_name
-    if not built_binary_path.exists():
-        raise FileNotFoundError(f"expected built sidecar at {built_binary_path}")
-
     output_dir.mkdir(parents=True, exist_ok=True)
     staged_binary_path = output_dir / staged_name
-    shutil.copy2(built_binary_path, staged_binary_path)
+
+    needs_rebuild = args.force or not staged_binary_path.exists()
+    if not needs_rebuild:
+        staged_mtime = staged_binary_path.stat().st_mtime
+        source_paths = collect_source_paths(backend_dir)
+        needs_rebuild = any(newest_mtime(path) > staged_mtime for path in source_paths)
+
+    if needs_rebuild:
+        build_command = [
+            sys.executable,
+            str(backend_dir / "scripts" / "build_sidecar.py"),
+            "--mode",
+            "onefile",
+        ]
+        if args.clean:
+            build_command.append("--clean")
+
+        subprocess.run(build_command, check=True, cwd=str(backend_dir))
+
+        built_binary_path = backend_dir / "dist" / source_name
+        if not built_binary_path.exists():
+            raise FileNotFoundError(f"expected built sidecar at {built_binary_path}")
+
+        shutil.copy2(built_binary_path, staged_binary_path)
 
     current_mode = staged_binary_path.stat().st_mode
     staged_binary_path.chmod(current_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)

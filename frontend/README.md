@@ -11,7 +11,8 @@ npm install
 
 ## Run
 
-Start the backend first from the repository root:
+For a frontend-only dev session against an already running backend, start the
+backend first from the repository root:
 
 ```bash
 cd backend
@@ -37,6 +38,9 @@ If you need a different desktop backend URL, set:
 VITE_BACKEND_BASE_URL=http://127.0.0.1:8000
 ```
 
+If `VITE_BACKEND_BASE_URL` is unset, `npm run tauri:dev` will build and launch
+the bundled backend sidecar automatically.
+
 If you still need to run the legacy Next.js frontend during migration, use:
 
 ```bash
@@ -59,4 +63,25 @@ npm run lint
 npm test
 npm run typecheck
 npm run build
+```
+
+## Package
+
+From `frontend/`:
+
+```bash
+npm run tauri:build
+```
+
+This build now stages the packaged backend sidecar automatically before the
+desktop bundle is created. The macOS app bundle is written to:
+
+```text
+src-tauri/target/release/bundle/macos/Hephaes.app
+```
+
+and the matching DMG is written to:
+
+```text
+src-tauri/target/release/bundle/dmg/
 ```
