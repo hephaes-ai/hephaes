@@ -10,7 +10,7 @@ class TestVersion:
     def test_version_defined(self):
         assert hasattr(hephaes, "__version__")
         assert isinstance(hephaes.__version__, str)
-        assert hephaes.__version__ == "0.2.1"
+        assert hephaes.__version__ == "0.2.2"
 
 
 class TestPublicExports:
@@ -77,6 +77,42 @@ class TestPublicExports:
     def test_profiler_exported(self):
         from hephaes import Profiler
         assert Profiler is not None
+
+    def test_workspace_exported(self):
+        from hephaes import Workspace
+        assert Workspace is not None
+
+    def test_indexed_asset_metadata_exported(self):
+        from hephaes import IndexedAssetMetadata
+        assert IndexedAssetMetadata is not None
+
+    def test_workspace_summary_models_exported(self):
+        from hephaes import (
+            ConversionConfigAlreadyExistsError,
+            ConversionConfigInvalidError,
+            ConversionConfigNotFoundError,
+            DefaultEpisodeSummary,
+            IndexedTopicSummary,
+            OutputArtifact,
+            OutputArtifactNotFoundError,
+            OutputArtifactSummary,
+            SavedConversionConfig,
+            SavedConversionConfigSummary,
+            SourceAssetMetadata,
+            VisualizationSummary,
+        )
+        assert ConversionConfigAlreadyExistsError is not None
+        assert ConversionConfigInvalidError is not None
+        assert ConversionConfigNotFoundError is not None
+        assert DefaultEpisodeSummary is not None
+        assert IndexedTopicSummary is not None
+        assert OutputArtifact is not None
+        assert OutputArtifactNotFoundError is not None
+        assert OutputArtifactSummary is not None
+        assert SavedConversionConfig is not None
+        assert SavedConversionConfigSummary is not None
+        assert SourceAssetMetadata is not None
+        assert VisualizationSummary is not None
 
     def test_ros1_reader_exported(self):
         from hephaes import ROS1Reader
@@ -147,9 +183,30 @@ class TestPublicExports:
             "RowStrategySpec",
             "WideParquetWriter",
             "Profiler",
+            "ConversionConfigAlreadyExistsError",
+            "ConversionConfigInvalidError",
+            "ConversionConfigNotFoundError",
+            "DefaultEpisodeSummary",
+            "IndexedAssetMetadata",
+            "IndexedTopicSummary",
+            "OutputArtifact",
+            "OutputArtifactNotFoundError",
+            "OutputArtifactSummary",
+            "RegisteredAsset",
             "ROS1Reader",
             "ROS2Reader",
             "RosReader",
+            "AssetNotFoundError",
+            "SavedConversionConfig",
+            "SavedConversionConfigSummary",
+            "SourceAssetMetadata",
+            "VisualizationSummary",
+            "Workspace",
+            "WorkspaceAlreadyExistsError",
+            "WorkspaceError",
+            "WorkspaceNotFoundError",
+            "InvalidAssetPathError",
+            "AssetAlreadyRegisteredError",
             "build_conversion_capabilities",
             "build_conversion_spec_document",
             "build_draft_conversion_spec",

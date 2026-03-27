@@ -769,6 +769,32 @@ def _convert_single_source(
                     topic_to_field=plan.topic_to_field,
                 ),
                 robot_context=robot_context,
+                schema=conversion_spec.schema.model_dump(),
+                features={
+                    name: feature.model_dump()
+                    for name, feature in conversion_spec.features.items()
+                },
+                labels=(
+                    conversion_spec.labels.model_dump()
+                    if conversion_spec.labels is not None
+                    else None
+                ),
+                row_strategy=(
+                    conversion_spec.row_strategy.model_dump()
+                    if conversion_spec.row_strategy is not None
+                    else None
+                ),
+                draft_origin=(
+                    conversion_spec.draft_origin.model_dump()
+                    if conversion_spec.draft_origin is not None
+                    else None
+                ),
+                validation=conversion_spec.validation.model_dump(),
+                split=(
+                    conversion_spec.split.model_dump()
+                    if conversion_spec.split is not None
+                    else None
+                ),
             )
             write_episode_manifest(manifest, dataset_path=dataset_path)
             write_conversion_report(manifest=manifest, dataset_path=dataset_path)
