@@ -6,6 +6,8 @@ from dataclasses import asdict
 from datetime import datetime
 
 from ._workspace_models import (
+    ConversionDraftRevision,
+    ConversionDraftRevisionSummary,
     DefaultEpisodeSummary,
     IndexedAssetMetadata,
     IndexedTopicSummary,
@@ -14,6 +16,8 @@ from ._workspace_models import (
     OutputArtifactSummary,
     RegisteredAsset,
     SavedConversionConfig,
+    SavedConversionConfigRevision,
+    SavedConversionConfigRevisionSummary,
     SavedConversionConfigSummary,
     SourceAssetMetadata,
     VisualizationSummary,
@@ -238,6 +242,80 @@ def build_saved_conversion_config(
         created_at=summary.created_at,
         updated_at=summary.updated_at,
         last_opened_at=summary.last_opened_at,
+        invalid_reason=summary.invalid_reason,
+    )
+
+
+def row_to_saved_conversion_config_revision_summary(
+    row: sqlite3.Row,
+    *,
+    document_path: str,
+) -> SavedConversionConfigRevisionSummary:
+    return SavedConversionConfigRevisionSummary(
+        id=row["id"],
+        config_id=row["config_id"],
+        revision_number=int(row["revision_number"]),
+        description=row["description"],
+        metadata=dict(json.loads(row["metadata_json"])),
+        spec_document_version=int(row["spec_document_version"]),
+        document_path=document_path,
+        created_at=from_db_timestamp(row["created_at"]),
+        invalid_reason=row["invalid_reason"],
+    )
+
+
+def build_saved_conversion_config_revision(
+    summary: SavedConversionConfigRevisionSummary,
+    *,
+    document: ConversionSpecDocument,
+) -> SavedConversionConfigRevision:
+    return SavedConversionConfigRevision(
+        id=summary.id,
+        config_id=summary.config_id,
+        revision_number=summary.revision_number,
+        description=summary.description,
+        metadata=summary.metadata,
+        document=document,
+        spec_document_version=summary.spec_document_version,
+        document_path=summary.document_path,
+        created_at=summary.created_at,
+        invalid_reason=summary.invalid_reason,
+    )
+
+
+def row_to_conversion_draft_revision_summary(
+    row: sqlite3.Row,
+    *,
+    document_path: str,
+) -> ConversionDraftRevisionSummary:
+    return ConversionDraftRevisionSummary(
+        id=row["id"],
+        label=row["label"],
+        saved_config_id=row["saved_config_id"],
+        source_asset_id=row["source_asset_id"],
+        metadata=dict(json.loads(row["metadata_json"])),
+        spec_document_version=int(row["spec_document_version"]),
+        document_path=document_path,
+        created_at=from_db_timestamp(row["created_at"]),
+        invalid_reason=row["invalid_reason"],
+    )
+
+
+def build_conversion_draft_revision(
+    summary: ConversionDraftRevisionSummary,
+    *,
+    document: ConversionSpecDocument,
+) -> ConversionDraftRevision:
+    return ConversionDraftRevision(
+        id=summary.id,
+        label=summary.label,
+        saved_config_id=summary.saved_config_id,
+        source_asset_id=summary.source_asset_id,
+        metadata=summary.metadata,
+        document=document,
+        spec_document_version=summary.spec_document_version,
+        document_path=summary.document_path,
+        created_at=summary.created_at,
         invalid_reason=summary.invalid_reason,
     )
 

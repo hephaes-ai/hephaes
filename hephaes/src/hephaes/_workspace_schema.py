@@ -4,7 +4,7 @@ import sqlite3
 
 WORKSPACE_DIRNAME = ".hephaes"
 WORKSPACE_DB_FILENAME = "workspace.sqlite3"
-WORKSPACE_SCHEMA_VERSION = 6
+WORKSPACE_SCHEMA_VERSION = 7
 
 
 def initialize_workspace_schema(connection: sqlite3.Connection) -> None:
@@ -80,6 +80,42 @@ def initialize_workspace_schema(connection: sqlite3.Connection) -> None:
             updated_at TEXT NOT NULL,
             last_opened_at TEXT NULL
         );
+
+        CREATE TABLE IF NOT EXISTS conversion_config_revisions (
+            id TEXT PRIMARY KEY,
+            config_id TEXT NOT NULL,
+            revision_number INTEGER NOT NULL,
+            description TEXT NULL,
+            metadata_json TEXT NOT NULL DEFAULT '{}',
+            spec_document_path TEXT NOT NULL,
+            spec_document_version INTEGER NOT NULL,
+            invalid_reason TEXT NULL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(config_id) REFERENCES conversion_configs(id) ON DELETE CASCADE
+        );
+
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_conversion_config_revisions_config_revision
+        ON conversion_config_revisions(config_id, revision_number);
+
+        CREATE TABLE IF NOT EXISTS conversion_draft_revisions (
+            id TEXT PRIMARY KEY,
+            label TEXT NULL,
+            saved_config_id TEXT NULL,
+            source_asset_id TEXT NULL,
+            metadata_json TEXT NOT NULL DEFAULT '{}',
+            spec_document_path TEXT NOT NULL,
+            spec_document_version INTEGER NOT NULL,
+            invalid_reason TEXT NULL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(saved_config_id) REFERENCES conversion_configs(id) ON DELETE SET NULL,
+            FOREIGN KEY(source_asset_id) REFERENCES assets(id) ON DELETE SET NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_conversion_draft_revisions_saved_config_id
+        ON conversion_draft_revisions(saved_config_id);
+
+        CREATE INDEX IF NOT EXISTS idx_conversion_draft_revisions_source_asset_id
+        ON conversion_draft_revisions(source_asset_id);
 
         CREATE TABLE IF NOT EXISTS output_artifacts (
             id TEXT PRIMARY KEY,
@@ -278,6 +314,64 @@ def migrate_workspace_schema(connection: sqlite3.Connection, schema_version: int
             """
             CREATE INDEX IF NOT EXISTS idx_asset_tags_tag_id
             ON asset_tags(tag_id)
+            """
+        )
+        connection.execute(
+            "UPDATE workspace_meta SET value = ? WHERE key = 'schema_version'",
+            ("6",),
+        )
+        schema_version = 6
+
+    if schema_version == 6:
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS conversion_config_revisions (
+                id TEXT PRIMARY KEY,
+                config_id TEXT NOT NULL,
+                revision_number INTEGER NOT NULL,
+                description TEXT NULL,
+                metadata_json TEXT NOT NULL DEFAULT '{}',
+                spec_document_path TEXT NOT NULL,
+                spec_document_version INTEGER NOT NULL,
+                invalid_reason TEXT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(config_id) REFERENCES conversion_configs(id) ON DELETE CASCADE
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_conversion_config_revisions_config_revision
+            ON conversion_config_revisions(config_id, revision_number)
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS conversion_draft_revisions (
+                id TEXT PRIMARY KEY,
+                label TEXT NULL,
+                saved_config_id TEXT NULL,
+                source_asset_id TEXT NULL,
+                metadata_json TEXT NOT NULL DEFAULT '{}',
+                spec_document_path TEXT NOT NULL,
+                spec_document_version INTEGER NOT NULL,
+                invalid_reason TEXT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(saved_config_id) REFERENCES conversion_configs(id) ON DELETE SET NULL,
+                FOREIGN KEY(source_asset_id) REFERENCES assets(id) ON DELETE SET NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_conversion_draft_revisions_saved_config_id
+            ON conversion_draft_revisions(saved_config_id)
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_conversion_draft_revisions_source_asset_id
+            ON conversion_draft_revisions(source_asset_id)
             """
         )
         connection.execute(

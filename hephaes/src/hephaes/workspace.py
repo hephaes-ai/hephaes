@@ -13,6 +13,8 @@ from uuid import uuid4
 from ._workspace_indexing import build_index_metadata_payload, profile_asset_file
 from ._workspace_models import (
     AssetRegistrationMode,
+    ConversionDraftRevision,
+    ConversionDraftRevisionSummary,
     DefaultEpisodeSummary,
     IndexedAssetMetadata,
     IndexedTopicSummary,
@@ -20,6 +22,8 @@ from ._workspace_models import (
     OutputArtifactSummary,
     RegisteredAsset,
     SavedConversionConfig,
+    SavedConversionConfigRevision,
+    SavedConversionConfigRevisionSummary,
     SavedConversionConfigSummary,
     SourceAssetMetadata,
     VisualizationSummary,
@@ -34,12 +38,16 @@ from ._workspace_schema import (
     migrate_workspace_schema,
 )
 from ._workspace_serialization import (
+    build_conversion_draft_revision,
     build_saved_conversion_config,
+    build_saved_conversion_config_revision,
     from_db_timestamp,
+    row_to_conversion_draft_revision_summary,
     row_to_indexed_asset_metadata,
     row_to_output_artifact,
     row_to_output_artifact_summary,
     row_to_registered_asset,
+    row_to_saved_conversion_config_revision_summary,
     row_to_saved_conversion_config_summary,
     row_to_workspace_tag,
     to_db_timestamp,
@@ -168,6 +176,26 @@ def _copy_file_atomically(source_path: Path, destination_path: Path) -> None:
     temporary_path.replace(destination_path)
 
 
+def _load_conversion_document_input(
+    spec_document: ConversionSpecDocument | ConversionSpec | dict | str | Path,
+) -> ConversionSpecDocument:
+    if isinstance(spec_document, ConversionSpec):
+        return build_conversion_spec_document(spec_document)
+    return load_conversion_spec_document(spec_document)
+
+
+def _build_config_document_relative_path(config_id: str) -> str:
+    return f"{config_id}.json"
+
+
+def _build_config_revision_relative_path(revision_id: str) -> str:
+    return f"revisions/{revision_id}.json"
+
+
+def _build_draft_revision_relative_path(draft_id: str) -> str:
+    return f"drafts/{draft_id}.json"
+
+
 def _infer_output_format_and_role(path: Path) -> tuple[str, str]:
     name = path.name.lower()
     if name.endswith(".manifest.json"):
@@ -265,6 +293,8 @@ class Workspace:
             imports_dir=workspace_dir / "imports",
             outputs_dir=workspace_dir / "outputs",
             specs_dir=workspace_dir / "specs",
+            spec_revisions_dir=workspace_dir / "specs" / "revisions",
+            draft_revisions_dir=workspace_dir / "specs" / "drafts",
             jobs_dir=workspace_dir / "jobs",
         )
         cls._create_layout(paths)
@@ -283,6 +313,8 @@ class Workspace:
             imports_dir=workspace_dir / "imports",
             outputs_dir=workspace_dir / "outputs",
             specs_dir=workspace_dir / "specs",
+            spec_revisions_dir=workspace_dir / "specs" / "revisions",
+            draft_revisions_dir=workspace_dir / "specs" / "drafts",
             jobs_dir=workspace_dir / "jobs",
         )
         cls._create_layout(paths)
@@ -307,6 +339,8 @@ class Workspace:
         paths.imports_dir.mkdir(parents=True, exist_ok=True)
         paths.outputs_dir.mkdir(parents=True, exist_ok=True)
         paths.specs_dir.mkdir(parents=True, exist_ok=True)
+        paths.spec_revisions_dir.mkdir(parents=True, exist_ok=True)
+        paths.draft_revisions_dir.mkdir(parents=True, exist_ok=True)
         paths.jobs_dir.mkdir(parents=True, exist_ok=True)
 
     def _initialize_database(self) -> None:
@@ -703,13 +737,10 @@ class Workspace:
         if not normalized_name:
             raise WorkspaceError("saved conversion config name must be non-empty")
 
-        if isinstance(spec_document, ConversionSpec):
-            document = build_conversion_spec_document(spec_document)
-        else:
-            document = load_conversion_spec_document(spec_document)
+        document = _load_conversion_document_input(spec_document)
 
         config_id = str(uuid4())
-        relative_document_path = f"{config_id}.json"
+        relative_document_path = _build_config_document_relative_path(config_id)
         document_path = self.paths.specs_dir / relative_document_path
         timestamp = _utc_now()
         payload = dump_conversion_spec_document(document, format="json")
@@ -755,6 +786,14 @@ class Workspace:
                     None,
                 ),
             )
+            self._insert_conversion_config_revision(
+                connection,
+                config_id=config_id,
+                revision_number=1,
+                description=_normalize_optional_text(description),
+                document=document,
+                timestamp=timestamp,
+            )
             row = connection.execute(
                 "SELECT * FROM conversion_configs WHERE id = ?",
                 (config_id,),
@@ -765,6 +804,243 @@ class Workspace:
             document_path=str(document_path),
         )
         return build_saved_conversion_config(summary, document=document)
+
+    def update_saved_conversion_config(
+        self,
+        selector: str,
+        *,
+        spec_document: ConversionSpecDocument | ConversionSpec | dict | str | Path,
+        name: str | None = None,
+        description: str | None = None,
+    ) -> SavedConversionConfig:
+        current = self.resolve_saved_conversion_config(selector)
+        resolved_name = _normalize_optional_text(name) or current.name
+        normalized_name = _normalize_name(resolved_name)
+        if not normalized_name:
+            raise WorkspaceError("saved conversion config name must be non-empty")
+
+        document = _load_conversion_document_input(spec_document)
+        payload = dump_conversion_spec_document(document, format="json")
+        timestamp = _utc_now()
+        description_value = description if description is not None else current.description
+
+        with self._transaction() as connection:
+            self._ensure_saved_conversion_config_has_revision_history(
+                current.id,
+                connection=connection,
+            )
+            existing = connection.execute(
+                "SELECT id FROM conversion_configs WHERE normalized_name = ? AND id != ?",
+                (normalized_name, current.id),
+            ).fetchone()
+            if existing is not None:
+                raise ConversionConfigAlreadyExistsError(
+                    f"saved conversion config already exists: {resolved_name}"
+                )
+
+            _write_text_atomically(Path(current.document_path), payload)
+            revision_number = self._next_conversion_config_revision_number(connection, current.id)
+            connection.execute(
+                """
+                UPDATE conversion_configs
+                SET name = ?, normalized_name = ?, description = ?, metadata_json = ?,
+                    spec_document_version = ?, invalid_reason = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    resolved_name,
+                    normalized_name,
+                    _normalize_optional_text(description_value),
+                    json.dumps(document.metadata),
+                    document.spec_version,
+                    None,
+                    to_db_timestamp(timestamp),
+                    current.id,
+                ),
+            )
+            self._insert_conversion_config_revision(
+                connection,
+                config_id=current.id,
+                revision_number=revision_number,
+                description=_normalize_optional_text(description_value),
+                document=document,
+                timestamp=timestamp,
+            )
+
+        return self.resolve_saved_conversion_config(current.id)
+
+    def duplicate_saved_conversion_config(
+        self,
+        selector: str,
+        *,
+        name: str,
+        description: str | None = None,
+    ) -> SavedConversionConfig:
+        source = self.resolve_saved_conversion_config(selector)
+        return self.save_conversion_config(
+            name=name,
+            spec_document=source.document,
+            description=description if description is not None else source.description,
+        )
+
+    def list_saved_conversion_config_revisions(
+        self,
+        selector: str,
+    ) -> list[SavedConversionConfigRevisionSummary]:
+        config = self.resolve_saved_conversion_config(selector)
+        self._ensure_saved_conversion_config_has_revision_history(config.id)
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT *
+                FROM conversion_config_revisions
+                WHERE config_id = ?
+                ORDER BY revision_number DESC, id DESC
+                """,
+                (config.id,),
+            ).fetchall()
+        return [
+            row_to_saved_conversion_config_revision_summary(
+                row,
+                document_path=str(self.paths.specs_dir / row["spec_document_path"]),
+            )
+            for row in rows
+        ]
+
+    def get_saved_conversion_config_revision(
+        self,
+        revision_id: str,
+    ) -> SavedConversionConfigRevision | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM conversion_config_revisions WHERE id = ?",
+                (revision_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        summary = row_to_saved_conversion_config_revision_summary(
+            row,
+            document_path=str(self.paths.specs_dir / row["spec_document_path"]),
+        )
+        return self._resolve_saved_conversion_config_revision(summary, persist_migration=True)
+
+    def record_conversion_draft_revision(
+        self,
+        *,
+        spec_document: ConversionSpecDocument | ConversionSpec | dict | str | Path,
+        label: str | None = None,
+        saved_config_selector: str | None = None,
+        source_asset_selector: str | Path | None = None,
+    ) -> ConversionDraftRevision:
+        document = _load_conversion_document_input(spec_document)
+        draft_id = str(uuid4())
+        relative_document_path = _build_draft_revision_relative_path(draft_id)
+        document_path = self.paths.specs_dir / relative_document_path
+        timestamp = _utc_now()
+        saved_config_id = (
+            self.resolve_saved_conversion_config(saved_config_selector).id
+            if saved_config_selector is not None
+            else None
+        )
+        source_asset_id = (
+            self.resolve_asset(source_asset_selector).id
+            if source_asset_selector is not None
+            else None
+        )
+
+        with self._transaction() as connection:
+            _write_text_atomically(
+                document_path,
+                dump_conversion_spec_document(document, format="json"),
+            )
+            connection.execute(
+                """
+                INSERT INTO conversion_draft_revisions(
+                    id,
+                    label,
+                    saved_config_id,
+                    source_asset_id,
+                    metadata_json,
+                    spec_document_path,
+                    spec_document_version,
+                    invalid_reason,
+                    created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    draft_id,
+                    _normalize_optional_text(label),
+                    saved_config_id,
+                    source_asset_id,
+                    json.dumps(document.metadata),
+                    relative_document_path,
+                    document.spec_version,
+                    None,
+                    to_db_timestamp(timestamp),
+                ),
+            )
+            row = connection.execute(
+                "SELECT * FROM conversion_draft_revisions WHERE id = ?",
+                (draft_id,),
+            ).fetchone()
+
+        summary = row_to_conversion_draft_revision_summary(
+            row,
+            document_path=str(document_path),
+        )
+        return build_conversion_draft_revision(summary, document=document)
+
+    def list_conversion_draft_revisions(
+        self,
+        *,
+        saved_config_selector: str | None = None,
+        source_asset_selector: str | Path | None = None,
+    ) -> list[ConversionDraftRevisionSummary]:
+        where_clauses: list[str] = []
+        params: list[str] = []
+        if saved_config_selector is not None:
+            where_clauses.append("saved_config_id = ?")
+            params.append(self.resolve_saved_conversion_config(saved_config_selector).id)
+        if source_asset_selector is not None:
+            where_clauses.append("source_asset_id = ?")
+            params.append(self.resolve_asset(source_asset_selector).id)
+        where_sql = ""
+        if where_clauses:
+            where_sql = "WHERE " + " AND ".join(where_clauses)
+        with self._connect() as connection:
+            rows = connection.execute(
+                f"""
+                SELECT *
+                FROM conversion_draft_revisions
+                {where_sql}
+                ORDER BY created_at DESC, id DESC
+                """,
+                params,
+            ).fetchall()
+        return [
+            row_to_conversion_draft_revision_summary(
+                row,
+                document_path=str(self.paths.specs_dir / row["spec_document_path"]),
+            )
+            for row in rows
+        ]
+
+    def get_conversion_draft_revision(
+        self,
+        draft_id: str,
+    ) -> ConversionDraftRevision | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM conversion_draft_revisions WHERE id = ?",
+                (draft_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        summary = row_to_conversion_draft_revision_summary(
+            row,
+            document_path=str(self.paths.specs_dir / row["spec_document_path"]),
+        )
+        return self._resolve_conversion_draft_revision(summary, persist_migration=True)
 
     def register_output_artifacts(
         self,
@@ -1098,6 +1374,90 @@ class Workspace:
 
         return build_saved_conversion_config(summary, document=document)
 
+    def _resolve_saved_conversion_config_revision(
+        self,
+        summary: SavedConversionConfigRevisionSummary,
+        *,
+        persist_migration: bool,
+    ) -> SavedConversionConfigRevision:
+        document_path = Path(summary.document_path)
+        try:
+            document = load_conversion_spec_document(document_path)
+        except Exception as exc:
+            if persist_migration:
+                self._update_saved_conversion_config_revision_invalid_reason(summary.id, str(exc))
+            raise ConversionConfigInvalidError(str(exc)) from exc
+
+        needs_migration = document.spec_version < CONVERSION_SPEC_DOCUMENT_VERSION
+        if needs_migration and persist_migration:
+            migrated_document = migrate_conversion_spec_document(document)
+            _write_text_atomically(
+                document_path,
+                dump_conversion_spec_document(migrated_document, format="json"),
+            )
+            self._update_saved_conversion_config_revision_metadata(
+                summary.id,
+                spec_document_version=migrated_document.spec_version,
+                invalid_reason=None,
+            )
+            refreshed_summary = self._get_saved_conversion_config_revision_summary_or_raise(summary.id)
+            return build_saved_conversion_config_revision(
+                refreshed_summary,
+                document=migrated_document,
+            )
+
+        if persist_migration:
+            self._update_saved_conversion_config_revision_metadata(
+                summary.id,
+                spec_document_version=document.spec_version,
+                invalid_reason=None,
+            )
+            summary = self._get_saved_conversion_config_revision_summary_or_raise(summary.id)
+
+        return build_saved_conversion_config_revision(summary, document=document)
+
+    def _resolve_conversion_draft_revision(
+        self,
+        summary: ConversionDraftRevisionSummary,
+        *,
+        persist_migration: bool,
+    ) -> ConversionDraftRevision:
+        document_path = Path(summary.document_path)
+        try:
+            document = load_conversion_spec_document(document_path)
+        except Exception as exc:
+            if persist_migration:
+                self._update_conversion_draft_revision_invalid_reason(summary.id, str(exc))
+            raise ConversionConfigInvalidError(str(exc)) from exc
+
+        needs_migration = document.spec_version < CONVERSION_SPEC_DOCUMENT_VERSION
+        if needs_migration and persist_migration:
+            migrated_document = migrate_conversion_spec_document(document)
+            _write_text_atomically(
+                document_path,
+                dump_conversion_spec_document(migrated_document, format="json"),
+            )
+            self._update_conversion_draft_revision_metadata(
+                summary.id,
+                spec_document_version=migrated_document.spec_version,
+                invalid_reason=None,
+            )
+            refreshed_summary = self._get_conversion_draft_revision_summary_or_raise(summary.id)
+            return build_conversion_draft_revision(
+                refreshed_summary,
+                document=migrated_document,
+            )
+
+        if persist_migration:
+            self._update_conversion_draft_revision_metadata(
+                summary.id,
+                spec_document_version=document.spec_version,
+                invalid_reason=None,
+            )
+            summary = self._get_conversion_draft_revision_summary_or_raise(summary.id)
+
+        return build_conversion_draft_revision(summary, document=document)
+
     def _get_saved_conversion_config_summary_or_raise(
         self,
         config_id: str,
@@ -1114,6 +1474,42 @@ class Workspace:
             document_path=str(self.paths.specs_dir / row["spec_document_path"]),
         )
 
+    def _get_saved_conversion_config_revision_summary_or_raise(
+        self,
+        revision_id: str,
+    ) -> SavedConversionConfigRevisionSummary:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM conversion_config_revisions WHERE id = ?",
+                (revision_id,),
+            ).fetchone()
+        if row is None:
+            raise ConversionConfigNotFoundError(
+                f"saved conversion config revision not found: {revision_id}"
+            )
+        return row_to_saved_conversion_config_revision_summary(
+            row,
+            document_path=str(self.paths.specs_dir / row["spec_document_path"]),
+        )
+
+    def _get_conversion_draft_revision_summary_or_raise(
+        self,
+        draft_id: str,
+    ) -> ConversionDraftRevisionSummary:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM conversion_draft_revisions WHERE id = ?",
+                (draft_id,),
+            ).fetchone()
+        if row is None:
+            raise ConversionConfigNotFoundError(
+                f"conversion draft revision not found: {draft_id}"
+            )
+        return row_to_conversion_draft_revision_summary(
+            row,
+            document_path=str(self.paths.specs_dir / row["spec_document_path"]),
+        )
+
     def _update_saved_conversion_config_invalid_reason(self, config_id: str, invalid_reason: str) -> None:
         with self._transaction() as connection:
             connection.execute(
@@ -1126,6 +1522,24 @@ class Workspace:
                     invalid_reason,
                     to_db_timestamp(_utc_now()),
                     config_id,
+                ),
+            )
+
+    def _update_saved_conversion_config_revision_invalid_reason(
+        self,
+        revision_id: str,
+        invalid_reason: str,
+    ) -> None:
+        with self._transaction() as connection:
+            connection.execute(
+                """
+                UPDATE conversion_config_revisions
+                SET invalid_reason = ?
+                WHERE id = ?
+                """,
+                (
+                    invalid_reason,
+                    revision_id,
                 ),
             )
 
@@ -1153,6 +1567,176 @@ class Workspace:
                     config_id,
                 ),
             )
+
+    def _update_saved_conversion_config_revision_metadata(
+        self,
+        revision_id: str,
+        *,
+        spec_document_version: int,
+        invalid_reason: str | None,
+    ) -> None:
+        with self._transaction() as connection:
+            connection.execute(
+                """
+                UPDATE conversion_config_revisions
+                SET spec_document_version = ?, invalid_reason = ?
+                WHERE id = ?
+                """,
+                (
+                    spec_document_version,
+                    invalid_reason,
+                    revision_id,
+                ),
+            )
+
+    def _update_conversion_draft_revision_invalid_reason(
+        self,
+        draft_id: str,
+        invalid_reason: str,
+    ) -> None:
+        with self._transaction() as connection:
+            connection.execute(
+                """
+                UPDATE conversion_draft_revisions
+                SET invalid_reason = ?
+                WHERE id = ?
+                """,
+                (
+                    invalid_reason,
+                    draft_id,
+                ),
+            )
+
+    def _update_conversion_draft_revision_metadata(
+        self,
+        draft_id: str,
+        *,
+        spec_document_version: int,
+        invalid_reason: str | None,
+    ) -> None:
+        with self._transaction() as connection:
+            connection.execute(
+                """
+                UPDATE conversion_draft_revisions
+                SET spec_document_version = ?, invalid_reason = ?
+                WHERE id = ?
+                """,
+                (
+                    spec_document_version,
+                    invalid_reason,
+                    draft_id,
+                ),
+            )
+
+    def _next_conversion_config_revision_number(
+        self,
+        connection: sqlite3.Connection,
+        config_id: str,
+    ) -> int:
+        row = connection.execute(
+            """
+            SELECT COALESCE(MAX(revision_number), 0) AS max_revision_number
+            FROM conversion_config_revisions
+            WHERE config_id = ?
+            """,
+            (config_id,),
+        ).fetchone()
+        return int(row["max_revision_number"]) + 1
+
+    def _ensure_saved_conversion_config_has_revision_history(
+        self,
+        config_id: str,
+        *,
+        connection: sqlite3.Connection | None = None,
+    ) -> None:
+        owns_connection = connection is None
+        connection_cm = None
+        if connection is None:
+            connection_cm = self._transaction()
+            connection = connection_cm.__enter__()
+        try:
+            row = connection.execute(
+                """
+                SELECT COALESCE(COUNT(*), 0) AS revision_count
+                FROM conversion_config_revisions
+                WHERE config_id = ?
+                """,
+                (config_id,),
+            ).fetchone()
+            if int(row["revision_count"]) > 0:
+                return
+
+            config_row = connection.execute(
+                "SELECT * FROM conversion_configs WHERE id = ?",
+                (config_id,),
+            ).fetchone()
+            if config_row is None:
+                raise ConversionConfigNotFoundError(
+                    f"saved conversion config not found: {config_id}"
+                )
+
+            document_path = self.paths.specs_dir / config_row["spec_document_path"]
+            document = load_conversion_spec_document(document_path)
+            timestamp = from_db_timestamp(config_row["updated_at"])
+            self._insert_conversion_config_revision(
+                connection,
+                config_id=config_id,
+                revision_number=1,
+                description=config_row["description"],
+                document=document,
+                timestamp=timestamp,
+            )
+        except Exception as exc:
+            if owns_connection and connection_cm is not None:
+                connection_cm.__exit__(type(exc), exc, exc.__traceback__)
+            raise
+        else:
+            if owns_connection and connection_cm is not None:
+                connection_cm.__exit__(None, None, None)
+
+    def _insert_conversion_config_revision(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        config_id: str,
+        revision_number: int,
+        description: str | None,
+        document: ConversionSpecDocument,
+        timestamp: datetime,
+    ) -> None:
+        revision_id = str(uuid4())
+        relative_document_path = _build_config_revision_relative_path(revision_id)
+        document_path = self.paths.specs_dir / relative_document_path
+        _write_text_atomically(
+            document_path,
+            dump_conversion_spec_document(document, format="json"),
+        )
+        connection.execute(
+            """
+            INSERT INTO conversion_config_revisions(
+                id,
+                config_id,
+                revision_number,
+                description,
+                metadata_json,
+                spec_document_path,
+                spec_document_version,
+                invalid_reason,
+                created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                revision_id,
+                config_id,
+                revision_number,
+                description,
+                json.dumps(document.metadata),
+                relative_document_path,
+                document.spec_version,
+                None,
+                to_db_timestamp(timestamp),
+            ),
+        )
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:

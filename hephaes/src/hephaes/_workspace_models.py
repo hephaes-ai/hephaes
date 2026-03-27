@@ -20,6 +20,8 @@ class WorkspacePaths:
     imports_dir: Path
     outputs_dir: Path
     specs_dir: Path
+    spec_revisions_dir: Path
+    draft_revisions_dir: Path
     jobs_dir: Path
 
 
@@ -136,6 +138,60 @@ class SavedConversionConfig:
     created_at: datetime
     updated_at: datetime
     last_opened_at: datetime | None
+    invalid_reason: str | None
+
+
+@dataclass(frozen=True)
+class SavedConversionConfigRevisionSummary:
+    id: str
+    config_id: str
+    revision_number: int
+    description: str | None
+    metadata: dict[str, Any]
+    spec_document_version: int
+    document_path: str
+    created_at: datetime
+    invalid_reason: str | None
+
+
+@dataclass(frozen=True)
+class SavedConversionConfigRevision:
+    id: str
+    config_id: str
+    revision_number: int
+    description: str | None
+    metadata: dict[str, Any]
+    document: ConversionSpecDocument
+    spec_document_version: int
+    document_path: str
+    created_at: datetime
+    invalid_reason: str | None
+
+
+@dataclass(frozen=True)
+class ConversionDraftRevisionSummary:
+    id: str
+    label: str | None
+    saved_config_id: str | None
+    source_asset_id: str | None
+    metadata: dict[str, Any]
+    spec_document_version: int
+    document_path: str
+    created_at: datetime
+    invalid_reason: str | None
+
+
+@dataclass(frozen=True)
+class ConversionDraftRevision:
+    id: str
+    label: str | None
+    saved_config_id: str | None
+    source_asset_id: str | None
+    metadata: dict[str, Any]
+    document: ConversionSpecDocument
+    spec_document_version: int
+    document_path: str
+    created_at: datetime
     invalid_reason: str | None
 
 

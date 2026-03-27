@@ -28,6 +28,8 @@ def test_workspace_init_creates_layout(tmp_path: Path) -> None:
     assert (tmp_path / ".hephaes" / "imports").is_dir()
     assert (tmp_path / ".hephaes" / "outputs").is_dir()
     assert (tmp_path / ".hephaes" / "specs").is_dir()
+    assert (tmp_path / ".hephaes" / "specs" / "revisions").is_dir()
+    assert (tmp_path / ".hephaes" / "specs" / "drafts").is_dir()
     assert (tmp_path / ".hephaes" / "jobs").is_dir()
 
 
@@ -379,6 +381,92 @@ def test_resolve_saved_conversion_config_by_name(tmp_path: Path) -> None:
 
     assert resolved.name == "TF Config"
     assert resolved.document.spec.output.format == "tfrecord"
+
+
+def test_update_saved_conversion_config_creates_revision(tmp_path: Path) -> None:
+    workspace = Workspace.init(tmp_path)
+    original_spec = ConversionSpec(
+        schema=SchemaSpec(name="demo", version=1),
+        output=OutputSpec(format="parquet"),
+    )
+    saved = workspace.save_conversion_config(
+        name="Demo Config",
+        spec_document=build_conversion_spec_document(original_spec, metadata={"stage": "initial"}),
+        description="first",
+    )
+    updated_spec = ConversionSpec(
+        schema=SchemaSpec(name="demo_updated", version=2),
+        output=OutputSpec(format="tfrecord"),
+    )
+
+    updated = workspace.update_saved_conversion_config(
+        saved.id,
+        spec_document=build_conversion_spec_document(updated_spec, metadata={"stage": "updated"}),
+        name="Demo Config v2",
+        description="second",
+    )
+    revisions = workspace.list_saved_conversion_config_revisions(saved.id)
+
+    assert updated.id == saved.id
+    assert updated.name == "Demo Config v2"
+    assert updated.description == "second"
+    assert updated.document.spec.schema.name == "demo_updated"
+    assert updated.metadata == {"stage": "updated"}
+    assert [revision.revision_number for revision in revisions] == [2, 1]
+    latest_revision = workspace.get_saved_conversion_config_revision(revisions[0].id)
+    assert latest_revision is not None
+    assert latest_revision.document.spec.output.format == "tfrecord"
+    assert latest_revision.metadata == {"stage": "updated"}
+
+
+def test_duplicate_saved_conversion_config_creates_new_config(tmp_path: Path) -> None:
+    workspace = Workspace.init(tmp_path)
+    spec = ConversionSpec(
+        schema=SchemaSpec(name="demo", version=1),
+        output=OutputSpec(format="parquet"),
+    )
+    saved = workspace.save_conversion_config(
+        name="Demo Config",
+        spec_document=build_conversion_spec_document(spec),
+    )
+
+    duplicate = workspace.duplicate_saved_conversion_config(saved.id, name="Demo Config Copy")
+    duplicate_revisions = workspace.list_saved_conversion_config_revisions(duplicate.id)
+
+    assert duplicate.id != saved.id
+    assert duplicate.name == "Demo Config Copy"
+    assert duplicate.document.spec.schema.name == "demo"
+    assert [revision.revision_number for revision in duplicate_revisions] == [1]
+
+
+def test_record_and_list_conversion_draft_revisions(tmp_path: Path, tmp_mcap_file: Path) -> None:
+    workspace = Workspace.init(tmp_path)
+    asset = workspace.register_asset(tmp_mcap_file)
+    spec = ConversionSpec(
+        schema=SchemaSpec(name="draft_demo", version=1),
+        output=OutputSpec(format="parquet"),
+    )
+    saved = workspace.save_conversion_config(
+        name="Draft Config",
+        spec_document=build_conversion_spec_document(spec),
+    )
+
+    draft = workspace.record_conversion_draft_revision(
+        label="Draft 1",
+        saved_config_selector=saved.id,
+        source_asset_selector=asset.id,
+        spec_document=build_conversion_spec_document(spec, metadata={"draft": True}),
+    )
+    drafts = workspace.list_conversion_draft_revisions(saved_config_selector=saved.id)
+    resolved = workspace.get_conversion_draft_revision(draft.id)
+
+    assert len(drafts) == 1
+    assert drafts[0].id == draft.id
+    assert drafts[0].saved_config_id == saved.id
+    assert drafts[0].source_asset_id == asset.id
+    assert resolved is not None
+    assert resolved.label == "Draft 1"
+    assert resolved.metadata == {"draft": True}
 
 
 def test_register_and_list_output_artifacts(tmp_path: Path) -> None:

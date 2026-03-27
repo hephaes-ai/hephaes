@@ -243,6 +243,17 @@ def build_parser() -> argparse.ArgumentParser:
     )
     configs_ls_parser.set_defaults(handler=_handle_list_configs)
 
+    configs_show_parser = configs_subparsers.add_parser(
+        "show",
+        help="Show one saved conversion config.",
+    )
+    configs_show_parser.add_argument("selector", help="Saved config id or name.")
+    configs_show_parser.add_argument(
+        "--workspace",
+        help="Workspace root or any path inside the target workspace.",
+    )
+    configs_show_parser.set_defaults(handler=_handle_show_config)
+
     configs_save_parser = configs_subparsers.add_parser(
         "save",
         help="Save a conversion spec document into the workspace config store.",
@@ -261,6 +272,56 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional saved config description.",
     )
     configs_save_parser.set_defaults(handler=_handle_save_config)
+
+    configs_update_parser = configs_subparsers.add_parser(
+        "update",
+        help="Replace a saved conversion config document and record a new revision.",
+    )
+    configs_update_parser.add_argument("selector", help="Saved config id or name.")
+    configs_update_parser.add_argument(
+        "spec_document",
+        help="Path to a conversion spec or conversion spec document.",
+    )
+    configs_update_parser.add_argument(
+        "--workspace",
+        help="Workspace root or any path inside the target workspace.",
+    )
+    configs_update_parser.add_argument(
+        "--name",
+        help="Optional new display name for the saved config.",
+    )
+    configs_update_parser.add_argument(
+        "--description",
+        help="Optional updated description.",
+    )
+    configs_update_parser.set_defaults(handler=_handle_update_config)
+
+    configs_duplicate_parser = configs_subparsers.add_parser(
+        "duplicate",
+        help="Duplicate a saved conversion config under a new name.",
+    )
+    configs_duplicate_parser.add_argument("selector", help="Saved config id or name.")
+    configs_duplicate_parser.add_argument("name", help="Name for the duplicated config.")
+    configs_duplicate_parser.add_argument(
+        "--workspace",
+        help="Workspace root or any path inside the target workspace.",
+    )
+    configs_duplicate_parser.add_argument(
+        "--description",
+        help="Optional description for the duplicated config.",
+    )
+    configs_duplicate_parser.set_defaults(handler=_handle_duplicate_config)
+
+    configs_revisions_parser = configs_subparsers.add_parser(
+        "revisions",
+        help="List saved conversion config revisions.",
+    )
+    configs_revisions_parser.add_argument("selector", help="Saved config id or name.")
+    configs_revisions_parser.add_argument(
+        "--workspace",
+        help="Workspace root or any path inside the target workspace.",
+    )
+    configs_revisions_parser.set_defaults(handler=_handle_list_config_revisions)
 
     outputs_parser = subparsers.add_parser(
         "outputs",
@@ -596,6 +657,39 @@ def _handle_list_configs(args: argparse.Namespace) -> int:
     return 0
 
 
+def _handle_show_config(args: argparse.Namespace) -> int:
+    workspace = _open_workspace(args.workspace)
+    config = workspace.resolve_saved_conversion_config(args.selector)
+    revisions = workspace.list_saved_conversion_config_revisions(config.id)
+    print(
+        json.dumps(
+            {
+                "id": config.id,
+                "name": config.name,
+                "description": config.description,
+                "metadata": config.metadata,
+                "spec_document_version": config.spec_document_version,
+                "document_path": config.document_path,
+                "created_at": config.created_at.isoformat(),
+                "updated_at": config.updated_at.isoformat(),
+                "last_opened_at": (
+                    config.last_opened_at.isoformat()
+                    if config.last_opened_at is not None
+                    else None
+                ),
+                "invalid_reason": config.invalid_reason,
+                "revision_count": len(revisions),
+                "current_schema": {
+                    "name": config.document.spec.schema.name,
+                    "version": config.document.spec.schema.version,
+                },
+            },
+            sort_keys=True,
+        )
+    )
+    return 0
+
+
 def _handle_save_config(args: argparse.Namespace) -> int:
     workspace = _open_workspace(args.workspace)
     config = workspace.save_conversion_config(
@@ -613,6 +707,69 @@ def _handle_save_config(args: argparse.Namespace) -> int:
             )
         )
     )
+    return 0
+
+
+def _handle_update_config(args: argparse.Namespace) -> int:
+    workspace = _open_workspace(args.workspace)
+    config = workspace.update_saved_conversion_config(
+        args.selector,
+        spec_document=args.spec_document,
+        name=args.name,
+        description=args.description,
+    )
+    print(
+        "\t".join(
+            (
+                config.id,
+                str(config.spec_document_version),
+                config.name,
+                config.document_path,
+            )
+        )
+    )
+    return 0
+
+
+def _handle_duplicate_config(args: argparse.Namespace) -> int:
+    workspace = _open_workspace(args.workspace)
+    config = workspace.duplicate_saved_conversion_config(
+        args.selector,
+        name=args.name,
+        description=args.description,
+    )
+    print(
+        "\t".join(
+            (
+                config.id,
+                str(config.spec_document_version),
+                config.name,
+                config.document_path,
+            )
+        )
+    )
+    return 0
+
+
+def _handle_list_config_revisions(args: argparse.Namespace) -> int:
+    workspace = _open_workspace(args.workspace)
+    revisions = workspace.list_saved_conversion_config_revisions(args.selector)
+    if not revisions:
+        print("No saved conversion config revisions.")
+        return 0
+
+    for revision in revisions:
+        print(
+            "\t".join(
+                (
+                    revision.id,
+                    revision.config_id,
+                    str(revision.revision_number),
+                    str(revision.spec_document_version),
+                    revision.document_path,
+                )
+            )
+        )
     return 0
 
 

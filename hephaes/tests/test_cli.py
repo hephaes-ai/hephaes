@@ -358,6 +358,89 @@ def test_cli_configs_save_and_ls(tmp_path: Path, capsys) -> None:
     assert "\tSaved Demo\t" in captured.out
 
 
+def test_cli_configs_show_update_duplicate_and_revisions(tmp_path: Path, capsys) -> None:
+    main(["init", str(tmp_path)])
+    capsys.readouterr()
+
+    first_spec = ConversionSpec(
+        schema=SchemaSpec(name="saved_demo", version=1),
+        output=OutputSpec(format="parquet"),
+    )
+    first_document_path = tmp_path / "saved-spec.json"
+    first_document_path.write_text(
+        dump_conversion_spec_document(build_conversion_spec_document(first_spec), format="json"),
+        encoding="utf-8",
+    )
+
+    exit_code = main(
+        [
+            "configs",
+            "save",
+            "--workspace",
+            str(tmp_path),
+            "Saved Demo",
+            str(first_document_path),
+        ]
+    )
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    config_id = captured.out.strip().split("\t", 1)[0]
+
+    exit_code = main(["configs", "show", "--workspace", str(tmp_path), config_id])
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert '"name": "Saved Demo"' in captured.out
+    assert '"revision_count": 1' in captured.out
+
+    second_spec = ConversionSpec(
+        schema=SchemaSpec(name="saved_demo_v2", version=2),
+        output=OutputSpec(format="tfrecord"),
+    )
+    second_document_path = tmp_path / "saved-spec-v2.json"
+    second_document_path.write_text(
+        dump_conversion_spec_document(build_conversion_spec_document(second_spec), format="json"),
+        encoding="utf-8",
+    )
+
+    exit_code = main(
+        [
+            "configs",
+            "update",
+            "--workspace",
+            str(tmp_path),
+            config_id,
+            str(second_document_path),
+            "--name",
+            "Saved Demo V2",
+            "--description",
+            "updated",
+        ]
+    )
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "\tSaved Demo V2\t" in captured.out
+
+    exit_code = main(["configs", "revisions", "--workspace", str(tmp_path), config_id])
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "\t2\t" in captured.out
+    assert "\t1\t" in captured.out
+
+    exit_code = main(
+        [
+            "configs",
+            "duplicate",
+            "--workspace",
+            str(tmp_path),
+            config_id,
+            "Saved Demo Copy",
+        ]
+    )
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "\tSaved Demo Copy\t" in captured.out
+
+
 def test_cli_outputs_ls_and_show(tmp_path: Path, capsys) -> None:
     main(["init", str(tmp_path)])
     capsys.readouterr()

@@ -91,12 +91,16 @@ class TestPublicExports:
             ConversionConfigAlreadyExistsError,
             ConversionConfigInvalidError,
             ConversionConfigNotFoundError,
+            ConversionDraftRevision,
+            ConversionDraftRevisionSummary,
             DefaultEpisodeSummary,
             IndexedTopicSummary,
             OutputArtifact,
             OutputArtifactNotFoundError,
             OutputArtifactSummary,
             SavedConversionConfig,
+            SavedConversionConfigRevision,
+            SavedConversionConfigRevisionSummary,
             SavedConversionConfigSummary,
             SourceAssetMetadata,
             TagAlreadyExistsError,
@@ -107,12 +111,16 @@ class TestPublicExports:
         assert ConversionConfigAlreadyExistsError is not None
         assert ConversionConfigInvalidError is not None
         assert ConversionConfigNotFoundError is not None
+        assert ConversionDraftRevision is not None
+        assert ConversionDraftRevisionSummary is not None
         assert DefaultEpisodeSummary is not None
         assert IndexedTopicSummary is not None
         assert OutputArtifact is not None
         assert OutputArtifactNotFoundError is not None
         assert OutputArtifactSummary is not None
         assert SavedConversionConfig is not None
+        assert SavedConversionConfigRevision is not None
+        assert SavedConversionConfigRevisionSummary is not None
         assert SavedConversionConfigSummary is not None
         assert SourceAssetMetadata is not None
         assert TagAlreadyExistsError is not None
@@ -192,6 +200,8 @@ class TestPublicExports:
             "ConversionConfigAlreadyExistsError",
             "ConversionConfigInvalidError",
             "ConversionConfigNotFoundError",
+            "ConversionDraftRevision",
+            "ConversionDraftRevisionSummary",
             "DefaultEpisodeSummary",
             "IndexedAssetMetadata",
             "IndexedTopicSummary",
@@ -204,6 +214,8 @@ class TestPublicExports:
             "RosReader",
             "AssetNotFoundError",
             "SavedConversionConfig",
+            "SavedConversionConfigRevision",
+            "SavedConversionConfigRevisionSummary",
             "SavedConversionConfigSummary",
             "SourceAssetMetadata",
             "TagAlreadyExistsError",
