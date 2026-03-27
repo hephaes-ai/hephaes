@@ -86,6 +86,18 @@ class TestPublicExports:
         from hephaes import IndexedAssetMetadata
         assert IndexedAssetMetadata is not None
 
+    def test_workspace_summary_models_exported(self):
+        from hephaes import (
+            DefaultEpisodeSummary,
+            IndexedTopicSummary,
+            SourceAssetMetadata,
+            VisualizationSummary,
+        )
+        assert DefaultEpisodeSummary is not None
+        assert IndexedTopicSummary is not None
+        assert SourceAssetMetadata is not None
+        assert VisualizationSummary is not None
+
     def test_ros1_reader_exported(self):
         from hephaes import ROS1Reader
         assert ROS1Reader is not None
@@ -155,12 +167,16 @@ class TestPublicExports:
             "RowStrategySpec",
             "WideParquetWriter",
             "Profiler",
+            "DefaultEpisodeSummary",
             "IndexedAssetMetadata",
+            "IndexedTopicSummary",
             "RegisteredAsset",
             "ROS1Reader",
             "ROS2Reader",
             "RosReader",
             "AssetNotFoundError",
+            "SourceAssetMetadata",
+            "VisualizationSummary",
             "Workspace",
             "WorkspaceAlreadyExistsError",
             "WorkspaceError",

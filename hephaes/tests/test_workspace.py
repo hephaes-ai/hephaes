@@ -154,12 +154,13 @@ def test_index_asset_persists_profiled_metadata(
     assert metadata.sensor_types == ["camera", "imu"]
     assert metadata.indexing_error is None
     assert metadata.default_episode is not None
-    assert metadata.default_episode["episode_id"] == f"{asset.id}:default"
-    assert metadata.visualization_summary == {
-        "has_visualizable_streams": True,
-        "default_lane_count": 2,
-    }
-    assert metadata.raw_metadata["storage_format"] == "mcap"
+    assert metadata.default_episode.episode_id == f"{asset.id}:default"
+    assert metadata.visualization_summary is not None
+    assert metadata.visualization_summary.has_visualizable_streams is True
+    assert metadata.visualization_summary.default_lane_count == 2
+    assert metadata.raw_metadata.storage_format == "mcap"
+    assert len(metadata.topics) == 2
+    assert metadata.topics[0].name == "/camera/image"
 
     reopened = Workspace.open(tmp_path)
     reopened_metadata = reopened.get_asset_metadata(asset.id)
@@ -245,7 +246,7 @@ def test_reindex_failure_preserves_previous_metadata(
     assert preserved_metadata.message_count == 42
     assert preserved_metadata.topic_count == 1
     assert preserved_metadata.sensor_types == ["camera"]
-    assert preserved_metadata.raw_metadata["storage_format"] == "mcap"
+    assert preserved_metadata.raw_metadata.storage_format == "mcap"
     assert preserved_metadata.indexing_error == "reindex failed"
     assert failed_asset.indexing_status == "failed"
 
