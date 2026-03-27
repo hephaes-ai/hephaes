@@ -2,13 +2,46 @@
 
 import * as React from "react";
 import NextLink from "next/link";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import {
+  usePathname,
+  useRouter,
+  useSearchParams,
+} from "next/navigation";
 
-type AppLinkProps = React.ComponentProps<typeof NextLink>;
+export interface AppLinkProps
+  extends Omit<React.ComponentPropsWithoutRef<"a">, "href"> {
+  href: string;
+  replace?: boolean;
+  state?: unknown;
+}
+
+export interface AppNavigationOptions {
+  scroll?: boolean;
+}
+
+export interface AppRouter {
+  back(): void;
+  forward(): void;
+  push(href: string, options?: AppNavigationOptions): void;
+  refresh(): void;
+  replace(href: string, options?: AppNavigationOptions): void;
+}
+
+function normalizeNavigationOptions(
+  options?: AppNavigationOptions
+) {
+  if (!options) {
+    return undefined;
+  }
+
+  return {
+    scroll: options.scroll,
+  };
+}
 
 export const AppLink = React.forwardRef<HTMLAnchorElement, AppLinkProps>(
-  function AppLink(props, ref) {
-    return <NextLink ref={ref} {...props} />;
+  function AppLink({ href, replace, ...props }, ref) {
+    return <NextLink ref={ref} href={href} replace={replace} {...props} />;
   },
 );
 
@@ -16,8 +49,29 @@ export function useAppPathname() {
   return usePathname();
 }
 
-export function useAppRouter() {
-  return useRouter();
+export function useAppRouter(): AppRouter {
+  const router = useRouter();
+
+  return React.useMemo(
+    () => ({
+      back() {
+        router.back();
+      },
+      forward() {
+        router.forward();
+      },
+      push(href, options) {
+        router.push(href, normalizeNavigationOptions(options));
+      },
+      refresh() {
+        router.refresh();
+      },
+      replace(href, options) {
+        router.replace(href, normalizeNavigationOptions(options));
+      },
+    }),
+    [router]
+  );
 }
 
 export function useAppSearchParams() {

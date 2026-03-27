@@ -1,8 +1,6 @@
 "use client"
 
 import * as React from "react"
-import Link from "next/link"
-import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { ArrowLeft } from "lucide-react"
 
 import {
@@ -14,6 +12,12 @@ import {
 } from "@/hooks/use-backend"
 import { useEpisodeReplay } from "@/hooks/use-episode-replay"
 import { BackendApiError, getErrorMessage } from "@/lib/api"
+import {
+  AppLink as Link,
+  useAppPathname as usePathname,
+  useAppRouter as useRouter,
+  useAppSearchParams as useSearchParams,
+} from "@/lib/app-routing"
 import { formatDateTime, formatDuration } from "@/lib/format"
 import { resolveReturnHref } from "@/lib/navigation"
 import { buildReplayHref } from "@/lib/visualization"

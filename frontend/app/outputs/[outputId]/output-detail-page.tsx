@@ -1,8 +1,6 @@
 "use client";
 
 import * as React from "react";
-import Link from "next/link";
-import { useSearchParams } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 
 import { OutputDetailContent } from "@/components/output-detail-content";
@@ -18,6 +16,10 @@ import {
 } from "@/hooks/use-backend";
 import type { OutputActionDetail, OutputDetail } from "@/lib/api";
 import { BackendApiError, getErrorMessage } from "@/lib/api";
+import {
+  AppLink as Link,
+  useAppSearchParams as useSearchParams,
+} from "@/lib/app-routing";
 import { isWorkflowActiveStatus } from "@/lib/format";
 import { resolveReturnHref } from "@/lib/navigation";
 

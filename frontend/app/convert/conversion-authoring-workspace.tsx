@@ -1,8 +1,6 @@
 "use client"
 
 import * as React from "react"
-import Link from "next/link"
-import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import {
   ArrowLeft,
   ArrowRight,
@@ -105,6 +103,12 @@ import {
   type DecodeFailurePolicy,
   type SavedConversionConfigSummaryResponse,
 } from "@/lib/api"
+import {
+  AppLink as Link,
+  useAppPathname as usePathname,
+  useAppRouter as useRouter,
+  useAppSearchParams as useSearchParams,
+} from "@/lib/app-routing"
 import {
   formatDateTime,
   formatFileSize,

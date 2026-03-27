@@ -1,8 +1,6 @@
 "use client";
 
 import * as React from "react";
-import Link from "next/link";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, ArrowRight, ArrowRightLeft, CheckCircle2, LoaderCircle, TriangleAlert } from "lucide-react";
 
 import { EmptyState } from "@/components/empty-state";
@@ -18,6 +16,12 @@ import { toast } from "@/components/ui/sonner";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { useAssets, useBackendCache, useConversion } from "@/hooks/use-backend";
+import {
+  AppLink as Link,
+  useAppPathname as usePathname,
+  useAppRouter as useRouter,
+  useAppSearchParams as useSearchParams,
+} from "@/lib/app-routing";
 import { useCreateConversion } from "@/hooks/use-create-conversion";
 import {
   BackendApiError,

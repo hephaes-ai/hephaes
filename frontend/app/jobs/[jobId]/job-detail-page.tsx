@@ -1,8 +1,6 @@
 "use client";
 
 import * as React from "react";
-import Link from "next/link";
-import { useSearchParams } from "next/navigation";
 import { ArrowLeft, ArrowRight, RefreshCw, TriangleAlert } from "lucide-react";
 
 import {
@@ -14,6 +12,10 @@ import {
 } from "@/hooks/use-backend";
 import type { AssetSummary } from "@/lib/api";
 import { BackendApiError, getErrorMessage } from "@/lib/api";
+import {
+  AppLink as Link,
+  useAppSearchParams as useSearchParams,
+} from "@/lib/app-routing";
 import {
   formatDateTime,
   formatJobType,

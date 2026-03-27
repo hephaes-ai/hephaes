@@ -1,7 +1,6 @@
 "use client";
 
 import * as React from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   ChevronDown,
   Database,
@@ -37,6 +36,11 @@ import type {
   OutputsQuery,
 } from "@/lib/api";
 import { getErrorMessage } from "@/lib/api";
+import {
+  useAppPathname as usePathname,
+  useAppRouter as useRouter,
+  useAppSearchParams as useSearchParams,
+} from "@/lib/app-routing";
 import {
   formatCount,
   formatOutputAvailability,

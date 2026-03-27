@@ -4,9 +4,19 @@ import { defineConfig } from "vitest/config"
 
 export default defineConfig({
   resolve: {
-    alias: {
-      "@": path.resolve(__dirname, "src"),
-    },
+    alias: [
+      {
+        find: "@/lib/app-routing",
+        replacement: path.resolve(
+          __dirname,
+          "src/lib/app-routing.react-router.tsx",
+        ),
+      },
+      {
+        find: "@",
+        replacement: path.resolve(__dirname, "src"),
+      },
+    ],
   },
   test: {
     environment: "jsdom",

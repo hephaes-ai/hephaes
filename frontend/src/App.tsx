@@ -1,62 +1,220 @@
-const DEFAULT_BACKEND_BASE_URL = "http://127.0.0.1:8000";
+import * as React from "react";
+import {
+  BrowserRouter,
+  Navigate,
+  Route,
+  Routes,
+  useParams,
+} from "react-router-dom";
 
-function getBackendBaseUrl() {
-  const configuredBaseUrl = import.meta.env.VITE_BACKEND_BASE_URL?.trim();
-  return configuredBaseUrl || DEFAULT_BACKEND_BASE_URL;
+import DashboardRoute from "../app/dashboard/page";
+import InventoryRoute from "../app/inventory/page";
+import JobsRoute from "../app/jobs/page";
+import OutputsRoute from "../app/outputs/page";
+import ReplayRoute from "../app/replay/page";
+import ConversionCreateRoute from "../app/convert/new/page";
+import ConversionUseRoute from "../app/convert/use/page";
+import {
+  AssetDetailPage,
+  AssetDetailPageFallback,
+} from "../app/assets/[assetId]/asset-detail-page";
+import {
+  ConversionAuthoringWorkspaceFallback,
+} from "../app/convert/conversion-authoring-workspace";
+import {
+  JobDetailPage,
+  JobDetailPageFallback,
+} from "../app/jobs/[jobId]/job-detail-page";
+import {
+  OutputDetailPage,
+  OutputDetailPageFallback,
+} from "../app/outputs/[outputId]/output-detail-page";
+
+import { AppProviders } from "@/components/app-providers";
+import { AppShell } from "@/components/app-shell";
+import {
+  useAppRouter,
+  useAppSearchParams,
+} from "@/lib/app-routing";
+import {
+  resolveBackendUrl,
+  type SavedConversionConfigSummaryResponse,
+} from "@/lib/api";
+import {
+  buildConversionCreateHref,
+  buildConversionUseHref,
+} from "@/lib/navigation";
+
+function parseAssetIds(rawAssetIds: string | null | undefined) {
+  return Array.from(
+    new Set(
+      (rawAssetIds ?? "")
+        .split(",")
+        .map((assetId) => assetId.trim())
+        .filter(Boolean),
+    ),
+  );
+}
+
+function HomeRedirectRoute() {
+  const searchParams = useAppSearchParams();
+  const query = searchParams.toString();
+
+  return <Navigate replace to={query ? `/inventory?${query}` : "/dashboard"} />;
+}
+
+function VisualizeRedirectRoute() {
+  const searchParams = useAppSearchParams();
+  const query = searchParams.toString();
+
+  return <Navigate replace to={query ? `/replay?${query}` : "/replay"} />;
+}
+
+function AssetDetailRoute() {
+  const params = useParams<{ assetId: string }>();
+  const assetId = params.assetId?.trim();
+
+  if (!assetId) {
+    return <Navigate replace to="/inventory" />;
+  }
+
+  return (
+    <React.Suspense fallback={<AssetDetailPageFallback />}>
+      <AssetDetailPage assetId={assetId} />
+    </React.Suspense>
+  );
+}
+
+function JobDetailRoute() {
+  const params = useParams<{ jobId: string }>();
+  const jobId = params.jobId?.trim();
+
+  if (!jobId) {
+    return <Navigate replace to="/jobs" />;
+  }
+
+  return (
+    <React.Suspense fallback={<JobDetailPageFallback />}>
+      <JobDetailPage jobId={jobId} />
+    </React.Suspense>
+  );
+}
+
+function OutputDetailRoute() {
+  const params = useParams<{ outputId: string }>();
+  const outputId = params.outputId?.trim();
+
+  if (!outputId) {
+    return <Navigate replace to="/outputs" />;
+  }
+
+  return (
+    <React.Suspense fallback={<OutputDetailPageFallback />}>
+      <OutputDetailPage outputId={outputId} />
+    </React.Suspense>
+  );
+}
+
+async function loadSavedConfigs() {
+  try {
+    const response = await fetch(resolveBackendUrl("/conversion-configs"), {
+      cache: "no-store",
+    });
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const payload =
+      (await response.json()) as SavedConversionConfigSummaryResponse[];
+
+    return Array.isArray(payload) ? payload : null;
+  } catch {
+    return null;
+  }
+}
+
+function ConversionBootstrapRoute() {
+  const router = useAppRouter();
+  const searchParams = useAppSearchParams();
+  const queryString = searchParams.toString();
+
+  React.useEffect(() => {
+    let cancelled = false;
+
+    async function bootstrap() {
+      const nextParams = new URLSearchParams(queryString);
+      const assetIds = parseAssetIds(nextParams.get("asset_ids"));
+      const from = nextParams.get("from");
+      const conversionId = nextParams.get("conversion_id")?.trim() || null;
+      const sourceAssetId = nextParams.get("source_asset_id")?.trim() || null;
+      const savedConfigId = nextParams.get("saved_config_id")?.trim() || null;
+      const savedConfigs = await loadSavedConfigs();
+
+      if (cancelled) {
+        return;
+      }
+
+      const nextHref =
+        savedConfigs && savedConfigs.length > 0
+          ? buildConversionUseHref({
+              assetIds,
+              conversionId,
+              from,
+              savedConfigId:
+                savedConfigs.find((config) => config.id === savedConfigId)?.id ??
+                savedConfigs[0]?.id ??
+                null,
+              sourceAssetId,
+            })
+          : buildConversionCreateHref({
+              assetIds,
+              from,
+              sourceAssetId,
+            });
+
+      router.replace(nextHref, { scroll: false });
+    }
+
+    void bootstrap();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [queryString, router]);
+
+  return <ConversionAuthoringWorkspaceFallback />;
+}
+
+function DesktopRoutes() {
+  return (
+    <Routes>
+      <Route element={<HomeRedirectRoute />} path="/" />
+      <Route element={<DashboardRoute />} path="/dashboard" />
+      <Route element={<InventoryRoute />} path="/inventory" />
+      <Route element={<AssetDetailRoute />} path="/assets/:assetId" />
+      <Route element={<JobsRoute />} path="/jobs" />
+      <Route element={<JobDetailRoute />} path="/jobs/:jobId" />
+      <Route element={<OutputsRoute />} path="/outputs" />
+      <Route element={<OutputDetailRoute />} path="/outputs/:outputId" />
+      <Route element={<ReplayRoute />} path="/replay" />
+      <Route element={<VisualizeRedirectRoute />} path="/visualize" />
+      <Route element={<ConversionBootstrapRoute />} path="/convert" />
+      <Route element={<ConversionCreateRoute />} path="/convert/new" />
+      <Route element={<ConversionUseRoute />} path="/convert/use" />
+      <Route element={<Navigate replace to="/dashboard" />} path="*" />
+    </Routes>
+  );
 }
 
 export default function App() {
-  const backendBaseUrl = getBackendBaseUrl();
-
   return (
-    <main className="min-h-svh bg-background text-foreground">
-      <div className="mx-auto flex min-h-svh max-w-5xl flex-col justify-center gap-8 px-6 py-12">
-        <div className="space-y-4">
-          <div className="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs uppercase tracking-[0.18em] text-muted-foreground">
-            <span className="size-2 rounded-full bg-emerald-500" />
-            Tauri Migration Scaffold
-          </div>
-          <div className="space-y-3">
-            <h1 className="text-4xl font-semibold tracking-tight sm:text-5xl">
-              Hephaes Desktop
-            </h1>
-            <p className="max-w-3xl text-base leading-7 text-muted-foreground sm:text-lg">
-              The desktop shell is now bootstrapped with Vite and Tauri. The
-              existing Next.js app remains the primary UI until the route and
-              component migration phases land.
-            </p>
-          </div>
-        </div>
-
-        <section className="grid gap-4 md:grid-cols-2">
-          <article className="rounded-3xl border bg-card p-6 shadow-sm">
-            <h2 className="text-lg font-semibold">Current Phase</h2>
-            <p className="mt-2 text-sm leading-6 text-muted-foreground">
-              Phase 1 stands up the desktop runtime without changing the current
-              user-facing Next app yet.
-            </p>
-          </article>
-
-          <article className="rounded-3xl border bg-card p-6 shadow-sm">
-            <h2 className="text-lg font-semibold">Backend Assumption</h2>
-            <p className="mt-2 text-sm leading-6 text-muted-foreground">
-              FastAPI still runs as a separate local process for now.
-            </p>
-            <code className="mt-4 block rounded-2xl border bg-muted px-3 py-2 text-xs">
-              {backendBaseUrl}
-            </code>
-          </article>
-        </section>
-
-        <section className="rounded-[2rem] border bg-card p-6 shadow-sm">
-          <h2 className="text-lg font-semibold">What Comes Next</h2>
-          <ol className="mt-4 list-decimal space-y-2 pl-5 text-sm leading-6 text-muted-foreground">
-            <li>Move shared frontend code into the new desktop source tree.</li>
-            <li>Replace Next-specific routing and image/font APIs.</li>
-            <li>Port feature routes into React Router inside the desktop app.</li>
-          </ol>
-        </section>
-      </div>
-    </main>
+    <BrowserRouter>
+      <AppProviders>
+        <AppShell>
+          <DesktopRoutes />
+        </AppShell>
+      </AppProviders>
+    </BrowserRouter>
   );
 }
