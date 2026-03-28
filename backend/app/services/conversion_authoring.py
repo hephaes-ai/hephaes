@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 
-from sqlalchemy.orm import Session
-
 from app.schemas.conversion_authoring import (
     ConversionAuthoringCapabilitiesResponse,
     ConversionDraftRequest,
@@ -45,9 +43,8 @@ class ConversionAuthoringPreviewError(ConversionAuthoringServiceError):
 
 
 class ConversionAuthoringService:
-    def __init__(self, workspace: Workspace, session: Session) -> None:
+    def __init__(self, workspace: Workspace) -> None:
         self.workspace = workspace
-        self.session = session
 
     def get_capabilities(self) -> ConversionAuthoringCapabilitiesResponse:
         # Keep the response shape backend-owned while reusing hephaes semantics.

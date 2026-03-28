@@ -5,10 +5,9 @@ from __future__ import annotations
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from sqlalchemy.orm import Session
 
 from app.api._status import HTTP_422_UNPROCESSABLE_CONTENT
-from app.dependencies import get_db_session, get_workspace
+from app.dependencies import get_workspace
 from app.mappers.workspace import map_conversion_detail, map_conversion_summary
 from app.schemas.conversion_authoring import (
     ConversionAuthoringCapabilitiesResponse,
@@ -46,7 +45,6 @@ from hephaes.conversion.draft_spec import DraftSpecResult
 from hephaes.conversion.preview import PreviewResult
 
 router = APIRouter(prefix="/conversions", tags=["conversions"])
-DbSession = Annotated[Session, Depends(get_db_session)]
 WorkspaceDep = Annotated[Workspace, Depends(get_workspace)]
 
 
@@ -243,19 +241,17 @@ def create_conversion_route(
 @router.get("/capabilities", response_model=ConversionAuthoringCapabilitiesResponse)
 def get_conversion_authoring_capabilities_route(
     workspace: WorkspaceDep,
-    session: DbSession,
 ) -> ConversionAuthoringCapabilitiesResponse:
-    service = ConversionAuthoringService(workspace, session)
+    service = ConversionAuthoringService(workspace)
     return service.get_capabilities()
 
 
 @router.post("/inspect", response_model=ConversionInspectionResponse)
 def inspect_conversion_route(
     payload: ConversionInspectionRequest,
-    session: DbSession,
     workspace: WorkspaceDep,
 ) -> ConversionInspectionResponse:
-    service = ConversionAuthoringService(workspace, session)
+    service = ConversionAuthoringService(workspace)
 
     try:
         inspection = service.inspect_asset(payload)
@@ -270,10 +266,9 @@ def inspect_conversion_route(
 @router.post("/draft", response_model=ConversionDraftResponse)
 def draft_conversion_route(
     payload: ConversionDraftRequest,
-    session: DbSession,
     workspace: WorkspaceDep,
 ) -> ConversionDraftResponse:
-    service = ConversionAuthoringService(workspace, session)
+    service = ConversionAuthoringService(workspace)
 
     try:
         inspection, draft, draft_revision_id = service.draft_asset(payload)
@@ -293,10 +288,9 @@ def draft_conversion_route(
 @router.post("/preview", response_model=ConversionPreviewResponse)
 def preview_conversion_route(
     payload: ConversionPreviewRequest,
-    session: DbSession,
     workspace: WorkspaceDep,
 ) -> ConversionPreviewResponse:
-    service = ConversionAuthoringService(workspace, session)
+    service = ConversionAuthoringService(workspace)
 
     try:
         preview = service.preview_asset(payload)
