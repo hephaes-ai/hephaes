@@ -11,13 +11,6 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
-from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
-
-from app.config import get_settings
-from app.db.models import Asset
-
 SUPPORTED_ASSET_FILE_TYPES = {"bag", "mcap"}
 
 
@@ -70,26 +63,6 @@ class AssetRegistrationSkip:
     detail: str
     file_path: str
     reason: str
-
-
-@dataclass(frozen=True)
-class DialogAssetRegistrationResult:
-    """Result of opening a native picker and registering selected files."""
-
-    canceled: bool
-    registered_assets: list[Asset]
-    skipped: list[AssetRegistrationSkip]
-
-
-@dataclass(frozen=True)
-class DirectoryScanResult:
-    """Result of scanning a directory and attempting asset registration."""
-
-    discovered_file_count: int
-    recursive: bool
-    registered_assets: list[Asset]
-    scanned_directory: str
-    skipped: list[AssetRegistrationSkip]
 
 
 @dataclass(frozen=True)
@@ -289,147 +262,4 @@ def open_asset_file_dialog() -> list[str]:
 
     raise last_error or AssetDialogUnavailableError(
         "native file picker is unavailable in this environment"
-    )
-
-
-def register_asset(session: Session, *, file_path: str) -> Asset:
-    inspected = inspect_asset_path(file_path)
-
-    existing_asset = session.scalar(
-        select(Asset).where(Asset.file_path == inspected.file_path),
-    )
-    if existing_asset is not None:
-        raise AssetAlreadyRegisteredError(f"asset already registered: {inspected.file_path}")
-
-    asset = Asset(
-        file_path=inspected.file_path,
-        file_name=inspected.file_name,
-        file_type=inspected.file_type,
-        file_size=inspected.file_size,
-        indexing_status="pending",
-    )
-    session.add(asset)
-
-    try:
-        session.commit()
-    except IntegrityError as exc:
-        session.rollback()
-        raise AssetAlreadyRegisteredError(f"asset already registered: {inspected.file_path}") from exc
-
-    session.refresh(asset)
-    return asset
-
-
-def register_assets_from_dialog(session: Session) -> DialogAssetRegistrationResult:
-    selected_paths = open_asset_file_dialog()
-    if not selected_paths:
-        return DialogAssetRegistrationResult(
-            canceled=True,
-            registered_assets=[],
-            skipped=[],
-        )
-
-    registered_assets: list[Asset] = []
-    skipped: list[AssetRegistrationSkip] = []
-
-    for file_path in selected_paths:
-        try:
-            asset = register_asset(session, file_path=file_path)
-        except InvalidAssetPathError as exc:
-            skipped.append(
-                AssetRegistrationSkip(
-                    detail=str(exc),
-                    file_path=file_path,
-                    reason="invalid_path",
-                )
-            )
-        except AssetAlreadyRegisteredError as exc:
-            skipped.append(
-                AssetRegistrationSkip(
-                    detail=str(exc),
-                    file_path=file_path,
-                    reason="duplicate",
-                )
-            )
-        else:
-            registered_assets.append(asset)
-
-    return DialogAssetRegistrationResult(
-        canceled=False,
-        registered_assets=registered_assets,
-        skipped=skipped,
-    )
-
-
-def upload_asset(
-    session: Session,
-    *,
-    content: bytes,
-    file_name: str,
-) -> Asset:
-    normalized_file_name = normalize_uploaded_file_name(file_name)
-
-    if not content:
-        raise InvalidAssetUploadError("uploaded file is empty")
-
-    settings = get_settings()
-    settings.raw_data_dir.mkdir(parents=True, exist_ok=True)
-
-    target_path = settings.raw_data_dir / normalized_file_name
-    if target_path.exists():
-        raise AssetAlreadyRegisteredError(f"asset already registered: {target_path}")
-
-    target_path.write_bytes(content)
-
-    try:
-        return register_asset(session, file_path=str(target_path))
-    except Exception:
-        target_path.unlink(missing_ok=True)
-        raise
-
-
-def scan_directory_for_assets(
-    session: Session,
-    *,
-    directory_path: str,
-    recursive: bool = True,
-) -> DirectoryScanResult:
-    normalized_directory = normalize_asset_path(directory_path)
-    if not normalized_directory.exists():
-        raise InvalidAssetDirectoryError(f"asset directory does not exist: {normalized_directory}")
-    if not normalized_directory.is_dir():
-        raise InvalidAssetDirectoryError(f"asset directory is not a directory: {normalized_directory}")
-
-    discovered_paths = list(_iter_supported_asset_files(normalized_directory, recursive=recursive))
-    registered_assets: list[Asset] = []
-    skipped: list[AssetRegistrationSkip] = []
-
-    for discovered_path in discovered_paths:
-        try:
-            asset = register_asset(session, file_path=str(discovered_path))
-        except InvalidAssetPathError as exc:
-            skipped.append(
-                AssetRegistrationSkip(
-                    detail=str(exc),
-                    file_path=str(discovered_path),
-                    reason="invalid_path",
-                )
-            )
-        except AssetAlreadyRegisteredError as exc:
-            skipped.append(
-                AssetRegistrationSkip(
-                    detail=str(exc),
-                    file_path=str(discovered_path),
-                    reason="duplicate",
-                )
-            )
-        else:
-            registered_assets.append(asset)
-
-    return DirectoryScanResult(
-        discovered_file_count=len(discovered_paths),
-        recursive=recursive,
-        registered_assets=registered_assets,
-        scanned_directory=str(normalized_directory),
-        skipped=skipped,
     )

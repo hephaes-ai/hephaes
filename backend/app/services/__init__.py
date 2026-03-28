@@ -1,11 +1,8 @@
 """Service-layer modules for the backend application."""
 
 from app.services.assets import (
-    AssetAlreadyRegisteredError,
     AssetNotFoundError,
-    DirectoryScanResult,
     AssetServiceError,
-    InspectedAssetPath,
     InvalidAssetPathError,
     InvalidAssetDirectoryError,
     InvalidAssetUploadError,
@@ -13,9 +10,6 @@ from app.services.assets import (
     inspect_asset_path,
     normalize_asset_path,
     normalize_uploaded_file_name,
-    register_asset,
-    scan_directory_for_assets,
-    upload_asset,
 )
 from app.services.conversions import (
     ConversionExecutionError,
@@ -63,20 +57,17 @@ from app.services.visualization import (
 )
 
 __all__ = [
-    "AssetAlreadyRegisteredError",
     "ConversionExecutionError",
     "ConversionNotFoundError",
     "ConversionService",
     "ConversionServiceError",
     "ConversionValidationError",
-    "DirectoryScanResult",
     "AssetNotFoundError",
     "AssetServiceError",
     "EpisodeDiscoveryUnavailableError",
     "EpisodeNotFoundError",
     "EpisodePlaybackError",
     "EpisodeStreamNotFoundError",
-    "InspectedAssetPath",
     "InvalidAssetDirectoryError",
     "InvalidAssetPathError",
     "InvalidAssetUploadError",
@@ -109,7 +100,4 @@ __all__ = [
     "normalize_asset_path",
     "normalize_uploaded_file_name",
     "open_asset_reader",
-    "register_asset",
-    "scan_directory_for_assets",
-    "upload_asset",
 ]
