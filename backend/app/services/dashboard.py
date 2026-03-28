@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -133,24 +134,29 @@ def _workspace_outputs(workspace: Workspace) -> list[WorkspaceOutputArtifact]:
 
 
 def _merged_jobs(workspace: Workspace, session: Session) -> list[WorkspaceJob | Job]:
-    by_id = {job.id: job for job in workspace.list_jobs()}
-    for job in _legacy_jobs(session):
+    by_id = {job.id: job for job in _legacy_jobs(session)}
+    for job in workspace.list_jobs():
         by_id.setdefault(job.id, job)
     return list(by_id.values())
 
 
 def _merged_conversions(workspace: Workspace, session: Session) -> list[ConversionRun | Conversion]:
-    by_id = {run.id: run for run in workspace.list_conversion_runs()}
-    for conversion in _legacy_conversions(session):
-        by_id.setdefault(conversion.id, conversion)
+    by_id = {conversion.id: conversion for conversion in _legacy_conversions(session)}
+    for run in workspace.list_conversion_runs():
+        by_id.setdefault(run.id, run)
     return list(by_id.values())
 
 
 def _merged_outputs(workspace: Workspace, session: Session) -> list[WorkspaceOutputArtifact | OutputArtifact]:
-    by_id = {artifact.id: artifact for artifact in _workspace_outputs(workspace)}
-    for artifact in _legacy_outputs(session):
-        by_id.setdefault(artifact.id, artifact)
-    return list(by_id.values())
+    def _output_identity(artifact: WorkspaceOutputArtifact | OutputArtifact) -> str:
+        if isinstance(artifact, WorkspaceOutputArtifact):
+            return artifact.output_path
+        return str(Path(artifact.conversion.output_path) / artifact.relative_path)
+
+    by_path = {_output_identity(artifact): artifact for artifact in _legacy_outputs(session)}
+    for artifact in _workspace_outputs(workspace):
+        by_path.setdefault(_output_identity(artifact), artifact)
+    return list(by_path.values())
 
 
 def _job_status(job: WorkspaceJob | Job) -> str:

@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.api._status import HTTP_422_UNPROCESSABLE_CONTENT
 from app.db.models import Conversion
 from app.dependencies import get_db_session, get_workspace
+from app.mappers.workspace import map_conversion_detail, map_conversion_summary
 from app.schemas.conversion_authoring import (
     ConversionAuthoringCapabilitiesResponse,
     ConversionDraftRequest,
@@ -158,6 +159,27 @@ def build_conversion_summary_response(conversion: Conversion) -> ConversionSumma
         created_at=conversion.created_at,
         updated_at=conversion.updated_at,
     )
+
+
+def _matches_conversion_filters(
+    config: dict[str, object],
+    *,
+    image_payload_contract: str | None,
+    legacy_compatible: bool | None,
+) -> bool:
+    if image_payload_contract is None and legacy_compatible is None:
+        return True
+
+    policy = _build_representation_policy(config)
+    if policy is None:
+        return False
+    if image_payload_contract is not None and policy.image_payload_contract != image_payload_contract:
+        return False
+    if legacy_compatible is not None:
+        is_legacy_compatible = "legacy_list_image_payload" in policy.compatibility_markers
+        if is_legacy_compatible != legacy_compatible:
+            return False
+    return True
 
 
 def build_conversion_detail_response(conversion: Conversion) -> ConversionDetailResponse:
@@ -320,25 +342,52 @@ def preview_conversion_route(
 
 @router.get("", response_model=list[ConversionSummaryResponse])
 def list_conversions_route(
+    workspace: WorkspaceDep,
     session: DbSession,
     image_payload_contract: Annotated[str | None, Query()] = None,
     legacy_compatible: Annotated[bool | None, Query()] = None,
 ) -> list[ConversionSummaryResponse]:
-    return [
-        build_conversion_summary_response(conversion)
+    responses = {
+        conversion.id: build_conversion_summary_response(conversion)
         for conversion in list_conversions_filtered(
             session,
             image_payload_contract=image_payload_contract,
             legacy_compatible=legacy_compatible,
         )
-    ]
+    }
+    for run in workspace.list_conversion_runs():
+        if not _matches_conversion_filters(
+            dict(run.config),
+            image_payload_contract=image_payload_contract,
+            legacy_compatible=legacy_compatible,
+        ):
+            continue
+        responses.setdefault(run.id, map_conversion_summary(run))
+    return sorted(
+        responses.values(),
+        key=lambda conversion: (conversion.created_at, conversion.id),
+        reverse=True,
+    )
 
 
 @router.get("/{conversion_id}", response_model=ConversionDetailResponse)
-def get_conversion_route(conversion_id: str, session: DbSession) -> ConversionDetailResponse:
+def get_conversion_route(
+    conversion_id: str,
+    workspace: WorkspaceDep,
+    session: DbSession,
+) -> ConversionDetailResponse:
     try:
         conversion = get_conversion_or_raise(session, conversion_id)
-    except ConversionNotFoundError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except ConversionNotFoundError:
+        run = workspace.get_conversion_run(conversion_id)
+        if run is not None:
+            return map_conversion_detail(
+                run,
+                job=workspace.get_job(run.job_id) if run.job_id is not None else None,
+            )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"conversion not found: {conversion_id}",
+        ) from None
 
     return build_conversion_detail_response(conversion)

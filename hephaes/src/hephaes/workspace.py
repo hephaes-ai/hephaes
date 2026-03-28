@@ -1067,9 +1067,10 @@ class Workspace:
         kind: str,
         target_asset_ids: list[str] | None = None,
         config: dict | None = None,
+        job_id: str | None = None,
     ) -> WorkspaceJob:
         timestamp = _utc_now()
-        job_id = str(uuid4())
+        job_id = job_id or str(uuid4())
         with self._transaction() as connection:
             connection.execute(
                 """
@@ -1199,9 +1200,10 @@ class Workspace:
         saved_config_revision_id: str | None = None,
         config: dict | None = None,
         job_id: str | None = None,
+        run_id: str | None = None,
     ) -> ConversionRun:
         timestamp = _utc_now()
-        run_id = str(uuid4())
+        run_id = run_id or str(uuid4())
         with self._transaction() as connection:
             connection.execute(
                 """

@@ -63,10 +63,13 @@ class ConversionExecutionError(ConversionServiceError):
 class PendingConversionExecution:
     conversion_id: str
     job_id: str
+    asset_ids: list[str]
     asset_file_paths: list[str]
+    source_asset_paths: list[str]
     mapping: MappingTemplate
     conversion_spec: ConversionSpec
     output_dir: Path
+    saved_config_id: str | None
 
 
 def list_conversions(session: Session) -> list[Conversion]:
@@ -330,6 +333,88 @@ def _update_conversion_status(
     return get_conversion_or_raise(session, conversion.id)
 
 
+def _workspace() -> Workspace:
+    return Workspace.open(get_settings().workspace_root)
+
+
+def _sync_workspace_conversion_created(
+    *,
+    conversion: Conversion,
+    job_id: str,
+    asset_ids: list[str],
+    asset_file_paths: list[str],
+    conversion_config: dict[str, object],
+    output_dir: Path,
+    saved_config_id: str | None,
+    saved_config_revision_id: str | None,
+    execution_mode: str,
+) -> None:
+    workspace = _workspace()
+    job_config = {
+        "execution": execution_mode,
+        **conversion_config,
+        "output_path": str(output_dir),
+    }
+    workspace.create_job(
+        job_id=job_id,
+        kind="conversion",
+        target_asset_ids=asset_ids,
+        config=job_config,
+    )
+    workspace.create_conversion_run(
+        run_id=conversion.id,
+        job_id=job_id,
+        source_asset_ids=asset_ids,
+        source_asset_paths=asset_file_paths,
+        output_dir=output_dir,
+        saved_config_id=saved_config_id,
+        saved_config_revision_id=saved_config_revision_id,
+        config=dict(conversion_config),
+    )
+
+
+def _sync_workspace_conversion_running(*, conversion_id: str, job_id: str) -> None:
+    workspace = _workspace()
+    workspace.mark_job_running(job_id)
+    workspace.mark_conversion_run_running(conversion_id)
+
+
+def _sync_workspace_conversion_succeeded(
+    *,
+    conversion_id: str,
+    job_id: str,
+    output_dir: Path,
+    source_asset_id: str | None,
+    source_asset_path: str | None,
+    saved_config_id: str | None,
+) -> None:
+    workspace = _workspace()
+    artifact_paths: list[Path] = []
+    for dataset_path in sorted(output_dir.glob("*")):
+        if dataset_path.is_file():
+            artifact_paths.append(dataset_path)
+
+    outputs = workspace.register_output_artifacts(
+        output_root=output_dir,
+        paths=[str(path) for path in artifact_paths],
+        conversion_run_id=conversion_id,
+        source_asset_id=source_asset_id,
+        source_asset_path=source_asset_path,
+        saved_config_id=saved_config_id,
+    )
+    workspace.mark_conversion_run_succeeded(
+        conversion_id,
+        output_paths=[output.output_path for output in outputs],
+    )
+    workspace.mark_job_succeeded(job_id, conversion_run_id=conversion_id)
+
+
+def _sync_workspace_conversion_failed(*, conversion_id: str, job_id: str, error_message: str) -> None:
+    workspace = _workspace()
+    workspace.mark_job_failed(job_id, error_message=error_message)
+    workspace.mark_conversion_run_failed(conversion_id, error_message=error_message)
+
+
 class ConversionService:
     def __init__(self, session: Session) -> None:
         self.session = session
@@ -343,6 +428,7 @@ class ConversionService:
         assets = _resolve_assets(self.session, request.asset_ids)
         conversion_spec: ConversionSpec
         mapping_mode: str
+        saved_config_revision_id: str | None = None
 
         if request.saved_config_id is not None:
             config_service = ConversionConfigService(self.session)
@@ -365,6 +451,7 @@ class ConversionService:
                 saved_config_document = saved_config.document
                 revisions = workspace.list_saved_conversion_config_revisions(saved_config.id)
                 saved_config_revision_number = revisions[0].revision_number if revisions else 1
+                saved_config_revision_id = revisions[0].id if revisions else None
             except ConversionConfigInvalidError as exc:
                 raise ConversionValidationError(str(exc)) from exc
 
@@ -405,9 +492,12 @@ class ConversionService:
         output_dir = self.settings.outputs_dir / "conversions" / conversion_id
         output_dir.mkdir(parents=True, exist_ok=True)
 
+        asset_ids = [asset.id for asset in assets]
+        asset_file_paths = [asset.file_path for asset in assets]
+
         job = self.job_service.create_job(
             job_type="convert",
-            target_asset_ids=[asset.id for asset in assets],
+            target_asset_ids=asset_ids,
             config={"execution": self.settings.job_execution_mode, **conversion_config},
             output_path=str(output_dir),
         )
@@ -416,7 +506,7 @@ class ConversionService:
             id=conversion_id,
             job_id=job.id,
             status="queued",
-            source_asset_ids_json=[asset.id for asset in assets],
+            source_asset_ids_json=asset_ids,
             config_json=conversion_config,
             output_path=str(output_dir),
             output_files_json=[],
@@ -424,22 +514,40 @@ class ConversionService:
         )
         self.session.add(conversion)
         self.session.commit()
+        _sync_workspace_conversion_created(
+            conversion=conversion,
+            job_id=job.id,
+            asset_ids=asset_ids,
+            asset_file_paths=asset_file_paths,
+            conversion_config=conversion_config,
+            output_dir=output_dir,
+            saved_config_id=request.saved_config_id,
+            saved_config_revision_id=saved_config_revision_id,
+            execution_mode=self.settings.job_execution_mode,
+        )
 
         return (
             get_conversion_or_raise(self.session, conversion.id),
             PendingConversionExecution(
                 conversion_id=conversion_id,
                 job_id=job.id,
-                asset_file_paths=[asset.file_path for asset in assets],
+                asset_ids=asset_ids,
+                asset_file_paths=asset_file_paths,
+                source_asset_paths=asset_file_paths,
                 mapping=mapping,
                 conversion_spec=conversion_spec,
                 output_dir=output_dir,
+                saved_config_id=request.saved_config_id,
             ),
         )
 
     def execute_conversion(self, execution: PendingConversionExecution) -> Conversion:
         conversion = get_conversion_or_raise(self.session, execution.conversion_id)
         self.job_service.mark_job_running(execution.job_id)
+        _sync_workspace_conversion_running(
+            conversion_id=execution.conversion_id,
+            job_id=execution.job_id,
+        )
         conversion = _update_conversion_status(self.session, conversion=conversion, status="running")
 
         try:
@@ -454,6 +562,18 @@ class ConversionService:
             )
             output_files = [str(path) for path in converter.convert()]
             self.job_service.mark_job_succeeded(execution.job_id, output_path=str(execution.output_dir))
+            _sync_workspace_conversion_succeeded(
+                conversion_id=execution.conversion_id,
+                job_id=execution.job_id,
+                output_dir=execution.output_dir,
+                source_asset_id=execution.asset_ids[0] if len(execution.asset_ids) == 1 else None,
+                source_asset_path=(
+                    execution.source_asset_paths[0]
+                    if len(execution.source_asset_paths) == 1
+                    else None
+                ),
+                saved_config_id=execution.saved_config_id,
+            )
             completed_conversion = _update_conversion_status(
                 self.session,
                 conversion=conversion,
@@ -466,6 +586,11 @@ class ConversionService:
         except Exception as exc:
             self.session.rollback()
             self.job_service.mark_job_failed(execution.job_id, error_message=str(exc))
+            _sync_workspace_conversion_failed(
+                conversion_id=execution.conversion_id,
+                job_id=execution.job_id,
+                error_message=str(exc),
+            )
             failed_conversion = get_conversion_or_raise(self.session, execution.conversion_id)
             _update_conversion_status(
                 self.session,
