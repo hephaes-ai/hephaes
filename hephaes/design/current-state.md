@@ -24,6 +24,19 @@ As of `2026-03-28`, `hephaes` already contains:
 
 The core package-owned authoring workflow is now implemented through both `Workspace` and the CLI.
 
+## Redesign Progress
+
+The current redesign target is:
+
+- keep local `.hephaes` workspaces rooted in the user's chosen working directory
+- remove copied-asset storage from the workspace
+- make registered asset paths the only source used by indexing, authoring, and conversion
+
+Current phase status:
+
+- Phase 1 complete: the package already matches the desired local workspace baseline
+- Phase 2 onward not yet implemented: assets are still copied into `.hephaes/imports` today
+
 ## Current Package Surface
 
 ### Pure authoring helpers in `hephaes.conversion`
