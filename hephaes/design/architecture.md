@@ -1,334 +1,331 @@
-# CLI-First Authoring Architecture
+# Local Workspace And Linked-Asset Architecture
 
 ## Goal
 
-Make `hephaes` fully own the conversion authoring workflow as a local package and CLI:
+Keep the current local workspace shape, but simplify asset handling:
 
-1. select a source asset
-2. inspect that asset
-3. create a draft conversion spec from inspection
-4. revise and confirm that draft
-5. preview the confirmed draft against the source asset
-6. save the confirmed draft as a reusable conversion config
-7. run future conversions from that saved config
+1. the user runs `hephaes init` in the directory they want to use
+2. that directory gets a local `.hephaes/` workspace
+3. adding an asset stores its normalized absolute file path in the workspace database
+4. indexing, inspection, draft authoring, preview, and conversion all use that stored path
+5. raw assets are never copied into the workspace
 
-The package must be usable end-to-end without any backend. A future backend should be able to call the same package-owned services rather than reimplementing them.
+This is still a breaking reset for asset storage, but it is not a full redesign of where workspaces live.
 
-## Problem To Fix
+## Breaking Direction
 
-Today the package has the underlying pieces, but not a coherent workflow boundary:
+This change is intentionally breaking for asset handling.
 
-- inspection exists as a pure helper
-- draft generation exists as a pure helper
-- preview exists as a pure helper
-- draft persistence exists, but only as loose revision rows
-- config persistence exists, but not as promotion from a confirmed draft
-- the CLI can inspect and convert, but it cannot complete the full authoring lifecycle
+We are explicitly **not** designing for compatibility with:
 
-The main gap is that `Workspace` does not yet own authoring orchestration as a first-class workflow.
+- old copied/imported asset records
+- mixed linked-asset and copied-asset modes
+
+The expected upgrade path is:
+
+1. install the updated package
+2. create a fresh local workspace with `hephaes init`
+3. re-register local asset paths
+
+## Desired User Experience
+
+### Create a workspace in the current directory
+
+After `pip install hephaes`, the user chooses a working directory and initializes the workspace there:
+
+```bash
+mkdir my-data-project
+cd my-data-project
+hephaes init
+```
+
+That creates:
+
+```text
+./.hephaes/
+```
+
+### Register assets by path
+
+The user adds assets by path:
+
+```bash
+hephaes add ~/Downloads/demo/optimal_0.mcap
+```
+
+The asset is not copied.
+
+Instead, the workspace database stores the normalized absolute path, and that path becomes the canonical source used by package workflows.
+
+### Use the asset for everything else
+
+After registration, the package uses the stored path for:
+
+- indexing
+- inspection
+- draft creation
+- preview
+- confirmation
+- conversion
+
+Generated artifacts still live in the local workspace.
+Only the original source asset remains outside it.
 
 ## Design Principles
 
-### Package owns business logic
+### Linked assets only
 
-`hephaes` should own:
+`hephaes` should support exactly one local asset model:
 
-- authoring orchestration
-- durable draft lifecycle
-- saved config lifecycle
-- CLI workflow commands
+- the workspace records a path to the original file
+- package operations open that file directly
 
-Adapters outside the package should only translate requests and responses.
+There should be no asset-copy mode and no "upload into workspace storage" concept.
 
-### `Workspace` remains the public durable boundary
+### Local workspaces stay local
 
-The public local-app entry point remains `Workspace`. Stateless conversion helpers stay in `hephaes.conversion`, but durable workflow methods live on `Workspace`.
+Workspaces should continue to be local `.hephaes/` directories rooted at the user's chosen project or working directory.
 
-### Pure helpers stay pure
+The package should continue to support:
 
-These modules remain computation-focused and reusable:
+- `hephaes init` in the current directory
+- `hephaes init /path/to/root`
+- upward workspace discovery from the current working directory
+- `--workspace` as an explicit filesystem path
 
-- `hephaes.conversion.introspection`
-- `hephaes.conversion.draft_spec`
-- `hephaes.conversion.preview`
-- `hephaes.conversion.spec_io`
+This change should not introduce a home-directory workspace manager or named workspace registry.
 
-They should not gain CLI or storage concerns.
+### `Workspace` remains the durable package boundary
 
-### Drafts are logical entities, not just rows
+The durable package entry point remains `Workspace`.
 
-A draft needs:
+`Workspace` should own:
 
-- a stable draft id
-- a current revision
-- an explicit lifecycle state
-- a promotion path to a saved config
+- workspace resolution
+- asset registration
+- draft/config persistence
+- conversion run persistence
 
-The current model stores revision rows, but it does not model the draft itself.
+The CLI should stay a thin adapter over that package boundary.
 
-### CLI is a thin package adapter
+### Generated state belongs in the workspace
 
-The CLI should only:
+The workspace should own generated and durable package state such as:
 
-- parse arguments
-- prompt for confirmation when requested
-- call `Workspace`
-- print human-readable or JSON output
+- SQLite database
+- saved spec documents
+- draft revision documents
+- jobs
+- outputs
 
-The CLI should not own workflow rules.
+The workspace should not own copies of raw input assets.
 
-## Target Workflow
+## Filesystem Layout
 
-```mermaid
-flowchart TD
-    A["Source Asset"] --> B["Workspace.inspect_asset()"]
-    B --> C["Workspace.create_conversion_draft()"]
-    C --> D["Workspace.update_conversion_draft()"]
-    D --> E["Workspace.preview_conversion_draft()"]
-    E --> F["Workspace.confirm_conversion_draft()"]
-    F --> G["Workspace.save_conversion_config_from_draft()"]
-    G --> H["Workspace.run_conversion(..., saved_config_selector=...)"]
+Suggested local layout:
+
+```text
+<project-root>/
+  .hephaes/
+    workspace.sqlite3
+    outputs/
+    specs/
+      revisions/
+      drafts/
+    jobs/
 ```
 
-## Public Package Surface
+Notes:
 
-### Existing pure models to reuse
+- the workspace root stays local to the project or chosen directory
+- there is no `imports/` directory
 
-Where possible, reuse existing package models instead of inventing backend-specific copies:
+## Workspace Resolution Model
 
-- `InspectionRequest`
-- `InspectionResult`
-- `DraftSpecRequest`
-- `DraftSpecResult`
-- `PreviewResult`
-- `ConversionSpecDocument`
-- `SavedConversionConfig`
+### Local initialization
 
-### New workspace-owned draft models
+The package should continue to treat the workspace root as a filesystem root chosen by the user.
 
-Add logical draft head models alongside the existing revision models:
+Examples:
 
-- `ConversionDraftSummary`
-- `ConversionDraft`
+```bash
+hephaes init
+hephaes init /path/to/project-root
+```
 
-Suggested draft status values:
+`Workspace.init(".")` should continue to create:
 
-- `draft`
-- `confirmed`
-- `saved`
-- `discarded`
+```text
+./.hephaes
+```
 
-`ConversionDraftRevision` remains the immutable history unit for authored spec revisions.
+### Upward discovery stays
 
-### New `Workspace` methods
+The package can continue to discover the current workspace by walking upward from the current directory until it finds `.hephaes/`.
 
-The package should expose workflow methods like:
+That means:
 
-- `inspect_asset(asset_selector, request=None) -> InspectionResult`
-- `create_conversion_draft(asset_selector, inspection_request=None, draft_request=None, label=None) -> ConversionDraft`
-- `update_conversion_draft(draft_selector, spec_document, label=None) -> ConversionDraft`
-- `preview_conversion_draft(draft_selector, sample_n=5, topic_type_hints=None) -> ConversionDraft`
-- `confirm_conversion_draft(draft_selector, revision_selector=None) -> ConversionDraft`
-- `save_conversion_config_from_draft(draft_selector, name, description=None) -> SavedConversionConfig`
-- `discard_conversion_draft(draft_selector) -> ConversionDraft`
-- `list_conversion_drafts(...)`
-- `get_conversion_draft(...)`
-- `list_conversion_draft_revisions(draft_selector=...)`
+- `Workspace.open()` still works naturally from inside a project tree
+- `--workspace` remains an override when the user wants an explicit root
 
-These methods should open the asset reader internally when needed.
+## Asset Model
 
-## Internal Package Structure
+### Canonical asset path
 
-### Stateless authoring logic
+The asset row should store one canonical absolute path.
 
-Keep draft inference and preview generation in `hephaes.conversion`.
+That path should be:
 
-### Durable workflow orchestration
+- expanded from `~`
+- resolved to an absolute path
+- used as the runtime path for all package operations
 
-Add an authoring-oriented workspace layer, likely as one or more mixins:
+### Simplified asset record
 
-- `workspace/authoring.py`
-- or `workspace/drafts.py` plus an `authoring` mixin
+The asset schema should be simplified around linked files.
 
-Responsibilities:
-
-- resolve asset selectors
-- open readers
-- invoke pure conversion helpers
-- persist draft heads and revisions
-- enforce lifecycle transitions
-- promote confirmed drafts to saved configs
-
-### Reader ownership
-
-The package should add an internal helper around `RosReader.open(...)` for workspace-managed assets so that inspection, drafting, and preview do not depend on a backend service to open readers.
-
-## Durable Data Model
-
-### New `conversion_drafts` table
-
-Add a draft head table that represents the logical draft:
+At minimum, assets should retain:
 
 - `id`
-- `source_asset_id`
-- `status`
-- `current_revision_id`
-- `confirmed_revision_id`
-- `saved_config_id`
-- `created_at`
-- `updated_at`
-- `discarded_at`
-
-This is the missing unit that lets the package represent one evolving draft over time.
-
-### Keep `conversion_draft_revisions` as history
-
-Revise the existing revision table so that each row belongs to a draft:
-
-- `id`
-- `draft_id`
-- `revision_number`
-- `label`
-- `metadata_json`
-- `inspection_request_json`
-- `inspection_json`
-- `draft_request_json`
-- `draft_result_json`
-- `preview_request_json`
-- `preview_json`
-- `spec_document_path`
-- `spec_document_version`
-- `invalid_reason`
-- `created_at`
+- `file_path`
+- `file_name`
+- `file_type`
+- `file_size`
+- `indexing_status`
+- `last_indexed_at`
+- `registered_at`
 - `updated_at`
 
-Each revision records the exact authored spec document plus the inspection and draft context that produced it.
+The package should no longer model:
 
-### Promotion to saved config
+- `source_path`
+- `imported_at`
+- copy destinations inside the workspace
 
-Saving a config from a draft must:
+### Missing-path behavior
 
-1. validate the draft is confirmed
-2. create the saved config from the confirmed revision's document
-3. set `conversion_drafts.saved_config_id`
-4. move the draft status to `saved`
-5. preserve draft-to-config lineage for later queries
+Because assets are linked by path, the package must treat path availability as a first-class runtime concern.
 
-This is the key workflow link that is missing today.
+If a registered file has been moved or deleted, package operations should fail with a clear workspace-level error instead of surfacing a generic reader failure.
+
+## Package Behavior By Area
+
+### Asset registration
+
+Registering an asset should:
+
+1. validate the path and file type
+2. normalize it to a canonical absolute path
+3. record the asset in the workspace database
+4. not copy any bytes into the workspace
+
+### Indexing
+
+Indexing should open the registered `file_path` directly.
+
+Refreshing an asset should refresh recorded metadata from the original path, not re-copy the asset.
+
+### Inspection and authoring
+
+Inspection, draft creation, preview, and conversion should all resolve the asset id to the stored `file_path` and operate from there.
+
+### Conversion outputs
+
+Conversion outputs should continue to be written into the workspace output area.
+
+Run and output records should still preserve lineage back to:
+
+- the workspace asset id
+- the source asset path
+- the saved config id when applicable
 
 ## CLI Surface
 
-### Keep existing commands
+### Workspace commands
 
-These remain useful:
+The workspace CLI remains path-oriented rather than name-oriented.
+
+Recommended commands:
 
 - `hephaes init`
-- `hephaes add`
-- `hephaes index`
-- `hephaes inspect`
-- `hephaes convert`
-- `hephaes configs ...`
+- `hephaes init /path/to/root`
 
-### Add a `drafts` command group
+### Workspace option semantics
 
-Add a package-owned CLI for the authoring lifecycle:
-
-- `hephaes drafts wizard <asset>`
-- `hephaes drafts create <asset>`
-- `hephaes drafts ls`
-- `hephaes drafts show <draft>`
-- `hephaes drafts update <draft> --spec-document <path>`
-- `hephaes drafts preview <draft>`
-- `hephaes drafts confirm <draft>`
-- `hephaes drafts discard <draft>`
-- `hephaes drafts save-config <draft> --name <name> [--description ...]`
-
-Suggested workflow:
+`--workspace` should continue to accept a filesystem path:
 
 ```bash
-hephaes add ./logs/run_001.mcap
-hephaes index --all
-hephaes drafts wizard <asset-id>
-hephaes convert <asset-id> --config front-camera-joy
+hephaes ls assets --workspace /path/to/project-root
+hephaes drafts wizard --workspace /path/to/project-root <asset-id>
 ```
 
-### Interactive wizard is required
+When `--workspace` is omitted, commands can continue to rely on upward `.hephaes` discovery from the current working directory.
 
-The package CLI must include an interactive wizard for the full authoring flow.
+### Asset command wording
 
-The wizard should:
+The CLI and docs should stop using language that implies file copying.
 
-- guide the user through inspect, draft, preview, confirm, and save
-- call the same `Workspace` methods as the non-interactive commands
-- persist progress through normal draft/config records instead of hidden wizard-only state
-- allow resuming from an existing draft
+Preferred language:
 
-The non-interactive commands remain required too, because they support scripting, testing, and future adapters. The wizard is the default human-friendly path; the command group is the scriptable path.
+- register asset
+- link asset
+- source path
 
-## Lifecycle Rules
+Avoid:
 
-### Draft creation
+- upload asset
+- import into workspace storage
+- copied asset
 
-- source asset must resolve
-- initial inspection is recorded
-- initial draft revision is created
-- draft head status starts as `draft`
+## Internal Package Shape
 
-### Draft update
+### Workspace management stays simple
 
-- creates a new revision under the same draft
-- advances `current_revision_id`
-- clears prior confirmation if the confirmed revision is no longer current
+The package does not need a separate home-directory workspace-management layer.
 
-### Preview
+Most workspace-opening behavior can stay close to the current implementation:
 
-- runs against the current draft revision by default
-- persists the preview snapshot on that revision
-- does not implicitly confirm or save the draft
+- local `.hephaes` directories
+- path-based init/open
+- upward discovery
 
-### Confirm
+### Asset registration logic
 
-- marks which revision has been accepted
-- moves the draft to `confirmed`
-- does not create a saved config yet
+`workspace/assets.py` should be simplified to path registration and path lookup.
 
-### Save config from draft
+File-copy helpers and import-destination builders should be removed from the asset registration path.
 
-- only works from a confirmed draft
-- produces the saved config
-- records lineage
-- keeps the draft queryable after save
+### Existing authoring and conversion logic
 
-## Backend Extensibility
+Most authoring and conversion logic can remain structurally the same because those flows already resolve `asset.file_path`.
 
-This design is intentionally backend-friendly without making the backend a dependency.
+The main change is that `file_path` becomes the original source path instead of a copied workspace path.
 
-A future backend should:
+## Tradeoffs
 
-- call `Workspace.inspect_asset()`
-- call `Workspace.create_conversion_draft()`
-- call `Workspace.preview_conversion_draft()`
-- call `Workspace.confirm_conversion_draft()`
-- call `Workspace.save_conversion_config_from_draft()`
+### Benefits
 
-The backend may reshape responses for HTTP, but it should not own draft orchestration or persistence rules.
+- no duplicated raw logs
+- less disk usage
+- simpler mental model
+- conversion jobs always use the canonical source path
+- easier to point the package at large existing local datasets
 
-## Out Of Scope
+### Costs
 
-This design does not add:
+- moving or deleting a registered file breaks later operations
+- workspaces are less self-contained because they do not contain raw inputs
 
-- visualization or replay logic
-- remote execution
-- multi-user concurrency semantics
-- long-running worker orchestration
-- frontend-specific state models
+This tradeoff is acceptable because the package is explicitly local-first and path-based.
 
-## Success Criteria
+## Out Of Scope For This Change
 
-The design is successful when:
+This redesign should not expand into:
 
-- a user can complete the full authoring flow with `hephaes` alone
-- a user can complete that flow through a required interactive CLI wizard
-- `Workspace` owns the durable authoring lifecycle
-- the CLI is a thin adapter over package services
-- a future backend can reuse the same package workflow without reimplementing it
+- home-directory workspace registries
+- active workspace selection outside the current local workspace model
+- remote asset storage
+- background sync of moved asset paths
+- mixed local and remote source abstractions
+
+The goal is a smaller, cleaner local package model, not a broader workspace-management system.

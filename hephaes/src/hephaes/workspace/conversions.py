@@ -213,11 +213,7 @@ class WorkspaceConversionMixin:
 
         source_asset_ids = [registered_asset.id] if registered_asset is not None else []
         source_asset_paths = [
-            (
-                registered_asset.source_path
-                if registered_asset is not None and registered_asset.source_path is not None
-                else str(source_path)
-            )
+            registered_asset.file_path if registered_asset is not None else str(source_path)
         ]
         config_snapshot = {
             "saved_config_id": saved_config.id if saved_config is not None else None,
@@ -273,9 +269,7 @@ class WorkspaceConversionMixin:
                 conversion_run_id=run.id,
                 source_asset_id=registered_asset.id if registered_asset is not None else None,
                 source_asset_path=(
-                    registered_asset.source_path
-                    if registered_asset is not None
-                    else str(source_path)
+                    registered_asset.file_path if registered_asset is not None else str(source_path)
                 ),
                 saved_config_id=saved_config.id if saved_config is not None else None,
             )

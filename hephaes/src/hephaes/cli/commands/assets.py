@@ -103,14 +103,13 @@ def handle_add(args: argparse.Namespace) -> int:
             print(f"Warning: skipping already registered asset: {file_path}", file=sys.stderr)
 
     for asset in registered:
-        display_path = asset.source_path or asset.file_path
         print(
             "\t".join(
                 (
                     asset.id,
                     asset.indexing_status,
                     asset.file_type,
-                    display_path,
+                    asset.file_path,
                 )
             )
         )
@@ -129,7 +128,6 @@ def handle_list_assets(args: argparse.Namespace) -> int:
         last_indexed_at = (
             asset.last_indexed_at.isoformat() if asset.last_indexed_at is not None else "-"
         )
-        display_path = asset.source_path or asset.file_path
         print(
             "\t".join(
                 (
@@ -138,7 +136,7 @@ def handle_list_assets(args: argparse.Namespace) -> int:
                     asset.file_type,
                     str(asset.file_size),
                     last_indexed_at,
-                    display_path,
+                    asset.file_path,
                 )
             )
         )
@@ -172,7 +170,6 @@ def handle_index(args: argparse.Namespace) -> int:
                     "asset_id": indexed_asset.id,
                     "status": indexed_asset.indexing_status,
                     "file_path": indexed_asset.file_path,
-                    "source_path": indexed_asset.source_path,
                     "message_count": metadata.message_count,
                     "topic_count": metadata.topic_count,
                     "duration": metadata.duration,

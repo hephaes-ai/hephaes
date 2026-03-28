@@ -79,7 +79,6 @@ def test_workspace_init_creates_layout(tmp_path: Path) -> None:
     assert workspace.root == tmp_path
     assert (tmp_path / ".hephaes").is_dir()
     assert (tmp_path / ".hephaes" / "workspace.sqlite3").is_file()
-    assert (tmp_path / ".hephaes" / "imports").is_dir()
     assert (tmp_path / ".hephaes" / "outputs").is_dir()
     assert (tmp_path / ".hephaes" / "specs").is_dir()
     assert (tmp_path / ".hephaes" / "specs" / "revisions").is_dir()
@@ -119,8 +118,7 @@ def test_register_asset_persists_across_reopen(tmp_path: Path, tmp_mcap_file: Pa
     assert len(assets) == 1
     assert assets[0].id == registered.id
     assert Path(assets[0].file_path).is_file()
-    assert str(tmp_path / ".hephaes" / "imports") in assets[0].file_path
-    assert assets[0].source_path == str(tmp_mcap_file.resolve())
+    assert assets[0].file_path == str(tmp_mcap_file.resolve())
     assert assets[0].file_type == "mcap"
     assert assets[0].indexing_status == "pending"
 
@@ -154,16 +152,15 @@ def test_register_asset_supports_duplicate_refresh(tmp_path: Path, tmp_bag_file:
     assert refreshed.updated_at >= first.updated_at
 
 
-def test_import_asset_copies_file_into_workspace(tmp_path: Path, tmp_bag_file: Path) -> None:
+def test_register_asset_keeps_original_file_path(tmp_path: Path, tmp_bag_file: Path) -> None:
     workspace = Workspace.init(tmp_path)
 
-    asset = workspace.import_asset(tmp_bag_file)
+    asset = workspace.register_asset(tmp_bag_file)
 
-    imported_path = Path(asset.file_path)
-    assert imported_path.is_file()
-    assert imported_path.read_bytes() == tmp_bag_file.read_bytes()
-    assert imported_path.parent.parent == tmp_path / ".hephaes" / "imports"
-    assert asset.source_path == str(tmp_bag_file.resolve())
+    registered_path = Path(asset.file_path)
+    assert registered_path.is_file()
+    assert registered_path == tmp_bag_file.resolve()
+    assert registered_path.read_bytes() == tmp_bag_file.read_bytes()
 
 
 def test_create_and_list_tags(tmp_path: Path) -> None:
@@ -236,7 +233,7 @@ def test_index_asset_persists_profiled_metadata(
     def fake_profile_asset_file(file_path: str, *, max_workers: int = 1) -> BagMetadata:
         assert Path(file_path).is_file()
         assert Path(file_path).name == tmp_mcap_file.name
-        assert str(tmp_path / ".hephaes" / "imports") in file_path
+        assert file_path == str(tmp_mcap_file.resolve())
         assert max_workers == 1
         return BagMetadata(
             path=file_path,
@@ -1127,7 +1124,7 @@ def test_save_conversion_config_from_draft_persists_lineage_and_supports_convers
     assert any(output.saved_config_id == saved.id for output in outputs)
 
 
-def test_migrate_workspace_schema_creates_draft_heads_for_legacy_draft_revisions(
+def test_migrate_workspace_schema_rejects_older_workspace_versions(
     tmp_path: Path,
 ) -> None:
     database_path = tmp_path / "legacy.sqlite3"
@@ -1175,76 +1172,15 @@ def test_migrate_workspace_schema_creates_draft_heads_for_legacy_draft_revisions
         connection.execute(
             "INSERT INTO workspace_meta(key, value) VALUES ('schema_version', '9')"
         )
-        connection.execute("INSERT INTO assets(id) VALUES ('asset-1')")
-        connection.execute("INSERT INTO conversion_configs(id) VALUES ('config-1')")
-        connection.execute(
-            """
-            INSERT INTO conversion_draft_revisions(
-                id,
-                revision_number,
-                label,
-                saved_config_id,
-                source_asset_id,
-                status,
-                metadata_json,
-                inspection_request_json,
-                inspection_json,
-                draft_request_json,
-                draft_result_json,
-                preview_json,
-                spec_document_path,
-                spec_document_version,
-                invalid_reason,
-                created_at,
-                updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                "revision-1",
-                1,
-                "Legacy Draft",
-                "config-1",
-                "asset-1",
-                "saved",
-                "{}",
-                "{}",
-                "{}",
-                "{}",
-                "{}",
-                '{"rows":[],"checked_records":0,"bad_records":0}',
-                "drafts/revision-1.json",
-                2,
-                None,
-                "2026-03-28T10:00:00+00:00",
-                "2026-03-28T10:05:00+00:00",
-            ),
-        )
-
-        migrate_workspace_schema(connection, 9)
-
-        meta = connection.execute(
-            "SELECT value FROM workspace_meta WHERE key = 'schema_version'"
-        ).fetchone()
-        revision_row = connection.execute(
-            "SELECT * FROM conversion_draft_revisions WHERE id = 'revision-1'"
-        ).fetchone()
-        draft_row = connection.execute(
-            "SELECT * FROM conversion_drafts WHERE id = 'revision-1'"
-        ).fetchone()
+        with pytest.raises(
+            ValueError,
+            match="unsupported workspace schema version 9",
+        ):
+            migrate_workspace_schema(connection, 9)
     finally:
         connection.close()
 
-    assert meta is not None
-    assert meta["value"] == str(WORKSPACE_SCHEMA_VERSION)
-    assert revision_row is not None
-    assert revision_row["draft_id"] == "revision-1"
-    assert revision_row["preview_request_json"] == "{}"
-    assert draft_row is not None
-    assert draft_row["status"] == "saved"
-    assert draft_row["source_asset_id"] == "asset-1"
-    assert draft_row["saved_config_id"] == "config-1"
-    assert draft_row["current_revision_id"] == "revision-1"
-    assert draft_row["confirmed_revision_id"] == "revision-1"
+    assert WORKSPACE_SCHEMA_VERSION == 11
 
 
 def test_register_and_list_output_artifacts(tmp_path: Path) -> None:
@@ -1375,7 +1311,7 @@ def test_run_conversion_registers_emitted_outputs(
             assert len(file_paths) == 1
             assert Path(file_paths[0]).is_file()
             assert Path(file_paths[0]).name == tmp_mcap_file.name
-            assert str(tmp_path / ".hephaes" / "imports") in file_paths[0]
+            assert file_paths[0] == str(tmp_mcap_file.resolve())
             assert mapping is None
             assert spec.schema.name == "demo"
             assert max_workers == 1

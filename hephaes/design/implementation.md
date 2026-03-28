@@ -63,7 +63,7 @@ Workspaces continue to live at:
 | Phase | Status | Notes |
 | --- | --- | --- |
 | 1 | completed | Confirmed the existing package already matches the target local `.hephaes` workspace baseline; no home-directory workspace-manager work is needed. |
-| 2 | pending | Linked-asset schema reset and registration changes have not landed yet. |
+| 2 | completed | Removed `imports/` from the workspace layout, simplified the asset schema around `file_path`, switched registration to linked source paths, and made older workspace schema versions fail clearly. |
 | 3 | pending | Runtime asset-path validation and path-backed execution have not landed yet. |
 | 4 | pending | Copy/import cleanup and CLI wording updates have not landed yet. |
 | 5 | pending | Final tests, docs refresh, and smoke validation have not landed yet. |
@@ -113,6 +113,10 @@ Completed on `2026-03-28`.
 
 Redefine assets as linked source files rather than copied workspace imports.
 
+### Status
+
+Completed on `2026-03-28`.
+
 ### Tasks
 
 - Simplify the `assets` table to keep the original file path as the canonical runtime path.
@@ -138,6 +142,13 @@ Redefine assets as linked source files rather than copied workspace imports.
   - `refresh`
 - Make `refresh` update the recorded file metadata from the original path instead of copying bytes.
 - Bump the workspace schema version and make the new schema authoritative for fresh linked-asset workspaces.
+
+### Notes
+
+- `WorkspacePaths` no longer includes `imports_dir`.
+- The `assets` table now stores the normalized linked source path directly as `file_path`.
+- `Workspace.register_asset(...)` no longer copies raw files into `.hephaes`.
+- Older workspace schema versions are now rejected with a clear "create a fresh local workspace" error instead of being migrated.
 
 ### Exit Criteria
 

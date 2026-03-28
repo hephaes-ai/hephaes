@@ -19,7 +19,7 @@ As of `2026-03-28`, `hephaes` already contains:
 
 - pure conversion authoring helpers for inspect, draft generation, and preview
 - a `Workspace` package API with durable local SQLite state and package-owned authoring workflow methods through config promotion
-- asset registration, indexing, tags, saved configs, config revisions, draft heads, public draft lookup/state primitives, draft revision persistence, jobs, conversion runs, and outputs
+- linked-path asset registration, indexing, tags, saved configs, config revisions, draft heads, public draft lookup/state primitives, draft revision persistence, jobs, conversion runs, and outputs
 - CLI commands for workspace init, asset add/index/list, inspect, drafts, drafts wizard, convert, configs, jobs, runs, and outputs
 
 The core package-owned authoring workflow is now implemented through both `Workspace` and the CLI.
@@ -35,7 +35,8 @@ The current redesign target is:
 Current phase status:
 
 - Phase 1 complete: the package already matches the desired local workspace baseline
-- Phase 2 onward not yet implemented: assets are still copied into `.hephaes/imports` today
+- Phase 2 complete: assets are now linked by path and the workspace no longer creates `.hephaes/imports`
+- Phase 3 onward not yet implemented: runtime path-availability errors and the remaining copy/import cleanup still need to land
 
 ## Current Package Surface
 
@@ -61,7 +62,7 @@ Current role:
 Implemented through `Workspace` mixins:
 
 - workspace init/open
-- asset registration/import/indexing
+- linked-path asset registration and indexing
 - tag creation and assignment
 - saved config create/list/get/update/duplicate
 - saved config revision history
@@ -118,6 +119,11 @@ Package support today:
 - assets can be registered into the workspace
 - assets can be indexed
 - workspace asset selectors already exist
+
+Important current behavior:
+
+- the workspace now stores the normalized source file path directly on the asset record
+- assets are no longer copied into `.hephaes/imports`
 
 Relevant files:
 
