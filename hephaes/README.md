@@ -1,22 +1,35 @@
 # Hephaes
 
-Python package for turning raw ROS/MCAP logs into standardized datasets with consistent schemas across runs. The package helps you:
+Python package for turning raw ROS/MCAP logs into standardized datasets with consistent schemas across runs.
+
+`hephaes` can be used three ways:
+
+- as a CLI for local workspace-backed authoring and conversion
+- as a Python `Workspace` API for durable package-owned workflows
+- as lower-level conversion helpers when you already have a stable spec
+
+The package helps you:
 
 - ingest ROS1 `.bag` and ROS2 `.mcap` logs
 - inspect topics, rates, and recording time ranges
+- create draft conversion specs from real logs
+- preview and confirm those drafts before saving
+- save reusable conversion configs in a local workspace
 - synchronize asynchronous sensor streams onto a shared timeline (downsample or interpolate)
 - convert logs into wide dataset files such as Parquet and TFRecord
 - standardize dataset schemas with explicit topic-to-field mappings
 
 ## Current Scope
 
-The library is intentionally focused on the core dataset-prep path.
+The package is intentionally focused on the local dataset-prep path.
 
 - Input formats: ROS1 `.bag`, ROS2 `.mcap`
 - Input paths must be files, not bag directories
+- Assets stay at their original file paths; the workspace records canonical source paths instead of copying raw logs
 - Output formats: one wide Parquet or TFRecord file per input log
-- Interface: Python library
+- Interface: Python library and CLI
 - Python: 3.11+
+- Local `.hephaes` workspace for assets, drafts, configs, runs, jobs, and outputs
 
 If you need the same dataset schema across different robots or recording setups, you can map multiple possible source topics to the same target field. The converter will use the first topic that exists in each log.
 
@@ -41,9 +54,70 @@ cd hephaes
 python -m pip install -e ".[dev]"
 ```
 
-## Quick Start
+## CLI Quick Start
 
-### 1. Profile a log
+Initialize a workspace, register a log by path, and launch the interactive draft wizard:
+
+```bash
+hephaes init ./demo
+hephaes add --workspace ./demo ./logs/run_001.mcap
+hephaes drafts wizard --workspace ./demo <asset-id>
+```
+
+If you want the fully scriptable path instead:
+
+```bash
+hephaes init ./demo
+hephaes add --workspace ./demo ./logs/run_001.mcap
+hephaes drafts create --workspace ./demo <asset-id> --topic /camera --trigger-topic /camera
+hephaes drafts preview --workspace ./demo <draft-id> --sample-n 5
+hephaes drafts confirm --workspace ./demo <draft-id> --yes
+hephaes drafts save-config --workspace ./demo <draft-id> --name camera-demo
+hephaes convert --workspace ./demo <asset-id> --config camera-demo
+```
+
+`hephaes add` stores the canonical file path in the workspace.
+It does not copy the raw log into `.hephaes`.
+
+## Workspace API Quick Start
+
+Use `Workspace` when another Python integration needs durable package-owned workflow state:
+
+```python
+from hephaes.conversion.draft_spec import DraftSpecRequest
+from hephaes.conversion.introspection import InspectionRequest
+from hephaes.workspace import Workspace
+
+workspace = Workspace.init("demo", exist_ok=True)
+asset = workspace.register_asset("./logs/run_001.mcap")
+
+draft = workspace.create_conversion_draft(
+    asset.id,
+    inspection_request=InspectionRequest(
+        topics=["/camera"],
+        sample_n=8,
+    ),
+    draft_request=DraftSpecRequest(
+        trigger_topic="/camera",
+        selected_topics=["/camera"],
+        output_format="tfrecord",
+        output_compression="none",
+        max_features_per_topic=2,
+    ),
+)
+
+draft = workspace.preview_conversion_draft(draft.id, sample_n=5)
+draft = workspace.confirm_conversion_draft(draft.id)
+config = workspace.save_conversion_config_from_draft(draft.id, name="camera-demo")
+outputs = workspace.run_conversion(asset.id, saved_config_selector=config.name)
+
+print(config.id, config.name)
+print(outputs[0].output_path)
+```
+
+## Direct Conversion Quick Start
+
+Use these lower-level APIs when you already have a stable mapping/spec and just want execution.
 
 Use `Profiler` to inspect timing metadata and topic inventory before deciding how to map the log.
 
@@ -58,7 +132,7 @@ print(profile.start_time_iso, profile.end_time_iso)
 print([(topic.name, topic.message_type, topic.rate_hz) for topic in profile.topics])
 ```
 
-### 2. Define a standardized schema
+### 1. Define a standardized schema
 
 You can auto-generate a mapping from discovered topics:
 
@@ -87,7 +161,7 @@ mapping = build_mapping_template_from_json(
 
 In the example above, `front_camera`, `imu`, and `vehicle_twist` become the canonical dataset fields. Each field can list fallback source topics, which is useful when topic names vary across robots, fleets, or recording versions.
 
-### 3. Convert logs into Parquet or TFRecord
+### 2. Convert logs into Parquet or TFRecord
 
 Use `Converter` to write one dataset file per input log. Parquet remains the default.
 
@@ -109,7 +183,7 @@ print(dataset_paths[0])
 print(dataset_paths[0].with_suffix(".manifest.json"))
 ```
 
-### 4. Stream the output rows
+### 3. Stream the output rows
 
 ```python
 from hephaes import stream_tfrecord_rows
@@ -119,7 +193,7 @@ for row in stream_tfrecord_rows(dataset_paths[0]):
     break
 ```
 
-### 5. Choose image payload contract mode
+### 4. Choose image payload contract mode
 
 TFRecord defaults to `image_payload_contract="bytes_v2"`, which writes image `data` fields as raw bytes features while keeping image metadata fields.
 

@@ -176,7 +176,7 @@ def test_cli_index_by_asset_id(
     def fake_profile_asset_file(file_path: str, *, max_workers: int = 1) -> BagMetadata:
         assert Path(file_path).is_file()
         assert Path(file_path).name == tmp_mcap_file.name
-        assert str(tmp_path / ".hephaes" / "imports") in file_path
+        assert file_path == str(tmp_mcap_file.resolve())
         assert max_workers == 1
         return BagMetadata(
             path=file_path,
@@ -246,7 +246,6 @@ def test_cli_index_by_file_path(
     captured = capsys.readouterr()
     assert exit_code == 0
     assert '"file_path": "' in captured.out
-    assert '"source_path": "' in captured.out
     assert str(tmp_bag_file.resolve()) in captured.out
 
 
@@ -346,7 +345,7 @@ def test_cli_inspect_registered_asset_by_id(
     ) -> InspectionResult:
         assert Path(bag_path).is_file()
         assert Path(bag_path).name == tmp_bag_file.name
-        assert str(tmp_path / ".hephaes" / "imports") in bag_path
+        assert bag_path == str(tmp_bag_file.resolve())
         return InspectionResult(
             bag_path=bag_path,
             ros_version="ROS1",
@@ -367,7 +366,7 @@ def test_cli_inspect_registered_asset_by_id(
     captured = capsys.readouterr()
     assert exit_code == 0
     assert '"ros_version": "ROS1"' in captured.out
-    assert str(tmp_path / ".hephaes" / "imports") in captured.out
+    assert str(tmp_bag_file.resolve()) in captured.out
 
 
 def test_cli_configs_save_and_ls(tmp_path: Path, capsys) -> None:
@@ -992,7 +991,7 @@ def test_cli_convert_with_saved_config(
             assert len(file_paths) == 1
             assert Path(file_paths[0]).is_file()
             assert Path(file_paths[0]).name == tmp_bag_file.name
-            assert str(tmp_path / ".hephaes" / "imports") in file_paths[0]
+            assert file_paths[0] == str(tmp_bag_file.resolve())
             assert mapping is None
             assert spec.schema.name == "convert_demo"
             assert max_workers == 1

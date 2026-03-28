@@ -45,7 +45,6 @@ class WorkspaceCoreMixin:
             root=normalized_root,
             workspace_dir=workspace_dir,
             database_path=workspace_dir / WORKSPACE_DB_FILENAME,
-            imports_dir=workspace_dir / "imports",
             outputs_dir=workspace_dir / "outputs",
             specs_dir=workspace_dir / "specs",
             spec_revisions_dir=workspace_dir / "specs" / "revisions",
@@ -65,7 +64,6 @@ class WorkspaceCoreMixin:
             root=workspace_dir.parent,
             workspace_dir=workspace_dir,
             database_path=workspace_dir / WORKSPACE_DB_FILENAME,
-            imports_dir=workspace_dir / "imports",
             outputs_dir=workspace_dir / "outputs",
             specs_dir=workspace_dir / "specs",
             spec_revisions_dir=workspace_dir / "specs" / "revisions",
@@ -89,7 +87,6 @@ class WorkspaceCoreMixin:
     @staticmethod
     def _create_layout(paths: WorkspacePaths) -> None:
         paths.workspace_dir.mkdir(parents=True, exist_ok=True)
-        paths.imports_dir.mkdir(parents=True, exist_ok=True)
         paths.outputs_dir.mkdir(parents=True, exist_ok=True)
         paths.specs_dir.mkdir(parents=True, exist_ok=True)
         paths.spec_revisions_dir.mkdir(parents=True, exist_ok=True)

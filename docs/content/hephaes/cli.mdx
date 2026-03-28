@@ -73,6 +73,7 @@ hephaes add --workspace /path/to/workspace data/
 ```
 
 Directories are walked recursively for supported asset file types.
+Registered assets remain in place on disk; the workspace stores and reuses the canonical file path instead of copying raw logs into `.hephaes`.
 
 Duplicate handling:
 

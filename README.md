@@ -8,7 +8,7 @@ your own machine.
 
 ## Core Workflow
 
-- register local `.bag` and `.mcap` logs by file path, upload, native file picker, or directory scan
+- register local `.bag` and `.mcap` logs by file path or directory scan
 - index logs to extract duration, start and end time, topic summaries, message counts, sensor types, and raw metadata
 - browse assets in a sortable/filterable inventory with tags and indexing status
 - inspect each asset in a detail page with topic breakdowns, replay readiness, related jobs, and conversion history
@@ -67,6 +67,9 @@ The `hephaes` Python package now owns the full local conversion authoring workfl
 4. confirm the draft
 5. save the confirmed draft as a reusable config
 6. run conversions from that saved config later
+
+Registered assets stay where they already live on disk.
+The workspace stores the canonical source path and uses that path for indexing, draft authoring, preview, and conversion.
 
 ### Recommended Paths
 

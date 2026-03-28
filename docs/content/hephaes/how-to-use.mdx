@@ -22,6 +22,8 @@ cd hephaes
 python -m pip install -e ".[dev]"
 ```
 
+These docs describe the current `0.3.x` package workflow: local workspace, path-backed assets, draft authoring, saved configs, and conversion.
+
 ## Recommended Paths
 
 `hephaes` now supports three main ways to work:
@@ -41,6 +43,9 @@ hephaes init ./demo
 hephaes add --workspace ./demo ./logs/run_001.mcap
 hephaes drafts wizard --workspace ./demo <asset-id>
 ```
+
+`hephaes add` records the canonical asset path in the workspace.
+It does not copy the raw log into workspace storage.
 
 If you want a fully scriptable flow instead of the wizard:
 

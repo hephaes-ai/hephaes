@@ -4,7 +4,12 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from .errors import AssetAlreadyRegisteredError, AssetNotFoundError
+from .errors import (
+    AssetAlreadyRegisteredError,
+    AssetNotFoundError,
+    AssetUnavailableError,
+    InvalidAssetPathError,
+)
 from .indexing import build_index_metadata_payload
 from .models import AssetRegistrationMode, IndexedAssetMetadata, RegisteredAsset
 from .serialization import (
@@ -13,38 +18,29 @@ from .serialization import (
     to_db_timestamp,
     upsert_asset_metadata,
 )
-from .utils import (
-    _copy_file_atomically,
-    _inspect_asset_path,
-    _normalize_asset_path,
-    _utc_now,
-)
+from .utils import _inspect_asset_path, _normalize_asset_path, _utc_now
 
 
 class WorkspaceAssetMixin:
-    def _build_import_destination(self, *, asset_id: str, source_path: Path) -> Path:
-        return self.paths.imports_dir / asset_id / source_path.name
-
-    def import_asset(
+    def register_asset(
         self,
         asset_path: str | Path,
         *,
         on_duplicate: AssetRegistrationMode = "error",
     ) -> RegisteredAsset:
-        normalized_source_path, file_type, _file_size = _inspect_asset_path(asset_path)
+        normalized_file_path, file_type, file_size = _inspect_asset_path(asset_path)
         now = _utc_now()
-        source_path = str(normalized_source_path)
-        file_name = normalized_source_path.name
+        file_path = str(normalized_file_path)
+        file_name = normalized_file_path.name
 
         with self._transaction() as connection:
             existing = connection.execute(
                 """
                 SELECT *
                 FROM assets
-                WHERE source_path = ?
-                   OR file_path = ?
+                WHERE file_path = ?
                 """,
-                (source_path, source_path),
+                (file_path,),
             ).fetchone()
 
             if existing is not None:
@@ -52,19 +48,16 @@ class WorkspaceAssetMixin:
                 if on_duplicate == "skip":
                     return existing_asset
                 if on_duplicate == "refresh":
-                    imported_path = Path(existing_asset.file_path)
-                    _copy_file_atomically(normalized_source_path, imported_path)
                     connection.execute(
                         """
                         UPDATE assets
-                        SET source_path = ?, file_name = ?, file_type = ?, file_size = ?, updated_at = ?
+                        SET file_name = ?, file_type = ?, file_size = ?, updated_at = ?
                         WHERE id = ?
                         """,
                         (
-                            source_path,
                             file_name,
                             file_type,
-                            imported_path.stat().st_size,
+                            file_size,
                             to_db_timestamp(now),
                             existing_asset.id,
                         ),
@@ -74,40 +67,30 @@ class WorkspaceAssetMixin:
                         (existing_asset.id,),
                     ).fetchone()
                     return row_to_registered_asset(refreshed)
-                raise AssetAlreadyRegisteredError(f"asset already registered: {source_path}")
+                raise AssetAlreadyRegisteredError(f"asset already registered: {file_path}")
 
             asset_id = str(uuid4())
-            imported_path = self._build_import_destination(
-                asset_id=asset_id,
-                source_path=normalized_source_path,
-            )
-            _copy_file_atomically(normalized_source_path, imported_path)
-            imported_size = imported_path.stat().st_size
             timestamp = to_db_timestamp(now)
             connection.execute(
                 """
                 INSERT INTO assets(
                     id,
                     file_path,
-                    source_path,
                     file_name,
                     file_type,
                     file_size,
                     indexing_status,
                     last_indexed_at,
-                    imported_at,
                     registered_at,
                     updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, 'pending', NULL, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, 'pending', NULL, ?, ?)
                 """,
                 (
                     asset_id,
-                    str(imported_path),
-                    source_path,
+                    file_path,
                     file_name,
                     file_type,
-                    imported_size,
-                    timestamp,
+                    file_size,
                     timestamp,
                     timestamp,
                 ),
@@ -117,14 +100,6 @@ class WorkspaceAssetMixin:
                 (asset_id,),
             ).fetchone()
             return row_to_registered_asset(row)
-
-    def register_asset(
-        self,
-        asset_path: str | Path,
-        *,
-        on_duplicate: AssetRegistrationMode = "error",
-    ) -> RegisteredAsset:
-        return self.import_asset(asset_path, on_duplicate=on_duplicate)
 
     def list_assets(self, *, tags: list[str] | None = None) -> list[RegisteredAsset]:
         with self._connect() as connection:
@@ -171,9 +146,8 @@ class WorkspaceAssetMixin:
                 SELECT *
                 FROM assets
                 WHERE file_path = ?
-                   OR source_path = ?
                 """,
-                (normalized_path, normalized_path),
+                (normalized_path,),
             ).fetchone()
         if row is None:
             return None
@@ -195,6 +169,30 @@ class WorkspaceAssetMixin:
         if asset is None:
             raise AssetNotFoundError(f"asset not found: {asset_id}")
         return asset
+
+    def resolve_asset_path(
+        self,
+        selector: str | Path,
+        *,
+        operation: str = "use",
+    ) -> str:
+        asset = self.resolve_asset(selector)
+        return str(self._require_asset_file_path(asset, operation=operation))
+
+    def _require_asset_file_path(
+        self,
+        asset: RegisteredAsset,
+        *,
+        operation: str,
+    ) -> Path:
+        try:
+            normalized_path, _file_type, _file_size = _inspect_asset_path(asset.file_path)
+        except InvalidAssetPathError as exc:
+            raise AssetUnavailableError(
+                "registered asset path is unavailable for "
+                f"{operation}: {asset.file_path}: {exc}"
+            ) from exc
+        return normalized_path
 
     def get_asset_metadata(self, asset_id: str) -> IndexedAssetMetadata | None:
         with self._connect() as connection:
@@ -242,7 +240,7 @@ class WorkspaceAssetMixin:
             resolved_profile_path = (
                 str(Path(profile_path).expanduser())
                 if profile_path is not None
-                else asset.file_path
+                else str(self._require_asset_file_path(asset, operation="index"))
             )
             if profile_fn is None:
                 profile = profile_asset_file_impl(

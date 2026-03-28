@@ -585,11 +585,12 @@ class WorkspaceDraftMixin:
         operation: str,
     ) -> Iterator[tuple[Any, Any]]:
         asset = self.resolve_asset(asset_selector)
+        asset_path = self._require_asset_file_path(asset, operation=operation)
         try:
-            reader = RosReader.open(asset.file_path)
+            reader = RosReader.open(asset_path)
         except Exception as exc:
             raise AssetReadError(
-                f"failed to open source asset for {operation}: {asset.file_path}: {exc}"
+                f"failed to open source asset for {operation}: {asset_path}: {exc}"
             ) from exc
         try:
             yield asset, reader

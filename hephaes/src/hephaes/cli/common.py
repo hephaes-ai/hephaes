@@ -4,7 +4,7 @@ import argparse
 import json
 from pathlib import Path
 
-from ..workspace import Workspace, WorkspaceError, WorkspaceNotFoundError
+from ..workspace import AssetNotFoundError, Workspace, WorkspaceError, WorkspaceNotFoundError
 
 
 def add_workspace_argument(parser: argparse.ArgumentParser) -> None:
@@ -29,8 +29,8 @@ def resolve_inspect_path(selector: str, workspace_path: str | None) -> str:
 
     if workspace is not None:
         try:
-            return workspace.resolve_asset(selector).file_path
-        except WorkspaceError:
+            return workspace.resolve_asset_path(selector, operation="inspect")
+        except AssetNotFoundError:
             pass
 
     return str(Path(selector).expanduser().resolve(strict=False))
