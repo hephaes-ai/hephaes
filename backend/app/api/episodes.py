@@ -6,10 +6,9 @@ from dataclasses import dataclass
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect, status
-from sqlalchemy.orm import Session
 
 from app.api._status import HTTP_422_UNPROCESSABLE_CONTENT
-from app.db.session import get_db_session
+from app.dependencies import get_workspace
 from app.schemas.episodes import (
     EpisodeDetailResponse,
     EpisodeSampleDataResponse,
@@ -30,9 +29,10 @@ from app.services.episodes import (
     get_episode_samples,
     get_episode_timeline,
 )
+from hephaes import Workspace
 
 router = APIRouter(prefix="/assets/{asset_id}/episodes", tags=["episodes"])
-DbSession = Annotated[Session, Depends(get_db_session)]
+WorkspaceDep = Annotated[Workspace, Depends(get_workspace)]
 
 
 @dataclass
@@ -169,23 +169,22 @@ def _parse_positive_number(payload: dict[str, object], key: str) -> float:
 async def _send_replay_samples(
     websocket: WebSocket,
     *,
-    session_factory,
+    workspace: Workspace,
     asset_id: str,
     episode_id: str,
     state: ReplaySessionState,
     revision: int,
     cursor_ns: int,
 ) -> None:
-    with session_factory() as session:
-        samples = get_episode_samples(
-            session,
-            asset_id,
-            episode_id,
-            timestamp_ns=cursor_ns,
-            window_before_ns=state.window_before_ns,
-            window_after_ns=state.window_after_ns,
-            stream_ids=state.stream_ids,
-        )
+    samples = get_episode_samples(
+        workspace,
+        asset_id,
+        episode_id,
+        timestamp_ns=cursor_ns,
+        window_before_ns=state.window_before_ns,
+        window_after_ns=state.window_after_ns,
+        stream_ids=state.stream_ids,
+    )
 
     response = _build_episode_samples_response(samples)
     await websocket.send_json(
@@ -232,9 +231,13 @@ async def _send_replay_error(websocket: WebSocket, *, revision: int | None, deta
 
 
 @router.get("/{episode_id}", response_model=EpisodeDetailResponse)
-def get_episode_detail_route(asset_id: str, episode_id: str, session: DbSession) -> EpisodeDetailResponse:
+def get_episode_detail_route(
+    asset_id: str,
+    episode_id: str,
+    workspace: WorkspaceDep,
+) -> EpisodeDetailResponse:
     try:
-        episode = get_episode_detail(session, asset_id, episode_id)
+        episode = get_episode_detail(workspace, asset_id, episode_id)
     except AssetNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except EpisodeNotFoundError as exc:
@@ -279,13 +282,13 @@ def get_episode_detail_route(asset_id: str, episode_id: str, session: DbSession)
 def get_episode_timeline_route(
     asset_id: str,
     episode_id: str,
-    session: DbSession,
+    workspace: WorkspaceDep,
     bucket_count: Annotated[int, Query(ge=1, le=500)] = 120,
     stream_ids: Annotated[list[str] | None, Query()] = None,
 ) -> EpisodeTimelineResponse:
     try:
         timeline = get_episode_timeline(
-            session,
+            workspace,
             asset_id,
             episode_id,
             bucket_count=bucket_count,
@@ -338,7 +341,7 @@ def get_episode_timeline_route(
 def get_episode_samples_route(
     asset_id: str,
     episode_id: str,
-    session: DbSession,
+    workspace: WorkspaceDep,
     timestamp_ns: Annotated[int, Query(ge=0)],
     window_before_ns: Annotated[int, Query(ge=0)] = 0,
     window_after_ns: Annotated[int, Query(ge=0)] = 0,
@@ -346,7 +349,7 @@ def get_episode_samples_route(
 ) -> EpisodeSamplesResponse:
     try:
         samples = get_episode_samples(
-            session,
+            workspace,
             asset_id,
             episode_id,
             timestamp_ns=timestamp_ns,
@@ -370,17 +373,16 @@ def get_episode_samples_route(
 
 @router.websocket("/{episode_id}/replay")
 async def episode_replay_route(websocket: WebSocket, asset_id: str, episode_id: str) -> None:
-    session_factory = getattr(websocket.app.state, "session_factory", None)
+    workspace = getattr(websocket.app.state, "workspace", None)
     await websocket.accept()
 
-    if session_factory is None:
-        await _send_replay_error(websocket, revision=None, detail="database session factory is not configured")
+    if workspace is None:
+        await _send_replay_error(websocket, revision=None, detail="workspace is not configured")
         await websocket.close(code=1011)
         return
 
     try:
-        with session_factory() as session:
-            detail = get_episode_detail(session, asset_id, episode_id)
+        detail = get_episode_detail(workspace, asset_id, episode_id)
     except (AssetNotFoundError, EpisodeNotFoundError, EpisodePlaybackError, EpisodeDiscoveryUnavailableError) as exc:
         await _send_replay_error(websocket, revision=None, detail=str(exc))
         await websocket.close(code=1008)
@@ -425,7 +427,7 @@ async def episode_replay_route(websocket: WebSocket, asset_id: str, episode_id: 
                     state.cursor_ns = _parse_non_negative_int(payload, "cursor_ns")
                     await _send_replay_samples(
                         websocket,
-                        session_factory=session_factory,
+                        workspace=workspace,
                         asset_id=asset_id,
                         episode_id=episode_id,
                         state=state,
@@ -439,7 +441,7 @@ async def episode_replay_route(websocket: WebSocket, asset_id: str, episode_id: 
                 state.cursor_ns = _parse_non_negative_int(payload, "cursor_ns")
                 await _send_replay_samples(
                     websocket,
-                    session_factory=session_factory,
+                    workspace=workspace,
                     asset_id=asset_id,
                     episode_id=episode_id,
                     state=state,
@@ -457,7 +459,7 @@ async def episode_replay_route(websocket: WebSocket, asset_id: str, episode_id: 
                 if state.cursor_ns is not None:
                     await _send_replay_samples(
                         websocket,
-                        session_factory=session_factory,
+                        workspace=workspace,
                         asset_id=asset_id,
                         episode_id=episode_id,
                         state=state,
@@ -473,7 +475,7 @@ async def episode_replay_route(websocket: WebSocket, asset_id: str, episode_id: 
                 if state.cursor_ns is not None:
                     await _send_replay_samples(
                         websocket,
-                        session_factory=session_factory,
+                        workspace=workspace,
                         asset_id=asset_id,
                         episode_id=episode_id,
                         state=state,

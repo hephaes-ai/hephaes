@@ -12,14 +12,14 @@ from pathlib import Path
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.session import sessionmaker
 
+from hephaes import Workspace
 from hephaes._converter_helpers import _normalize_payload
 
 from app.config import get_settings
 from app.db.models import Job
-from app.services.assets import get_asset_or_raise
+from app.services.assets import AssetNotFoundError
 from app.services.episodes import (
-    _build_streams_for_episode,
-    _episode_summary_for_asset,
+    get_episode_detail,
     open_asset_reader,
 )
 from app.services.jobs import JobService, find_latest_job_for_target
@@ -295,8 +295,9 @@ def _generate_rrd(
 
 
 class VisualizationService:
-    def __init__(self, session: Session) -> None:
+    def __init__(self, session: Session, workspace: Workspace) -> None:
         self.session = session
+        self.workspace = workspace
         self.job_service = JobService(session)
         self.settings = get_settings()
 
@@ -306,8 +307,10 @@ class VisualizationService:
         episode_id: str,
     ) -> tuple[Job, PendingVisualizationExecution | None]:
         """Create or reuse a prepare_visualization job for the given episode."""
-        asset = get_asset_or_raise(self.session, asset_id)
-        _episode_summary_for_asset(asset, episode_id)
+        asset = self.workspace.get_asset(asset_id)
+        if asset is None:
+            raise AssetNotFoundError(f"asset not found: {asset_id}")
+        detail = get_episode_detail(self.workspace, asset_id, episode_id)
         viewer_version = self.settings.rerun_sdk_version
         recording_version = self.settings.rerun_recording_format_version
 
@@ -330,8 +333,7 @@ class VisualizationService:
             if existing_job.status == "succeeded" and cached_artifact is not None:
                 return existing_job, None
 
-        streams = _build_streams_for_episode(asset, episode_id)
-        topics = [stream.source_topic for stream in streams]
+        topics = [stream.source_topic for stream in detail.streams]
         output_path = _artifact_file_path(asset_id, episode_id)
 
         job = self.job_service.create_job(
@@ -389,8 +391,7 @@ class VisualizationService:
 
     def get_viewer_source(self, asset_id: str, episode_id: str) -> ViewerSourceManifest:
         """Return the current viewer-source manifest for an episode."""
-        asset = get_asset_or_raise(self.session, asset_id)
-        _episode_summary_for_asset(asset, episode_id)
+        get_episode_detail(self.workspace, asset_id, episode_id)
         viewer_version = self.settings.rerun_sdk_version
         recording_version = self.settings.rerun_recording_format_version
 
@@ -472,6 +473,8 @@ def run_visualization_job_in_background(
 ) -> None:
     session = session_factory()
     try:
-        VisualizationService(session).execute_visualization_job(execution)
+        VisualizationService(session, Workspace.open(get_settings().workspace_root)).execute_visualization_job(
+            execution
+        )
     finally:
         session.close()

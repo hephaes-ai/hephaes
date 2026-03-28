@@ -8,19 +8,16 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy.orm import Session
-
+from hephaes import IndexedAssetMetadata, RegisteredAsset, Workspace
 from hephaes._converter_helpers import _normalize_payload
 from hephaes.models import Message
 from hephaes.reader import RosReader
 
-from app.db.models import Asset
 from app.schemas.assets import TopicModality
 from app.services.assets import (
     AssetEpisodeSummary,
+    AssetNotFoundError,
     EpisodeDiscoveryUnavailableError,
-    get_asset_or_raise,
-    list_asset_episodes,
 )
 
 VISUAL_MODALITIES = {"image", "points", "scalar_series"}
@@ -220,7 +217,7 @@ def _resolve_stream_bounds_for_topics(
 
 
 def _resolve_stream_bounds(
-    asset: Asset,
+    asset: RegisteredAsset,
     *,
     streams: list[EpisodeStreamSummary],
 ) -> list[EpisodeStreamSummary]:
@@ -251,23 +248,71 @@ def _resolve_stream_bounds(
     ]
 
 
-def _episode_summary_for_asset(asset: Asset, episode_id: str) -> AssetEpisodeSummary:
-    for episode in list_asset_episodes(asset):
-        if episode.episode_id == episode_id:
-            return episode
-    raise EpisodeNotFoundError(f"episode not found: {episode_id}")
+def _get_asset_or_raise(workspace: Workspace, asset_id: str) -> RegisteredAsset:
+    asset = workspace.get_asset(asset_id)
+    if asset is None:
+        raise AssetNotFoundError(f"asset not found: {asset_id}")
+    return asset
 
 
-def _build_streams_for_episode(asset: Asset, episode_id: str) -> list[EpisodeStreamSummary]:
-    metadata_record = asset.metadata_record
-    if metadata_record is None:
+def _asset_metadata_or_raise(asset: RegisteredAsset, metadata: IndexedAssetMetadata | None) -> IndexedAssetMetadata:
+    if metadata is None or metadata.default_episode is None:
+        raise EpisodeDiscoveryUnavailableError(
+            f"asset must be indexed before episodes are available: {asset.file_name}"
+        )
+    return metadata
+
+
+def _episode_summary_for_asset(
+    asset: RegisteredAsset,
+    metadata: IndexedAssetMetadata,
+    episode_id: str,
+) -> AssetEpisodeSummary:
+    default_episode = metadata.default_episode
+    if default_episode is None:
         raise EpisodeDiscoveryUnavailableError(
             f"asset must be indexed before episodes are available: {asset.file_name}"
         )
 
+    if default_episode.episode_id == episode_id:
+        visualization_summary = metadata.visualization_summary
+        return AssetEpisodeSummary(
+            default_lane_count=(
+                visualization_summary.default_lane_count if visualization_summary is not None else 0
+            ),
+            duration=default_episode.duration,
+            end_time=metadata.end_time,
+            episode_id=default_episode.episode_id,
+            has_visualizable_streams=(
+                visualization_summary.has_visualizable_streams
+                if visualization_summary is not None
+                else False
+            ),
+            label=default_episode.label,
+            start_time=metadata.start_time,
+        )
+    raise EpisodeNotFoundError(f"episode not found: {episode_id}")
+
+
+def _build_streams_for_episode(
+    asset: RegisteredAsset,
+    metadata: IndexedAssetMetadata,
+    episode_id: str,
+) -> list[EpisodeStreamSummary]:
     base_streams = [
         _stream_seed_from_topic(episode_id, topic_index=index, topic_payload=topic_payload)
-        for index, topic_payload in enumerate(metadata_record.topics_json)
+        for index, topic_payload in enumerate(
+            [
+                {
+                    "name": topic.name,
+                    "message_type": topic.message_type,
+                    "message_count": topic.message_count,
+                    "rate_hz": topic.rate_hz,
+                    "modality": topic.modality,
+                }
+                for topic in metadata.topics
+            ]
+        )
     ]
     return _resolve_stream_bounds(asset, streams=base_streams)
 
@@ -336,16 +381,14 @@ def _select_streams(
     return selected_streams
 
 
-def _build_episode_detail(asset: Asset, episode: AssetEpisodeSummary) -> EpisodeDetail:
-    metadata_record = asset.metadata_record
-    if metadata_record is None:
-        raise EpisodeDiscoveryUnavailableError(
-            f"asset must be indexed before episodes are available: {asset.file_name}"
-        )
-
-    streams = _build_streams_for_episode(asset, episode.episode_id)
+def _build_episode_detail(
+    asset: RegisteredAsset,
+    metadata: IndexedAssetMetadata,
+    episode: AssetEpisodeSummary,
+) -> EpisodeDetail:
+    streams = _build_streams_for_episode(asset, metadata, episode.episode_id)
     start_timestamp_ns, end_timestamp_ns = _episode_bounds(episode, streams)
-    visualization_summary = metadata_record.visualization_summary_json or {}
+    visualization_summary = metadata.visualization_summary
 
     return EpisodeDetail(
         asset_id=asset.id,
@@ -357,16 +400,21 @@ def _build_episode_detail(asset: Asset, episode: AssetEpisodeSummary) -> Episode
         start_timestamp_ns=start_timestamp_ns,
         end_timestamp_ns=end_timestamp_ns,
         duration_seconds=episode.duration,
-        has_visualizable_streams=bool(visualization_summary.get("has_visualizable_streams", False)),
-        default_lane_count=int(visualization_summary.get("default_lane_count", 0)),
+        has_visualizable_streams=(
+            visualization_summary.has_visualizable_streams if visualization_summary is not None else False
+        ),
+        default_lane_count=(
+            visualization_summary.default_lane_count if visualization_summary is not None else 0
+        ),
         streams=streams,
     )
 
 
-def get_episode_detail(session: Session, asset_id: str, episode_id: str) -> EpisodeDetail:
-    asset = get_asset_or_raise(session, asset_id)
-    episode = _episode_summary_for_asset(asset, episode_id)
-    return _build_episode_detail(asset, episode)
+def get_episode_detail(workspace: Workspace, asset_id: str, episode_id: str) -> EpisodeDetail:
+    asset = _get_asset_or_raise(workspace, asset_id)
+    metadata = _asset_metadata_or_raise(asset, workspace.get_asset_metadata(asset_id))
+    episode = _episode_summary_for_asset(asset, metadata, episode_id)
+    return _build_episode_detail(asset, metadata, episode)
 
 
 def _bucket_index(
@@ -395,16 +443,17 @@ def _exclusive_stop_ns(timestamp_ns: int | None) -> int | None:
 
 
 def get_episode_timeline(
-    session: Session,
+    workspace: Workspace,
     asset_id: str,
     episode_id: str,
     *,
     bucket_count: int = 120,
     stream_ids: list[str] | None = None,
 ) -> EpisodeTimelineResult:
-    asset = get_asset_or_raise(session, asset_id)
-    episode = _episode_summary_for_asset(asset, episode_id)
-    detail = _build_episode_detail(asset, episode)
+    asset = _get_asset_or_raise(workspace, asset_id)
+    metadata = _asset_metadata_or_raise(asset, workspace.get_asset_metadata(asset_id))
+    episode = _episode_summary_for_asset(asset, metadata, episode_id)
+    detail = _build_episode_detail(asset, metadata, episode)
     selected_streams = _select_streams(detail.streams, stream_ids=stream_ids)
 
     counts_by_stream_id = {stream.id: [0] * bucket_count for stream in selected_streams}
@@ -573,7 +622,7 @@ def _collect_latest_sample_messages(
 
 
 def get_episode_samples(
-    session: Session,
+    workspace: Workspace,
     asset_id: str,
     episode_id: str,
     *,
@@ -582,9 +631,10 @@ def get_episode_samples(
     window_after_ns: int = 0,
     stream_ids: list[str] | None = None,
 ) -> EpisodeSamplesResult:
-    asset = get_asset_or_raise(session, asset_id)
-    episode = _episode_summary_for_asset(asset, episode_id)
-    detail = _build_episode_detail(asset, episode)
+    asset = _get_asset_or_raise(workspace, asset_id)
+    metadata = _asset_metadata_or_raise(asset, workspace.get_asset_metadata(asset_id))
+    episode = _episode_summary_for_asset(asset, metadata, episode_id)
+    detail = _build_episode_detail(asset, metadata, episode)
     selected_streams = _select_streams(detail.streams, stream_ids=stream_ids)
 
     window_start_ns = max(0, timestamp_ns - window_before_ns)

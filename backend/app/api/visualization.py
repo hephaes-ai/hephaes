@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
 from app.api._status import HTTP_422_UNPROCESSABLE_CONTENT
-from app.db.session import get_db_session
+from app.dependencies import get_db_session, get_workspace
 from app.schemas.jobs import JobResponse
 from app.schemas.visualization import (
     PrepareVisualizationResponse,
@@ -23,12 +23,14 @@ from app.services.visualization import (
     run_visualization_job_in_background,
 )
 from app.services.jobs import get_job_or_raise
+from hephaes import Workspace
 
 router = APIRouter(
     prefix="/assets/{asset_id}/episodes/{episode_id}",
     tags=["visualization"],
 )
 DbSession = Annotated[Session, Depends(get_db_session)]
+WorkspaceDep = Annotated[Workspace, Depends(get_workspace)]
 
 
 @router.post("/prepare-visualization", response_model=PrepareVisualizationResponse)
@@ -37,9 +39,10 @@ def prepare_visualization_route(
     episode_id: str,
     request: Request,
     session: DbSession,
+    workspace: WorkspaceDep,
 ) -> PrepareVisualizationResponse:
     try:
-        service = VisualizationService(session)
+        service = VisualizationService(session, workspace)
         job, execution = service.prepare_visualization_job(asset_id, episode_id)
     except AssetNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
@@ -77,9 +80,10 @@ def get_viewer_source_route(
     asset_id: str,
     episode_id: str,
     session: DbSession,
+    workspace: WorkspaceDep,
 ) -> ViewerSourceResponse:
     try:
-        service = VisualizationService(session)
+        service = VisualizationService(session, workspace)
         manifest = service.get_viewer_source(asset_id, episode_id)
     except AssetNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
