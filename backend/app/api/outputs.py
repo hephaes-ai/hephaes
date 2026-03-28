@@ -77,6 +77,17 @@ def _workspace_output_job_id(workspace: Workspace, artifact) -> str | None:
     return run.job_id
 
 
+def _workspace_output_asset_ids(workspace: Workspace, artifact) -> list[str]:
+    if artifact.source_asset_id is not None:
+        return [artifact.source_asset_id]
+    if artifact.conversion_run_id is None:
+        return []
+    run = workspace.get_conversion_run(artifact.conversion_run_id)
+    if run is None:
+        return []
+    return list(run.source_asset_ids)
+
+
 def _normalize_output_metadata(metadata: dict) -> dict:
     normalized = dict(metadata)
     manifest = normalized.get("manifest")
@@ -106,6 +117,7 @@ def _workspace_output_summary_response(
     detail = map_output_detail(
         artifact,
         job_id=_workspace_output_job_id(workspace, artifact),
+        asset_ids=_workspace_output_asset_ids(workspace, artifact),
     )
     payload = detail.model_dump()
     payload.pop("file_path", None)
@@ -123,6 +135,7 @@ def _workspace_output_detail_response(
     detail = map_output_detail(
         artifact,
         job_id=_workspace_output_job_id(workspace, artifact),
+        asset_ids=_workspace_output_asset_ids(workspace, artifact),
     )
     payload = detail.model_dump()
     payload["metadata"] = _normalize_output_metadata(payload.get("metadata", {}))
@@ -130,10 +143,14 @@ def _workspace_output_detail_response(
     return OutputArtifactDetailResponse.model_validate(payload)
 
 
-def _workspace_output_matches_filters(artifact, query: OutputListQueryParams) -> bool:
+def _workspace_output_matches_filters(
+    workspace: Workspace,
+    artifact,
+    query: OutputListQueryParams,
+) -> bool:
     if query.conversion_id is not None and artifact.conversion_run_id != query.conversion_id:
         return False
-    if query.asset_id is not None and artifact.source_asset_id != query.asset_id:
+    if query.asset_id is not None and query.asset_id not in _workspace_output_asset_ids(workspace, artifact):
         return False
     if query.format is not None and artifact.format.lower() != query.format:
         return False
@@ -220,7 +237,9 @@ def list_outputs_route(
         for summary in workspace.list_output_artifacts()
     ])
     filtered_artifacts = [
-        artifact for artifact in artifacts if _workspace_output_matches_filters(artifact, query)
+        artifact
+        for artifact in artifacts
+        if _workspace_output_matches_filters(workspace, artifact, query)
     ]
     latest_actions = {
         output_id: build_output_action_summary_response(action)

@@ -46,7 +46,6 @@ from hephaes import (
     TagNotFoundError,
     Workspace,
 )
-import hephaes.workspace as workspace_module
 
 router = APIRouter(prefix="/assets", tags=["assets"])
 WorkspaceDep = Annotated[Workspace, Depends(get_workspace)]
@@ -86,16 +85,25 @@ def _asset_registration_response(asset) -> AssetRegistrationResponse:
     return AssetRegistrationResponse.model_validate(map_asset_summary(asset).model_dump())
 
 
-def _configure_workspace_indexing_adapter(workspace: Workspace) -> None:
-    def _profile(file_path: str, *, max_workers: int = 1):
-        del max_workers
-        resolved_file_path = file_path
-        asset = workspace.find_asset_by_path(file_path)
-        if asset is not None and asset.source_path is not None:
-            resolved_file_path = asset.source_path
-        return indexing_service.profile_asset_file(resolved_file_path)
-
-    workspace_module.profile_asset_file = _profile
+def _index_workspace_asset(
+    workspace: Workspace,
+    asset_id: str,
+    *,
+    job_config: dict,
+):
+    asset = workspace.get_asset_or_raise(asset_id)
+    source_path = Path(asset.source_path).expanduser() if asset.source_path is not None else None
+    profile_path = (
+        str(source_path)
+        if source_path is not None and source_path.exists()
+        else asset.file_path
+    )
+    return workspace.index_asset(
+        asset_id,
+        job_config=job_config,
+        profile_path=profile_path,
+        profile_fn=indexing_service.profile_asset_file,
+    )
 
 
 def _related_jobs(
@@ -266,6 +274,8 @@ async def upload_asset_route(
     raw_target_path.write_bytes(content)
     try:
         asset = workspace.import_asset(str(raw_target_path))
+    except AssetAlreadyRegisteredError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except Exception:
         raw_target_path.unlink(missing_ok=True)
         raise
@@ -345,8 +355,8 @@ def index_asset_route(
     workspace: WorkspaceDep,
 ) -> AssetDetailResponse:
     try:
-        _configure_workspace_indexing_adapter(workspace)
-        workspace.index_asset(
+        _index_workspace_asset(
+            workspace,
             asset_id,
             job_config={
                 "execution": request.app.state.settings.job_execution_mode,
@@ -429,8 +439,8 @@ def reindex_all_route(
         if asset.indexing_status not in {"pending", "failed"} and asset.last_indexed_at is not None:
             continue
         try:
-            _configure_workspace_indexing_adapter(workspace)
-            reindexed_asset = workspace.index_asset(
+            reindexed_asset = _index_workspace_asset(
+                workspace,
                 asset.id,
                 job_config={
                     "execution": request.app.state.settings.job_execution_mode,

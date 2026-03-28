@@ -1704,6 +1704,8 @@ class Workspace:
         *,
         max_workers: int = 1,
         job_config: dict | None = None,
+        profile_path: str | Path | None = None,
+        profile_fn: Any | None = None,
     ) -> RegisteredAsset:
         self.get_asset_or_raise(asset_id)
         job = self.create_job(
@@ -1727,7 +1729,15 @@ class Workspace:
         asset = self.get_asset_or_raise(asset_id)
 
         try:
-            profile = profile_asset_file(asset.file_path, max_workers=max_workers)
+            resolved_profile_path = (
+                str(Path(profile_path).expanduser())
+                if profile_path is not None
+                else asset.file_path
+            )
+            if profile_fn is None:
+                profile = profile_asset_file(resolved_profile_path, max_workers=max_workers)
+            else:
+                profile = profile_fn(resolved_profile_path)
             payload = build_index_metadata_payload(asset, profile)
         except Exception as exc:
             failed_at = _utc_now()

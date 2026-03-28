@@ -413,6 +413,7 @@ def map_output_summary(
     artifact: OutputArtifactSummary,
     *,
     job_id: str | None = None,
+    asset_ids: list[str] | None = None,
 ) -> OutputArtifactSummaryResponse:
     conversion_id = artifact.conversion_run_id or ""
     resolved_job_id = job_id or conversion_id
@@ -426,7 +427,11 @@ def map_output_summary(
         id=artifact.id,
         conversion_id=conversion_id,
         job_id=resolved_job_id,
-        asset_ids=[artifact.source_asset_id] if artifact.source_asset_id is not None else [],
+        asset_ids=(
+            list(asset_ids)
+            if asset_ids is not None
+            else ([artifact.source_asset_id] if artifact.source_asset_id is not None else [])
+        ),
         relative_path=relative_path,
         file_name=Path(artifact.output_path).name,
         format=artifact.format,
@@ -446,6 +451,7 @@ def map_output_detail(
     artifact: OutputArtifact,
     *,
     job_id: str | None = None,
+    asset_ids: list[str] | None = None,
 ) -> OutputArtifactDetailResponse:
     summary = map_output_summary(
         OutputArtifactSummary(
@@ -462,6 +468,7 @@ def map_output_detail(
             report_available=artifact.report_available,
         ),
         job_id=job_id,
+        asset_ids=asset_ids,
     )
     payload = summary.model_dump()
     payload.update(

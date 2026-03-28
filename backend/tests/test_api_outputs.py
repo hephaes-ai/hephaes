@@ -310,6 +310,7 @@ def test_output_actions_refresh_metadata_updates_latest_action_and_detail(
     client: TestClient,
     monkeypatch,
     sample_asset_file: Path,
+    backend_outputs_dir: Path,
 ):
     _asset_id, conversion = create_conversion(client, monkeypatch, sample_asset_file)
     dataset_output = client.get("/outputs", params={"format": "parquet"}).json()[0]
@@ -329,7 +330,7 @@ def test_output_actions_refresh_metadata_updates_latest_action_and_detail(
     assert action["config"] == {"reason": "test"}
     assert action["result"]["availability_status"] == "ready"
     assert action["result"]["size_bytes"] == len(b"parquet-data-updated")
-    assert action["output_path"] == str(Path(conversion["output_path"]).parents[1] / "actions" / action["id"])
+    assert action["output_path"] == str(backend_outputs_dir / "actions" / action["id"])
     assert action["output_file_path"] == str(dataset_path)
 
     result_file = Path(action["output_path"]) / "result.json"

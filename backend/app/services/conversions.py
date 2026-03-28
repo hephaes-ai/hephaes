@@ -60,46 +60,22 @@ class PendingConversionExecution:
     saved_config_id: str | None
 
 
-def list_conversions(_session=None) -> list[ConversionRun]:
-    return _workspace().list_conversion_runs()
+def _resolve_workspace(source: Workspace | None = None) -> Workspace:
+    if source is not None:
+        return source
+    return Workspace.open(get_settings().workspace_root)
 
 
-def list_conversions_filtered(
-    _session=None,
-    *,
-    image_payload_contract: str | None = None,
-    legacy_compatible: bool | None = None,
-) -> list[ConversionRun]:
-    conversions = list_conversions()
-    if image_payload_contract is None and legacy_compatible is None:
-        return conversions
-
-    filtered: list[ConversionRun] = []
-    for conversion in conversions:
-        policy = conversion.config.get("representation_policy")
-        if not isinstance(policy, dict):
-            continue
-
-        effective_contract = policy.get("effective_image_payload_contract")
-        markers = policy.get("compatibility_markers")
-        is_legacy_compatible = isinstance(markers, list) and "legacy_list_image_payload" in markers
-
-        if image_payload_contract is not None and effective_contract != image_payload_contract:
-            continue
-        if legacy_compatible is not None and is_legacy_compatible != legacy_compatible:
-            continue
-
-        filtered.append(conversion)
-
-    return filtered
+def list_conversions(workspace: Workspace | None = None) -> list[ConversionRun]:
+    return _resolve_workspace(workspace).list_conversion_runs()
 
 
-def get_conversion(_session, conversion_id: str) -> ConversionRun | None:
-    return _workspace().get_conversion_run(conversion_id)
+def get_conversion(workspace: Workspace | None, conversion_id: str) -> ConversionRun | None:
+    return _resolve_workspace(workspace).get_conversion_run(conversion_id)
 
 
-def get_conversion_or_raise(_session, conversion_id: str) -> ConversionRun:
-    conversion = get_conversion(_session, conversion_id)
+def get_conversion_or_raise(workspace: Workspace | None, conversion_id: str) -> ConversionRun:
+    conversion = get_conversion(workspace, conversion_id)
     if conversion is None:
         raise ConversionNotFoundError(f"conversion not found: {conversion_id}")
     return conversion
@@ -327,7 +303,7 @@ class ConversionService:
             )
 
         conversion_id = str(uuid4())
-        output_dir = self.settings.outputs_dir / "conversions" / conversion_id
+        output_dir = self.workspace.paths.outputs_dir / conversion_id
         output_dir.mkdir(parents=True, exist_ok=True)
 
         asset_ids = [asset.id for asset in assets]
