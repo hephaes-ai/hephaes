@@ -37,11 +37,8 @@ from app.services.conversion_authoring import (
 )
 from app.services.conversions import (
     ConversionExecutionError,
-    ConversionNotFoundError,
     ConversionService,
     ConversionValidationError,
-    get_conversion_or_raise,
-    list_conversions_filtered,
     run_conversion_job_in_background,
 )
 from hephaes import Workspace
@@ -267,9 +264,17 @@ def create_conversion_route(
     except ConversionExecutionError as exc:
         raise HTTPException(status_code=HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
 
-    session.expire_all()
-    conversion = get_conversion_or_raise(session, conversion.id)
-    return build_conversion_detail_response(conversion)
+    workspace = request.app.state.workspace
+    run = workspace.get_conversion_run(conversion.id)
+    if run is None:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"conversion run not found after execution: {conversion.id}",
+        )
+    return map_conversion_detail(
+        run,
+        job=workspace.get_job(run.job_id) if run.job_id is not None else None,
+    )
 
 
 @router.get("/capabilities", response_model=ConversionAuthoringCapabilitiesResponse)
@@ -343,51 +348,32 @@ def preview_conversion_route(
 @router.get("", response_model=list[ConversionSummaryResponse])
 def list_conversions_route(
     workspace: WorkspaceDep,
-    session: DbSession,
     image_payload_contract: Annotated[str | None, Query()] = None,
     legacy_compatible: Annotated[bool | None, Query()] = None,
 ) -> list[ConversionSummaryResponse]:
-    responses = {
-        conversion.id: build_conversion_summary_response(conversion)
-        for conversion in list_conversions_filtered(
-            session,
-            image_payload_contract=image_payload_contract,
-            legacy_compatible=legacy_compatible,
-        )
-    }
-    for run in workspace.list_conversion_runs():
-        if not _matches_conversion_filters(
+    return [
+        map_conversion_summary(run)
+        for run in workspace.list_conversion_runs()
+        if _matches_conversion_filters(
             dict(run.config),
             image_payload_contract=image_payload_contract,
             legacy_compatible=legacy_compatible,
-        ):
-            continue
-        responses.setdefault(run.id, map_conversion_summary(run))
-    return sorted(
-        responses.values(),
-        key=lambda conversion: (conversion.created_at, conversion.id),
-        reverse=True,
-    )
+        )
+    ]
 
 
 @router.get("/{conversion_id}", response_model=ConversionDetailResponse)
 def get_conversion_route(
     conversion_id: str,
     workspace: WorkspaceDep,
-    session: DbSession,
 ) -> ConversionDetailResponse:
-    try:
-        conversion = get_conversion_or_raise(session, conversion_id)
-    except ConversionNotFoundError:
-        run = workspace.get_conversion_run(conversion_id)
-        if run is not None:
-            return map_conversion_detail(
-                run,
-                job=workspace.get_job(run.job_id) if run.job_id is not None else None,
-            )
+    run = workspace.get_conversion_run(conversion_id)
+    if run is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"conversion not found: {conversion_id}",
-        ) from None
-
-    return build_conversion_detail_response(conversion)
+        )
+    return map_conversion_detail(
+        run,
+        job=workspace.get_job(run.job_id) if run.job_id is not None else None,
+    )
