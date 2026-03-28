@@ -20,9 +20,9 @@ As of `2026-03-28`, `hephaes` already contains:
 - pure conversion authoring helpers for inspect, draft generation, and preview
 - a `Workspace` package API with durable local SQLite state and package-owned authoring workflow methods through config promotion
 - asset registration, indexing, tags, saved configs, config revisions, draft heads, public draft lookup/state primitives, draft revision persistence, jobs, conversion runs, and outputs
-- CLI commands for workspace init, asset add/index/list, inspect, convert, configs, jobs, runs, and outputs
+- CLI commands for workspace init, asset add/index/list, inspect, drafts, convert, configs, jobs, runs, and outputs
 
-What it does **not** yet contain is a package-owned end-to-end authoring workflow through the CLI.
+What it does **not** yet contain is the required interactive wizard for the authoring workflow.
 
 ## Current Package Surface
 
@@ -82,6 +82,7 @@ Implemented commands include:
 - `hephaes index`
 - `hephaes ls assets`
 - `hephaes inspect`
+- `hephaes drafts ...`
 - `hephaes convert`
 - `hephaes configs ...`
 - `hephaes jobs ...`
@@ -90,7 +91,6 @@ Implemented commands include:
 
 Missing:
 
-- no `drafts` command group
 - no interactive wizard
 
 ## Current Authoring Workflow Status
@@ -123,7 +123,7 @@ Implemented today:
 
 Missing today:
 
-- CLI still calls `inspect_bag(...)` directly instead of reusing `Workspace.inspect_asset(...)`
+- standalone `inspect` still calls `inspect_bag(...)` directly instead of reusing `Workspace.inspect_asset(...)`
 
 Relevant files:
 
@@ -144,7 +144,7 @@ Implemented today:
 
 Missing today:
 
-- no scriptable `drafts create` CLI surface yet
+- no wizard entrypoint yet
 
 Important current limitation:
 
@@ -169,7 +169,7 @@ Implemented today:
 
 Missing today:
 
-- no scriptable `drafts update` CLI surface yet
+- no wizard-driven edit flow yet
 
 ### 5. Preview draft
 
@@ -183,7 +183,7 @@ Implemented today:
 
 Missing today:
 
-- no scriptable `drafts preview` CLI surface yet
+- no wizard-driven preview flow yet
 
 Relevant files:
 
@@ -203,7 +203,7 @@ Implemented today:
 
 Missing today:
 
-- no scriptable `drafts confirm` CLI surface yet
+- no wizard-driven confirmation flow yet
 
 ### 7. Save confirmed draft as reusable config
 
@@ -218,7 +218,7 @@ Implemented today:
 
 Missing today:
 
-- no scriptable `drafts save-config` CLI surface yet
+- no wizard-driven save flow yet
 
 Relevant files:
 
@@ -283,9 +283,9 @@ Current behavior:
 
 Current limitation:
 
-- the new workflow is still not exposed through a `drafts` CLI surface or wizard
+- the new workflow still does not have the required interactive wizard
 
-So the structural gap has narrowed from "no draft head exists" to "the workflow is package-owned in `Workspace`, but the CLI UX is still missing."
+So the structural gap has narrowed from "no draft head exists" to "the workflow is package-owned in `Workspace` and the scriptable CLI, but the required wizard is still missing."
 
 ## Current CLI State
 
@@ -296,6 +296,7 @@ The CLI already supports:
 - workspace bootstrapping
 - asset ingestion/indexing
 - ad hoc inspection
+- scriptable draft authoring commands
 - saved config CRUD
 - conversion execution
 
@@ -303,14 +304,6 @@ The CLI already supports:
 
 The CLI does **not** yet support:
 
-- `drafts create`
-- `drafts ls`
-- `drafts show`
-- `drafts update`
-- `drafts preview`
-- `drafts confirm`
-- `drafts discard`
-- `drafts save-config`
 - `drafts wizard`
 
 The required interactive wizard does not exist yet.
@@ -335,7 +328,6 @@ The target design in `design/architecture.md` and `design/implementation.md` is 
 
 Main gaps:
 
-- no `drafts` CLI command group
 - no required interactive wizard
 
 ## Main Implementation Anchors
@@ -384,6 +376,7 @@ Relevant package tests already exist for:
 - draft-head lookup and state primitive behavior
 - workspace-owned inspect/create/update/preview/confirm/discard authoring flow
 - workspace-owned draft promotion and lineage
+- scriptable CLI draft workflow
 - draft revision persistence
 - conversion authoring helpers
 - conversion execution
@@ -400,7 +393,6 @@ Observed during implementation on `2026-03-28`:
 
 What is not covered yet:
 
-- CLI command behavior for draft workflow
 - wizard behavior
 
 ## Working Assumptions For Implementation
@@ -425,4 +417,5 @@ Current shorthand:
 - durable workspace exists
 - draft-head persistence primitives now exist
 - `Workspace` owns inspect -> draft -> preview -> confirm -> save
-- CLI-first authoring still does not exist
+- scriptable CLI authoring exists
+- the required wizard still does not exist

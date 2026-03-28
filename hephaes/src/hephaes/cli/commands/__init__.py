@@ -4,6 +4,7 @@ __all__ = [
     "assets",
     "configs",
     "convert",
+    "drafts",
     "inspect",
     "jobs",
     "outputs",

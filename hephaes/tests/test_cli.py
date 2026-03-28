@@ -1,12 +1,48 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import hephaes
 from hephaes.conversion.spec_io import build_conversion_spec_document, dump_conversion_spec_document
 from hephaes.cli import main
 from hephaes.conversion.introspection import InspectionResult, TopicInspectionResult
-from hephaes.models import BagMetadata, ConversionSpec, OutputSpec, SchemaSpec, Topic
+from hephaes.models import BagMetadata, ConversionSpec, Message, OutputSpec, SchemaSpec, Topic
+
+
+class FakeCLIAuthoringReader:
+    def __init__(self, *, bag_path: str = "/tmp/test.mcap") -> None:
+        self.bag_path = Path(bag_path)
+        self.ros_version = "ROS2"
+        self.topics = {
+            "/doom_image": "custom_msgs/msg/RawImageBGRA",
+            "/joy": "sensor_msgs/msg/Joy",
+        }
+        self._messages = [
+            Message(timestamp=90, topic="/joy", data={"buttons": [1, 0, 0] + [0] * 12, "axes": [0.0, 0.5]}),
+            Message(timestamp=100, topic="/doom_image", data={"data": bytes(range(16))}),
+            Message(timestamp=190, topic="/joy", data={"buttons": [0, 1, 0] + [0] * 12, "axes": [0.25, -0.25]}),
+            Message(timestamp=200, topic="/doom_image", data={"data": bytes(range(16, 32))}),
+        ]
+
+    def read_messages(
+        self,
+        topics=None,
+        *,
+        on_failure="warn",
+        topic_type_hints=None,
+        start_ns=None,
+        stop_ns=None,
+    ):
+        del on_failure, topic_type_hints, start_ns, stop_ns
+        topic_filter = set(topics) if topics else None
+        for message in self._messages:
+            if topic_filter is not None and message.topic not in topic_filter:
+                continue
+            yield message
+
+    def close(self) -> None:
+        return None
 
 
 def test_cli_version(capsys) -> None:
@@ -439,6 +475,210 @@ def test_cli_configs_show_update_duplicate_and_revisions(tmp_path: Path, capsys)
     captured = capsys.readouterr()
     assert exit_code == 0
     assert "\tSaved Demo Copy\t" in captured.out
+
+
+def test_cli_drafts_create_show_update_preview_confirm_and_save_config(
+    tmp_path: Path,
+    tmp_mcap_file: Path,
+    capsys,
+    monkeypatch,
+) -> None:
+    from hephaes import Workspace
+
+    main(["init", str(tmp_path)])
+    capsys.readouterr()
+    main(["add", "--workspace", str(tmp_path), str(tmp_mcap_file)])
+    asset_id = capsys.readouterr().out.strip().split("\t", 1)[0]
+
+    monkeypatch.setattr(
+        "hephaes.workspace.drafts.RosReader.open",
+        lambda bag_path, ros_version=None, registry=None: FakeCLIAuthoringReader(
+            bag_path=bag_path,
+        ),
+    )
+
+    exit_code = main(
+        [
+            "drafts",
+            "create",
+            "--workspace",
+            str(tmp_path),
+            asset_id,
+            "--topic",
+            "/doom_image",
+            "--topic",
+            "/joy",
+            "--sample-n",
+            "2",
+            "--trigger-topic",
+            "/doom_image",
+            "--max-features-per-topic",
+            "1",
+            "--label-feature",
+            "buttons",
+            "--label",
+            "CLI Draft",
+        ]
+    )
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    created = json.loads(captured.out)
+    draft_id = created["id"]
+    assert created["status"] == "draft"
+    assert created["current_revision"]["label"] == "CLI Draft"
+
+    exit_code = main(["drafts", "show", "--workspace", str(tmp_path), draft_id])
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    shown = json.loads(captured.out)
+    assert shown["id"] == draft_id
+    assert len(shown["revisions"]) == 1
+
+    workspace = Workspace.open(tmp_path)
+    draft = workspace.resolve_conversion_draft(draft_id)
+    assert draft.current_revision is not None
+    updated_document = draft.current_revision.document.model_copy(
+        update={"metadata": {"stage": "cli-update"}}
+    )
+    updated_document_path = tmp_path / "draft-update.json"
+    updated_document_path.write_text(
+        dump_conversion_spec_document(updated_document, format="json"),
+        encoding="utf-8",
+    )
+
+    exit_code = main(
+        [
+            "drafts",
+            "update",
+            "--workspace",
+            str(tmp_path),
+            draft_id,
+            "--spec-document",
+            str(updated_document_path),
+            "--label",
+            "CLI Update",
+        ]
+    )
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    updated = json.loads(captured.out)
+    assert updated["current_revision"]["revision_number"] == 2
+    assert updated["current_revision"]["metadata"] == {"stage": "cli-update"}
+
+    exit_code = main(
+        [
+            "drafts",
+            "preview",
+            "--workspace",
+            str(tmp_path),
+            draft_id,
+            "--sample-n",
+            "1",
+        ]
+    )
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    previewed = json.loads(captured.out)
+    assert previewed["current_revision"]["preview_request"]["sample_n"] == 1
+    assert len(previewed["current_revision"]["preview"]["rows"]) == 1
+
+    exit_code = main(
+        [
+            "drafts",
+            "confirm",
+            "--workspace",
+            str(tmp_path),
+            draft_id,
+            "--yes",
+        ]
+    )
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    confirmed = json.loads(captured.out)
+    assert confirmed["status"] == "confirmed"
+    assert confirmed["confirmed_revision_id"] == confirmed["current_revision_id"]
+
+    exit_code = main(
+        [
+            "drafts",
+            "save-config",
+            "--workspace",
+            str(tmp_path),
+            draft_id,
+            "--name",
+            "CLI Draft Config",
+            "--description",
+            "saved from cli",
+        ]
+    )
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    saved = json.loads(captured.out)
+    assert saved["name"] == "CLI Draft Config"
+    assert saved["metadata"]["hephaes_workspace"]["draft_promotion"]["draft_id"] == draft_id
+
+
+def test_cli_drafts_ls_and_discard(
+    tmp_path: Path,
+    tmp_mcap_file: Path,
+    capsys,
+    monkeypatch,
+) -> None:
+    main(["init", str(tmp_path)])
+    capsys.readouterr()
+    main(["add", "--workspace", str(tmp_path), str(tmp_mcap_file)])
+    asset_id = capsys.readouterr().out.strip().split("\t", 1)[0]
+
+    monkeypatch.setattr(
+        "hephaes.workspace.drafts.RosReader.open",
+        lambda bag_path, ros_version=None, registry=None: FakeCLIAuthoringReader(
+            bag_path=bag_path,
+        ),
+    )
+
+    exit_code = main(
+        [
+            "drafts",
+            "create",
+            "--workspace",
+            str(tmp_path),
+            asset_id,
+            "--topic",
+            "/doom_image",
+            "--topic",
+            "/joy",
+            "--trigger-topic",
+            "/doom_image",
+            "--max-features-per-topic",
+            "1",
+            "--label-feature",
+            "buttons",
+        ]
+    )
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    draft_id = json.loads(captured.out)["id"]
+
+    exit_code = main(["drafts", "ls", "--workspace", str(tmp_path), "--status", "draft"])
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert draft_id in captured.out
+    assert "\tdraft\t" in captured.out
+
+    exit_code = main(
+        [
+            "drafts",
+            "discard",
+            "--workspace",
+            str(tmp_path),
+            draft_id,
+            "--yes",
+        ]
+    )
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    discarded = json.loads(captured.out)
+    assert discarded["status"] == "discarded"
 
 
 def test_cli_outputs_ls_and_show(tmp_path: Path, capsys) -> None:
