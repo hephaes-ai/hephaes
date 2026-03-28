@@ -38,7 +38,7 @@ Current phase status:
 - Phase 2 complete: assets are now linked by path and the workspace no longer creates `.hephaes/imports`
 - Phase 3 complete: runtime path-availability errors are now package-owned across index, inspect, drafts, and convert
 - Phase 4 complete: package cleanup removed the last copy helper and remaining CLI wording now reflects registered file paths
-- Phase 5 not yet implemented: final broad validation and docs cleanup still need to land
+- Phase 5 complete: package tests, docs build, and a real-file CLI smoke test all validated the linked-path workspace model
 
 ## Current Package Surface
 

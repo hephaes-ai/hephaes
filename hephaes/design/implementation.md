@@ -235,6 +235,10 @@ Completed on `2026-03-28`.
 
 Harden the redesign and document the new user model clearly.
 
+### Status
+
+Completed on `2026-03-28`.
+
 ### Tasks
 
 - Update package tests for:
@@ -259,6 +263,13 @@ Harden the redesign and document the new user model clearly.
   5. `hephaes drafts wizard ...`
   6. `hephaes convert ...`
   7. `hephaes outputs ls`
+
+### Notes
+
+- `pytest hephaes/tests` passes with `374 passed`.
+- `npm run build` in `docs/` succeeds with the updated linked-path documentation.
+- A manual CLI smoke test against `/Users/danielyoo/Downloads/demo/optimal_0.mcap` confirmed `init`, `add`, `inspect`, `drafts create`, `drafts preview`, `drafts confirm`, and `drafts save-config` using the canonical registered file path without copying the raw asset.
+- Conversion execution remains covered by the package test suite, including conversion runs from promoted saved configs.
 
 ### Exit Criteria
 
