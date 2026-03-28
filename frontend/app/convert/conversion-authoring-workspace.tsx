@@ -860,9 +860,7 @@ export function ConversionAuthoringWorkspace({
               sourceAssetId: sourceId,
             })
 
-      React.startTransition(() => {
-        router.replace(nextHref, { scroll: false })
-      })
+      router.replace(nextHref, { scroll: false })
     },
     [assetIds, mode, router, searchParams]
   )
@@ -1418,9 +1416,7 @@ export function ConversionAuthoringWorkspace({
         setSpecText(
           stringifyJson(resolveSavedConfigSpec(result) ?? parsedSpec.value)
         )
-        React.startTransition(() => {
-          router.push(nextHref, { scroll: false })
-        })
+        router.push(nextHref, { scroll: false })
         toast.success("Saved config created")
       }
     } catch (error) {

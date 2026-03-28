@@ -157,9 +157,7 @@ export function JobsPage() {
     const nextQuery = nextParams.toString();
     const nextHref = nextQuery ? `${pathname}?${nextQuery}` : pathname;
 
-    React.startTransition(() => {
-      router.replace(nextHref, { scroll: false });
-    });
+    router.replace(nextHref, { scroll: false });
   }
 
   if (jobsResponse.isLoading) {

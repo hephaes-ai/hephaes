@@ -34,25 +34,51 @@ export function useAppPathname() {
 
 export function useAppRouter(): AppRouter {
   const navigate = useNavigate();
+  const isMountedRef = React.useRef(true);
+
+  React.useEffect(() => {
+    isMountedRef.current = true;
+
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   return React.useMemo(
     () => ({
       back() {
+        if (!isMountedRef.current) {
+          return;
+        }
         navigate(-1);
       },
       forward() {
+        if (!isMountedRef.current) {
+          return;
+        }
         navigate(1);
       },
       push(href: string, options?: AppNavigationOptions) {
+        if (!isMountedRef.current) {
+          return;
+        }
         navigate(href, {
+          flushSync: options?.flushSync,
           preventScrollReset: options?.scroll === false,
         });
       },
       refresh() {
+        if (!isMountedRef.current) {
+          return;
+        }
         window.location.reload();
       },
       replace(href: string, options?: AppNavigationOptions) {
+        if (!isMountedRef.current) {
+          return;
+        }
         navigate(href, {
+          flushSync: options?.flushSync,
           preventScrollReset: options?.scroll === false,
           replace: true,
         });

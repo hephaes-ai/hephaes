@@ -248,9 +248,7 @@ export function VisualizationPage() {
 
       const nextHref = nextQuery ? `${pathname}?${nextQuery}` : pathname
 
-      React.startTransition(() => {
-        router.replace(nextHref, { scroll: false })
-      })
+      router.replace(nextHref, { scroll: false })
     },
     [pathname, router, searchParamsString]
   )
@@ -282,9 +280,7 @@ export function VisualizationPage() {
       from: returnHref,
     })
 
-    React.startTransition(() => {
-      router.replace(nextHref, { scroll: false })
-    })
+    router.replace(nextHref, { scroll: false })
 
     setIsPlaying(false)
     setCurrentTimestampNs(null)

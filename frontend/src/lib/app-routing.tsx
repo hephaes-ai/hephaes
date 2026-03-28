@@ -16,6 +16,7 @@ export interface AppLinkProps
 }
 
 export interface AppNavigationOptions {
+  flushSync?: boolean;
   scroll?: boolean;
 }
 
@@ -51,22 +52,46 @@ export function useAppPathname() {
 
 export function useAppRouter(): AppRouter {
   const router = useRouter();
+  const isMountedRef = React.useRef(true);
+
+  React.useEffect(() => {
+    isMountedRef.current = true;
+
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   return React.useMemo(
     () => ({
       back() {
+        if (!isMountedRef.current) {
+          return;
+        }
         router.back();
       },
       forward() {
+        if (!isMountedRef.current) {
+          return;
+        }
         router.forward();
       },
       push(href, options) {
+        if (!isMountedRef.current) {
+          return;
+        }
         router.push(href, normalizeNavigationOptions(options));
       },
       refresh() {
+        if (!isMountedRef.current) {
+          return;
+        }
         router.refresh();
       },
       replace(href, options) {
+        if (!isMountedRef.current) {
+          return;
+        }
         router.replace(href, normalizeNavigationOptions(options));
       },
     }),

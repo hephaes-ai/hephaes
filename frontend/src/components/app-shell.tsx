@@ -45,6 +45,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     },
   ]
 
+  function onNavigate(href: string) {
+    return (event: Parameters<NonNullable<React.ComponentProps<typeof AppLink>["onClick"]>>[0]) => {
+      event.preventDefault()
+      router.push(href, { flushSync: true, scroll: false })
+    }
+  }
+
   return (
     <div className="flex min-h-svh flex-col bg-background">
       <header className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/90">
@@ -54,6 +61,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <AppLink
                 className="flex items-center gap-2 text-sm font-semibold tracking-tight text-foreground"
                 href="/dashboard"
+                onClick={onNavigate("/dashboard")}
               >
                 <span className="relative block size-8 shrink-0">
                   <img
@@ -87,7 +95,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 {navItems.map((item) => (
                   <DropdownMenuItem
                     key={item.href}
-                    onSelect={() => router.push(item.href, { scroll: false })}
+                    onSelect={() => router.push(item.href, { flushSync: true, scroll: false })}
                   >
                     {item.label}
                   </DropdownMenuItem>
@@ -105,6 +113,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     })}
                     href={item.href}
                     key={item.href}
+                    onClick={onNavigate(item.href)}
                   >
                     {item.label}
                   </AppLink>
