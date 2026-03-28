@@ -5,6 +5,7 @@ import argparse
 from ...conversion.draft_spec import DraftSpecRequest
 from ...conversion.introspection import InspectionRequest
 from ..common import add_workspace_argument, open_workspace, print_json
+from ...workspace import WorkspaceError
 
 
 def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
@@ -144,6 +145,23 @@ def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) ->
         help="Optional saved conversion config description.",
     )
     save_config_parser.set_defaults(handler=handle_save_config_from_draft)
+
+    wizard_parser = drafts_subparsers.add_parser(
+        "wizard",
+        help="Run the interactive conversion draft wizard.",
+    )
+    wizard_parser.add_argument(
+        "asset_selector",
+        nargs="?",
+        help="Registered asset id or path to start a new wizard draft from.",
+    )
+    add_workspace_argument(wizard_parser)
+    wizard_parser.add_argument(
+        "--draft",
+        dest="draft_selector",
+        help="Existing draft id to resume instead of creating a new draft.",
+    )
+    wizard_parser.set_defaults(handler=handle_draft_wizard)
 
 
 def _add_inspection_arguments(parser: argparse.ArgumentParser) -> None:
@@ -392,6 +410,125 @@ def _confirm_or_abort(prompt: str, *, assume_yes: bool) -> bool:
     return answer in {"y", "yes"}
 
 
+def _prompt_text(
+    prompt: str,
+    *,
+    default: str | None = None,
+    allow_empty: bool = False,
+) -> str:
+    suffix = f" [{default}]" if default not in (None, "") else ""
+    while True:
+        value = input(f"{prompt}{suffix}: ").strip()
+        if value:
+            return value
+        if default is not None:
+            return default
+        if allow_empty:
+            return ""
+        print("Value required.")
+
+
+def _prompt_int(prompt: str, *, default: int, minimum: int = 1) -> int:
+    while True:
+        raw = _prompt_text(prompt, default=str(default))
+        try:
+            value = int(raw)
+        except ValueError:
+            print("Enter a whole number.")
+            continue
+        if value < minimum:
+            print(f"Enter a value >= {minimum}.")
+            continue
+        return value
+
+
+def _prompt_yes_no(prompt: str, *, default: bool) -> bool:
+    suffix = "Y/n" if default else "y/N"
+    while True:
+        value = input(f"{prompt} [{suffix}]: ").strip().casefold()
+        if not value:
+            return default
+        if value in {"y", "yes"}:
+            return True
+        if value in {"n", "no"}:
+            return False
+        print("Please answer yes or no.")
+
+
+def _prompt_wizard_inspection_request() -> InspectionRequest:
+    sample_n = _prompt_int("Inspection sample count", default=8, minimum=1)
+    topics_text = _prompt_text(
+        "Inspection topics (comma-separated, blank for all)",
+        default="",
+        allow_empty=True,
+    )
+    topics = [topic.strip() for topic in topics_text.split(",") if topic.strip()]
+    return InspectionRequest(
+        topics=topics,
+        sample_n=sample_n,
+    )
+
+
+def _prompt_wizard_draft_request(inspection_request: InspectionRequest) -> DraftSpecRequest:
+    trigger_topic = _prompt_text(
+        "Trigger topic (blank for auto)",
+        default="",
+        allow_empty=True,
+    )
+    max_features = _prompt_int("Max features per topic", default=2, minimum=1)
+    label_feature = _prompt_text(
+        "Primary label feature (blank for none)",
+        default="",
+        allow_empty=True,
+    )
+    while True:
+        output_format = _prompt_text("Output format", default="tfrecord").casefold()
+        if output_format in {"tfrecord", "parquet"}:
+            break
+        print("Output format must be 'tfrecord' or 'parquet'.")
+    return DraftSpecRequest(
+        trigger_topic=trigger_topic or None,
+        selected_topics=inspection_request.topics,
+        schema_name="draft_conversion",
+        schema_version=1,
+        output_format=output_format,
+        output_compression="none",
+        max_features_per_topic=max_features,
+        label_feature=label_feature or None,
+        include_preview=False,
+        preview_rows=5,
+    )
+
+
+def _available_wizard_actions(status: str) -> list[str]:
+    if status == "draft":
+        return ["show", "update", "preview", "confirm", "save", "discard", "exit"]
+    if status == "confirmed":
+        return ["show", "update", "preview", "save", "discard", "exit"]
+    return ["show", "exit"]
+
+
+def _prompt_wizard_action(status: str) -> str:
+    actions = _available_wizard_actions(status)
+    return _prompt_text(
+        f"Wizard action ({', '.join(actions)})",
+        default="show" if status in {"saved", "discarded"} else "preview",
+    ).casefold()
+
+
+def _print_preview_summary(draft) -> None:
+    current_revision = draft.current_revision
+    if current_revision is None or current_revision.preview_json is None:
+        print("No preview has been recorded for the current revision.")
+        return
+    preview = current_revision.preview_json
+    print(
+        "Preview rows="
+        f"{len(preview.get('rows', []))} checked={preview.get('checked_records', 0)} "
+        f"bad={preview.get('bad_records', 0)}"
+    )
+
+
 def handle_create_draft(args: argparse.Namespace) -> int:
     workspace = open_workspace(args.workspace)
     draft = workspace.create_conversion_draft(
@@ -501,3 +638,101 @@ def handle_save_config_from_draft(args: argparse.Namespace) -> int:
     )
     print_json(_serialize_saved_config(config))
     return 0
+
+
+def handle_draft_wizard(args: argparse.Namespace) -> int:
+    workspace = open_workspace(args.workspace)
+    if args.draft_selector and args.asset_selector:
+        print("Choose either an asset selector or --draft, not both.")
+        return 1
+    if not args.draft_selector and not args.asset_selector:
+        print("Provide an asset selector or --draft to run the wizard.")
+        return 1
+
+    if args.draft_selector:
+        draft = workspace.resolve_conversion_draft(args.draft_selector)
+        print(f"Resuming draft {draft.id} (status={draft.status}).")
+    else:
+        inspection_request = _prompt_wizard_inspection_request()
+        draft_request = _prompt_wizard_draft_request(inspection_request)
+        draft = workspace.create_conversion_draft(
+            args.asset_selector,
+            inspection_request=inspection_request,
+            draft_request=draft_request,
+            label="Wizard Draft",
+        )
+        print(f"Created draft {draft.id}.")
+
+    while True:
+        draft = workspace.resolve_conversion_draft(draft.id)
+        print(
+            f"Draft {draft.id} status={draft.status} "
+            f"current_revision={draft.current_revision_id or '-'}"
+        )
+        action = _prompt_wizard_action(draft.status)
+        if action not in _available_wizard_actions(draft.status):
+            print(f"Unknown action: {action}")
+            continue
+
+        if action == "show":
+            revisions = workspace.list_conversion_draft_revisions(draft_selector=draft.id)
+            print_json(_serialize_draft(draft, revision_summaries=revisions))
+            if draft.status in {"saved", "discarded"}:
+                return 0
+            continue
+
+        if action == "exit":
+            print_json(_serialize_draft(draft))
+            return 0
+
+        try:
+            if action == "update":
+                spec_document = _prompt_text("Edited spec document path")
+                label = _prompt_text(
+                    "Revision label (blank for none)",
+                    default="",
+                    allow_empty=True,
+                )
+                draft = workspace.update_conversion_draft(
+                    draft.id,
+                    spec_document=spec_document,
+                    label=label or None,
+                )
+                print(f"Draft {draft.id} updated to revision {draft.current_revision_id}.")
+                continue
+
+            if action == "preview":
+                sample_n = _prompt_int("Preview row count", default=5, minimum=1)
+                draft = workspace.preview_conversion_draft(draft.id, sample_n=sample_n)
+                _print_preview_summary(draft)
+                continue
+
+            if action == "confirm":
+                draft = workspace.confirm_conversion_draft(draft.id)
+                print(f"Draft {draft.id} confirmed.")
+                continue
+
+            if action == "save":
+                name = _prompt_text("Saved config name")
+                description = _prompt_text(
+                    "Saved config description (blank for none)",
+                    default="",
+                    allow_empty=True,
+                )
+                config = workspace.save_conversion_config_from_draft(
+                    draft.id,
+                    name=name,
+                    description=description or None,
+                )
+                print_json(_serialize_saved_config(config))
+                return 0
+
+            if action == "discard":
+                if not _prompt_yes_no("Discard this draft?", default=False):
+                    print("Discard aborted.")
+                    continue
+                draft = workspace.discard_conversion_draft(draft.id)
+                print_json(_serialize_draft(draft))
+                return 0
+        except WorkspaceError as exc:
+            print(f"Error: {exc}")

@@ -27,7 +27,7 @@ This implementation plan is intentionally package-first:
 | 2 | completed | Refactored `workspace/drafts.py` around draft heads plus revisions, added public draft lookup APIs and draft lifecycle errors, and expanded workspace/package export coverage. |
 | 3 | completed | Added package-owned `Workspace` authoring methods for inspect/create/update/preview/confirm/discard plus reader error normalization and workflow tests. |
 | 4 | completed | Added a scriptable `drafts` command group covering create/ls/show/update/preview/confirm/discard/save-config on top of `Workspace`. |
-| 5 | not started | Pending required interactive wizard. |
+| 5 | completed | Added `drafts wizard` for new-asset and resume flows, backed entirely by `Workspace` draft/config methods. |
 | 6 | completed | Pulled forward to unblock the CLI save flow; added `Workspace.save_conversion_config_from_draft(...)`, draft-to-config lineage in config metadata, and promotion coverage including conversion execution. |
 | 7 | not started | Pending expanded workflow and migration validation. |
 | 8 | not started | Pending final docs/examples refresh. |
@@ -255,6 +255,10 @@ Completed on `2026-03-28`.
 ### Goal
 
 Ship a required interactive wizard that becomes the default human path through the authoring workflow.
+
+### Status
+
+Completed on `2026-03-28`.
 
 ### Tasks
 

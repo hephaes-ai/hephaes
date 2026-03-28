@@ -20,9 +20,9 @@ As of `2026-03-28`, `hephaes` already contains:
 - pure conversion authoring helpers for inspect, draft generation, and preview
 - a `Workspace` package API with durable local SQLite state and package-owned authoring workflow methods through config promotion
 - asset registration, indexing, tags, saved configs, config revisions, draft heads, public draft lookup/state primitives, draft revision persistence, jobs, conversion runs, and outputs
-- CLI commands for workspace init, asset add/index/list, inspect, drafts, convert, configs, jobs, runs, and outputs
+- CLI commands for workspace init, asset add/index/list, inspect, drafts, drafts wizard, convert, configs, jobs, runs, and outputs
 
-What it does **not** yet contain is the required interactive wizard for the authoring workflow.
+The core package-owned authoring workflow is now implemented through both `Workspace` and the CLI.
 
 ## Current Package Surface
 
@@ -83,6 +83,7 @@ Implemented commands include:
 - `hephaes ls assets`
 - `hephaes inspect`
 - `hephaes drafts ...`
+- `hephaes drafts wizard ...`
 - `hephaes convert`
 - `hephaes configs ...`
 - `hephaes jobs ...`
@@ -91,7 +92,7 @@ Implemented commands include:
 
 Missing:
 
-- no interactive wizard
+- no major command gaps for the authoring workflow
 
 ## Current Authoring Workflow Status
 
@@ -144,11 +145,11 @@ Implemented today:
 
 Missing today:
 
-- no wizard entrypoint yet
+- standalone `inspect` is still separate from the draft-first CLI flow
 
 Important current limitation:
 
-- the workflow is package-owned at the `Workspace` layer, but not yet exposed through the new CLI surface
+- standalone `inspect` still remains a separate CLI path outside the draft-first flow
 
 Relevant files:
 
@@ -169,7 +170,7 @@ Implemented today:
 
 Missing today:
 
-- no wizard-driven edit flow yet
+- no in-wizard text editor; updates still point at spec document paths
 
 ### 5. Preview draft
 
@@ -183,7 +184,7 @@ Implemented today:
 
 Missing today:
 
-- no wizard-driven preview flow yet
+- no additional preview-specific wizard controls beyond sample count
 
 Relevant files:
 
@@ -203,7 +204,7 @@ Implemented today:
 
 Missing today:
 
-- no wizard-driven confirmation flow yet
+- no major package gap in this workflow step
 
 ### 7. Save confirmed draft as reusable config
 
@@ -218,7 +219,7 @@ Implemented today:
 
 Missing today:
 
-- no wizard-driven save flow yet
+- saved config lineage is currently surfaced through config metadata rather than dedicated config fields
 
 Relevant files:
 
@@ -283,9 +284,9 @@ Current behavior:
 
 Current limitation:
 
-- the new workflow still does not have the required interactive wizard
+- the wizard is intentionally lightweight and relies on external spec-document edits for manual revision changes
 
-So the structural gap has narrowed from "no draft head exists" to "the workflow is package-owned in `Workspace` and the scriptable CLI, but the required wizard is still missing."
+So the structural gap has narrowed from "no draft head exists" to "the package-owned workflow is implemented, with remaining work mostly in validation depth and docs polish."
 
 ## Current CLI State
 
@@ -297,16 +298,13 @@ The CLI already supports:
 - asset ingestion/indexing
 - ad hoc inspection
 - scriptable draft authoring commands
+- interactive draft authoring through `drafts wizard`
 - saved config CRUD
 - conversion execution
 
 ### What is missing
 
-The CLI does **not** yet support:
-
-- `drafts wizard`
-
-The required interactive wizard does not exist yet.
+No major target-workflow command gaps remain.
 
 ## Current Package Boundary
 
@@ -320,7 +318,8 @@ The required interactive wizard does not exist yet.
 
 ### Not yet package-owned in the right form
 
-- CLI-first authoring UX
+- standalone inspect still bypasses `Workspace.inspect_asset(...)`
+- some lineage/query surfacing still lives in config metadata instead of dedicated fields
 
 ## Known Gaps Relative To The Target Design
 
@@ -328,7 +327,9 @@ The target design in `design/architecture.md` and `design/implementation.md` is 
 
 Main gaps:
 
-- no required interactive wizard
+- standalone `inspect` still bypasses `Workspace.inspect_asset(...)`
+- lineage surfacing still depends on config metadata
+- final docs/examples refresh is still pending
 
 ## Main Implementation Anchors
 
@@ -377,6 +378,7 @@ Relevant package tests already exist for:
 - workspace-owned inspect/create/update/preview/confirm/discard authoring flow
 - workspace-owned draft promotion and lineage
 - scriptable CLI draft workflow
+- interactive draft wizard flow
 - draft revision persistence
 - conversion authoring helpers
 - conversion execution
@@ -393,7 +395,7 @@ Observed during implementation on `2026-03-28`:
 
 What is not covered yet:
 
-- wizard behavior
+- additional migration-specific fixtures for promoted configs and wizard state recovery
 
 ## Working Assumptions For Implementation
 
@@ -418,4 +420,4 @@ Current shorthand:
 - draft-head persistence primitives now exist
 - `Workspace` owns inspect -> draft -> preview -> confirm -> save
 - scriptable CLI authoring exists
-- the required wizard still does not exist
+- the required wizard exists

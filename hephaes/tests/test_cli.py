@@ -45,6 +45,14 @@ class FakeCLIAuthoringReader:
         return None
 
 
+def _mock_input_sequence(
+    monkeypatch,
+    responses: list[str],
+):
+    answers = iter(responses)
+    monkeypatch.setattr("builtins.input", lambda prompt="": next(answers))
+
+
 def test_cli_version(capsys) -> None:
     exit_code = main(["--version"])
 
@@ -679,6 +687,193 @@ def test_cli_drafts_ls_and_discard(
     assert exit_code == 0
     discarded = json.loads(captured.out)
     assert discarded["status"] == "discarded"
+
+
+def test_cli_drafts_wizard_happy_path_from_asset_to_saved_config(
+    tmp_path: Path,
+    tmp_mcap_file: Path,
+    capsys,
+    monkeypatch,
+) -> None:
+    from hephaes import Workspace
+
+    main(["init", str(tmp_path)])
+    capsys.readouterr()
+    main(["add", "--workspace", str(tmp_path), str(tmp_mcap_file)])
+    asset_id = capsys.readouterr().out.strip().split("\t", 1)[0]
+
+    monkeypatch.setattr(
+        "hephaes.workspace.drafts.RosReader.open",
+        lambda bag_path, ros_version=None, registry=None: FakeCLIAuthoringReader(
+            bag_path=bag_path,
+        ),
+    )
+    _mock_input_sequence(
+        monkeypatch,
+        [
+            "",
+            "/doom_image,/joy",
+            "/doom_image",
+            "1",
+            "buttons",
+            "",
+            "preview",
+            "1",
+            "confirm",
+            "save",
+            "Wizard Draft Config",
+            "",
+        ],
+    )
+
+    exit_code = main(["drafts", "wizard", "--workspace", str(tmp_path), asset_id])
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    saved = json.loads(captured.out.strip().splitlines()[-1])
+    assert saved["name"] == "Wizard Draft Config"
+    assert saved["metadata"]["hephaes_workspace"]["draft_promotion"]["source_asset_id"] == asset_id
+
+    workspace = Workspace.open(tmp_path)
+    assert workspace.resolve_saved_conversion_config(saved["id"]).name == "Wizard Draft Config"
+
+
+def test_cli_drafts_wizard_can_resume_existing_draft(
+    tmp_path: Path,
+    tmp_mcap_file: Path,
+    capsys,
+    monkeypatch,
+) -> None:
+    from hephaes import Workspace
+
+    main(["init", str(tmp_path)])
+    capsys.readouterr()
+    main(["add", "--workspace", str(tmp_path), str(tmp_mcap_file)])
+    asset_id = capsys.readouterr().out.strip().split("\t", 1)[0]
+
+    monkeypatch.setattr(
+        "hephaes.workspace.drafts.RosReader.open",
+        lambda bag_path, ros_version=None, registry=None: FakeCLIAuthoringReader(
+            bag_path=bag_path,
+        ),
+    )
+
+    workspace = Workspace.open(tmp_path)
+    draft = workspace.create_conversion_draft(
+        asset_id,
+        inspection_request={"sample_n": 2, "topics": ["/doom_image", "/joy"]},
+        draft_request={
+            "trigger_topic": "/doom_image",
+            "selected_topics": ["/doom_image", "/joy"],
+            "max_features_per_topic": 1,
+            "label_feature": "buttons",
+            "include_preview": False,
+        },
+    )
+
+    _mock_input_sequence(
+        monkeypatch,
+        [
+            "preview",
+            "1",
+            "confirm",
+            "save",
+            "Resumed Draft Config",
+            "",
+        ],
+    )
+
+    exit_code = main(
+        ["drafts", "wizard", "--workspace", str(tmp_path), "--draft", draft.id]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    saved = json.loads(captured.out.strip().splitlines()[-1])
+    assert saved["name"] == "Resumed Draft Config"
+
+
+def test_cli_drafts_wizard_can_discard_from_inside_the_flow(
+    tmp_path: Path,
+    tmp_mcap_file: Path,
+    capsys,
+    monkeypatch,
+) -> None:
+    main(["init", str(tmp_path)])
+    capsys.readouterr()
+    main(["add", "--workspace", str(tmp_path), str(tmp_mcap_file)])
+    asset_id = capsys.readouterr().out.strip().split("\t", 1)[0]
+
+    monkeypatch.setattr(
+        "hephaes.workspace.drafts.RosReader.open",
+        lambda bag_path, ros_version=None, registry=None: FakeCLIAuthoringReader(
+            bag_path=bag_path,
+        ),
+    )
+    _mock_input_sequence(
+        monkeypatch,
+        [
+            "",
+            "/doom_image,/joy",
+            "/doom_image",
+            "1",
+            "buttons",
+            "",
+            "discard",
+            "yes",
+        ],
+    )
+
+    exit_code = main(["drafts", "wizard", "--workspace", str(tmp_path), asset_id])
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    discarded = json.loads(captured.out.strip().splitlines()[-1])
+    assert discarded["status"] == "discarded"
+
+
+def test_cli_drafts_wizard_rejects_confirm_and_save_before_preview(
+    tmp_path: Path,
+    tmp_mcap_file: Path,
+    capsys,
+    monkeypatch,
+) -> None:
+    main(["init", str(tmp_path)])
+    capsys.readouterr()
+    main(["add", "--workspace", str(tmp_path), str(tmp_mcap_file)])
+    asset_id = capsys.readouterr().out.strip().split("\t", 1)[0]
+
+    monkeypatch.setattr(
+        "hephaes.workspace.drafts.RosReader.open",
+        lambda bag_path, ros_version=None, registry=None: FakeCLIAuthoringReader(
+            bag_path=bag_path,
+        ),
+    )
+    _mock_input_sequence(
+        monkeypatch,
+        [
+            "",
+            "/doom_image,/joy",
+            "/doom_image",
+            "1",
+            "buttons",
+            "",
+            "confirm",
+            "save",
+            "Too Early",
+            "",
+            "exit",
+        ],
+    )
+
+    exit_code = main(["drafts", "wizard", "--workspace", str(tmp_path), asset_id])
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "must be previewed before confirmation" in captured.out
+    assert "must be confirmed before it can be saved as a config" in captured.out
+    final_draft = json.loads(captured.out.strip().splitlines()[-1])
+    assert final_draft["status"] == "draft"
 
 
 def test_cli_outputs_ls_and_show(tmp_path: Path, capsys) -> None:
