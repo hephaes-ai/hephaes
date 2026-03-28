@@ -2,73 +2,157 @@
 
 ## Snapshot
 
-`hephaes` is in active use as the conversion core for the local data pipeline. The package supports profiling, schema authoring, spec lifecycle helpers, conversion execution, and output streaming for Parquet and TFRecord.
+As of `2026-03-28`, `hephaes` now owns the full local conversion authoring workflow as a standalone package and CLI.
 
-## Implemented Capabilities
+That means the package can:
 
-### Input and Reading
+- register and index source assets
+- inspect a source asset
+- create and revise draft conversion specs
+- preview draft revisions
+- confirm drafts
+- save confirmed drafts as reusable configs
+- run conversions from those saved configs
+- persist draft, config, run, job, and output history in the workspace
 
-- ROS1 `.bag` and ROS2 `.mcap` file ingestion
-- Reader APIs (`RosReader`, `ROS1Reader`, `ROS2Reader`) for direct message access
-- Header iteration and topic-scoped reads for targeted inspection
+## What Is Implemented Today
 
-### Profiling and Inspection
+### Package Layers
 
-- `Profiler` for recording metadata (duration, timestamps, topic inventory)
-- Topic/message introspection helpers (`inspect_bag`, `inspect_reader`)
-- Structured inspection and sampled payload summaries for authoring workflows
+The current package is split into three useful layers:
 
-### Schema and Spec Authoring
+- `hephaes.conversion`: stateless inspect, draft, preview, and spec helpers
+- `hephaes.workspace.Workspace`: durable workflow orchestration and state transitions
+- `hephaes` CLI: thin adapters over `Workspace`, including both scriptable commands and the interactive wizard
 
-- Mapping template builders:
-  - `build_mapping_template`
-  - `build_mapping_template_from_json`
-- Rich conversion spec models for schema, row strategy, decoding, and validation
-- Draft-spec and preview helpers for authoring UX:
-  - `build_draft_conversion_spec`
-  - `preview_conversion_spec`
-  - `preflight_conversion_spec`
+### Durable Workflow Support
 
-### Conversion and Output
+`Workspace` now includes package-owned methods for:
 
-- `Converter` pipeline for end-to-end conversion
-- Output targets:
-  - Parquet (wide table format)
-  - TFRecord (flattened typed feature format)
-- TFRecord image payload contracts:
-  - `bytes_v2` (default)
-  - `legacy_list_v1` (compatibility)
-- Sidecar manifest generation per episode (`.manifest.json`)
+- `inspect_asset(...)`
+- `create_conversion_draft(...)`
+- `update_conversion_draft(...)`
+- `preview_conversion_draft(...)`
+- `confirm_conversion_draft(...)`
+- `discard_conversion_draft(...)`
+- `save_conversion_config_from_draft(...)`
+- `run_conversion(...)`
 
-### Spec I/O and Migration
+Drafts are first-class durable records with:
 
-- Load/dump conversion spec payloads and documents
-- Spec migration helpers for versioned compatibility
-- Contract migration helper:
-  - `set_tfrecord_image_payload_contract`
+- draft heads
+- immutable draft revisions
+- current revision tracking
+- confirmed revision tracking
+- saved-config linkage
+- preserved history after discard or promotion
 
-## Package Surface
+### CLI Coverage
 
-Core exports are centered around:
+The published CLI now includes:
 
-- Data access (`RosReader`, `Profiler`)
-- Authoring (`build_mapping_template*`, inspection, draft, preview)
-- Execution (`Converter`)
-- Output policy and compatibility (`TFRecordOutputConfig`, spec migration helpers)
+- `hephaes init`
+- `hephaes add`
+- `hephaes index`
+- `hephaes ls assets`
+- `hephaes inspect`
+- `hephaes drafts ...`
+- `hephaes drafts wizard ...`
+- `hephaes configs ...`
+- `hephaes convert`
+- `hephaes jobs ...`
+- `hephaes runs ...`
+- `hephaes outputs ...`
 
-## Known Scope Boundaries
+The authoring workflow is available through either:
 
-- CLI available for workspace-based workflows (see [CLI](./cli))
-- Input path support is file-based (not ROS bag directory bundles)
-- Focused on local/offline dataset preparation
+- the interactive wizard for humans
+- the scriptable `drafts` subcommands for automation and tests
 
-## Validation and Quality
+## Workflow Status By Step
 
-- Package includes a test suite under `hephaes/src/tests`
-- Backend integration tests validate conversion APIs and image payload contract behavior through the service layer
+### Source Asset Selection
+
+Status: implemented
+
+Assets can be registered, indexed, listed, and resolved by id or path inside the workspace.
+
+### Inspect
+
+Status: implemented
+
+The package supports both:
+
+- standalone inspection through `hephaes inspect`
+- package-owned inspection through `Workspace.inspect_asset(...)`
+
+### Draft Creation
+
+Status: implemented
+
+Draft creation now runs as a package-owned flow that inspects the asset, builds the initial spec, creates the draft head, and persists the first immutable revision.
+
+### Draft Revision
+
+Status: implemented
+
+Drafts can accumulate immutable revisions, with the draft head tracking the current revision separately from the confirmed revision.
+
+### Preview
+
+Status: implemented
+
+Preview requests and preview results are persisted on draft revisions, and confirmation requires a successful preview of the target revision.
+
+### Confirm
+
+Status: implemented
+
+Draft confirmation is now a durable workflow state, not just a frontend or backend convention.
+
+### Save Config
+
+Status: implemented
+
+Confirmed drafts can be promoted into reusable saved configs through `Workspace.save_conversion_config_from_draft(...)` or `hephaes drafts save-config ...`.
+
+### Convert
+
+Status: implemented
+
+Conversions can run from either a saved config or an explicit spec document, and the workspace records durable jobs, runs, and output artifacts.
+
+## Current Strengths
+
+- the package can be used independently of the backend for the complete authoring workflow
+- the CLI supports both a human-friendly wizard and automation-friendly commands
+- workflow rules now live in package code instead of adapter code
+- the package remains reusable by a later backend because the CLI is built on top of `Workspace`, not the other way around
+
+## Current Rough Edges
+
+- `hephaes inspect` still calls the stateless inspection helper directly instead of routing through `Workspace.inspect_asset(...)`
+- the wizard supports revision updates through `drafts update --spec-document ...`, not an inline editor
+- saved-config lineage is currently surfaced through config metadata rather than dedicated top-level config fields
+- direct `configs save` still exists for importing spec documents, even though draft-first authoring is now the recommended path
+
+None of those gaps block the package-owned authoring workflow, but they are still worth tracking as polish work.
+
+## Validation And Quality
+
+The package test suite lives under `hephaes/tests`.
+
+Current coverage includes:
+
+- workspace schema and migration behavior
+- draft persistence and lifecycle state transitions
+- saved-config promotion and lineage behavior
+- CLI command coverage for `drafts ...`
+- interactive wizard behavior
+- conversion execution from promoted configs
 
 ## Related Docs
 
 - [Overview](./overview)
-- [How To Use](./how-to-use)
 - [CLI](./cli)
+- [How To Use](./how-to-use)
