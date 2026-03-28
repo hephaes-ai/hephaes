@@ -201,6 +201,10 @@ Completed on `2026-03-28`.
 
 Remove old terminology and code paths that imply local asset copying.
 
+### Status
+
+Completed on `2026-03-28`.
+
 ### Tasks
 
 - Remove dead helpers related to asset copying and import destinations.
@@ -213,6 +217,11 @@ Remove old terminology and code paths that imply local asset copying.
   - `hephaes init`
   - `hephaes add /path/to/file`
   - later commands operating from the registered path-backed asset
+
+### Notes
+
+- The last unused workspace copy helper has been removed from the package.
+- CLI help text now consistently refers to registered file paths rather than original import paths.
 
 ### Exit Criteria
 

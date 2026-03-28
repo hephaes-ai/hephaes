@@ -35,7 +35,7 @@ def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) ->
     index_parser.add_argument(
         "selectors",
         nargs="*",
-        help="Asset ids or original file paths to index.",
+        help="Asset ids or registered file paths to index.",
     )
     add_workspace_argument(index_parser)
     index_parser.add_argument(

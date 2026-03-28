@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import mimetypes
-import shutil
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -69,13 +68,6 @@ def _write_text_atomically(path: Path, content: str) -> None:
     temporary_path = path.with_name(f".{path.name}.tmp")
     temporary_path.write_text(content, encoding="utf-8")
     temporary_path.replace(path)
-
-
-def _copy_file_atomically(source_path: Path, destination_path: Path) -> None:
-    destination_path.parent.mkdir(parents=True, exist_ok=True)
-    temporary_path = destination_path.with_name(f".{destination_path.name}.tmp")
-    shutil.copy2(source_path, temporary_path)
-    temporary_path.replace(destination_path)
 
 
 def _load_conversion_document_input(
