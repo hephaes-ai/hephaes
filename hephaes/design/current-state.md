@@ -329,7 +329,7 @@ Main gaps:
 
 - standalone `inspect` still bypasses `Workspace.inspect_asset(...)`
 - lineage surfacing still depends on config metadata
-- final docs/examples refresh is still pending
+- some future polish could move lineage/query surfacing into dedicated fields if needed
 
 ## Main Implementation Anchors
 
@@ -379,6 +379,7 @@ Relevant package tests already exist for:
 - workspace-owned draft promotion and lineage
 - scriptable CLI draft workflow
 - interactive draft wizard flow
+- wizard cancel-before-save and resume behavior
 - draft revision persistence
 - conversion authoring helpers
 - conversion execution
@@ -395,7 +396,7 @@ Observed during implementation on `2026-03-28`:
 
 What is not covered yet:
 
-- additional migration-specific fixtures for promoted configs and wizard state recovery
+- no major workflow gaps remain; future work is mostly incremental polish
 
 ## Working Assumptions For Implementation
 

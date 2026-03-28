@@ -29,8 +29,8 @@ This implementation plan is intentionally package-first:
 | 4 | completed | Added a scriptable `drafts` command group covering create/ls/show/update/preview/confirm/discard/save-config on top of `Workspace`. |
 | 5 | completed | Added `drafts wizard` for new-asset and resume flows, backed entirely by `Workspace` draft/config methods. |
 | 6 | completed | Pulled forward to unblock the CLI save flow; added `Workspace.save_conversion_config_from_draft(...)`, draft-to-config lineage in config metadata, and promotion coverage including conversion execution. |
-| 7 | not started | Pending expanded workflow and migration validation. |
-| 8 | not started | Pending final docs/examples refresh. |
+| 7 | completed | Added CLI and wizard coverage for the end-to-end flow, rejection paths, resume/cancel behavior, and conversion execution from promoted configs. |
+| 8 | completed | Updated the README with the CLI-first authoring workflow, package layering, example commands, and migration notes. |
 
 ## Phase Summary
 
@@ -350,6 +350,10 @@ Completed on `2026-03-28`.
 
 Lock in the workflow behavior and reduce migration risk.
 
+### Status
+
+Completed on `2026-03-28`.
+
 ### Tasks
 
 - Add package tests for draft head creation.
@@ -397,6 +401,10 @@ Lock in the workflow behavior and reduce migration risk.
 ### Goal
 
 Make the new workflow understandable and discoverable for package users.
+
+### Status
+
+Completed on `2026-03-28`.
 
 ### Tasks
 

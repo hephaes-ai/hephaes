@@ -56,3 +56,48 @@ Or install them individually:
 python -m pip install -e "./hephaes[dev]"
 python -m pip install -e "./backend[dev]"
 ```
+
+## Package Authoring Workflow
+
+The `hephaes` Python package now owns the full local conversion authoring workflow:
+
+1. inspect a registered asset
+2. create a draft conversion spec
+3. preview the draft
+4. confirm the draft
+5. save the confirmed draft as a reusable config
+6. run conversions from that saved config later
+
+### Recommended Paths
+
+- humans: use the interactive wizard
+- automation and tests: use the scriptable `drafts` commands
+
+Wizard path:
+
+```bash
+hephaes init ./demo
+hephaes add --workspace ./demo ./logs/run_001.mcap
+hephaes drafts wizard --workspace ./demo <asset-id>
+```
+
+Scriptable path:
+
+```bash
+hephaes drafts create --workspace ./demo <asset-id> --topic /camera --trigger-topic /camera
+hephaes drafts preview --workspace ./demo <draft-id> --sample-n 5
+hephaes drafts confirm --workspace ./demo <draft-id> --yes
+hephaes drafts save-config --workspace ./demo <draft-id> --name camera-demo
+hephaes convert --workspace ./demo <asset-id> --config camera-demo
+```
+
+### Package Layers
+
+- `hephaes.conversion`: stateless helpers such as `inspect_reader(...)`, `build_draft_conversion_spec(...)`, and `preview_conversion_spec(...)`
+- `hephaes.workspace.Workspace`: durable local workflow methods such as `create_conversion_draft(...)`, `preview_conversion_draft(...)`, `confirm_conversion_draft(...)`, and `save_conversion_config_from_draft(...)`
+- CLI commands: thin adapters over `Workspace`, including both `drafts ...` and `drafts wizard`
+
+### Migration Notes
+
+Existing workspace draft records are upgraded automatically when an older workspace is opened.
+Legacy draft revision rows are migrated into the draft-head model used by the current package workflow.
