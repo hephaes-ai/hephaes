@@ -4,6 +4,7 @@ import * as React from "react"
 import useSWR, { useSWRConfig } from "swr"
 
 import {
+  BackendApiError,
   createOutputAction,
   getConversionAuthoringCapabilities,
   getDashboardBlockers,
@@ -94,6 +95,21 @@ export const backendKeys = {
 
 type JobsHookOptions = {
   refreshInterval?: number
+}
+
+const JOBS_ERROR_RETRY_COUNT = 2
+const JOBS_ERROR_RETRY_INTERVAL_MS = 500
+
+function shouldRetryBackendReadError(error: unknown) {
+  if (error instanceof Error && error.name === "AbortError") {
+    return false
+  }
+
+  if (error instanceof BackendApiError) {
+    return error.status >= 500
+  }
+
+  return true
 }
 
 export function useHealth() {
@@ -249,7 +265,10 @@ export function useCreateOutputAction() {
 
 export function useJobs(options?: JobsHookOptions) {
   return useSWR(backendKeys.jobs, () => listJobs(), {
+    errorRetryCount: JOBS_ERROR_RETRY_COUNT,
+    errorRetryInterval: JOBS_ERROR_RETRY_INTERVAL_MS,
     refreshInterval: options?.refreshInterval,
+    shouldRetryOnError: shouldRetryBackendReadError,
   })
 }
 

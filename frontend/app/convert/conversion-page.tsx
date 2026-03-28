@@ -314,9 +314,7 @@ export function ConversionPage() {
       from: searchParams.get("from"),
     });
 
-    React.startTransition(() => {
-      router.replace(nextHref, { scroll: false });
-    });
+    router.replace(nextHref, { scroll: false });
   }
 
   async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
@@ -339,9 +337,7 @@ export function ConversionPage() {
         from: searchParams.get("from"),
       });
 
-      React.startTransition(() => {
-        router.replace(nextHref, { scroll: false });
-      });
+      router.replace(nextHref, { scroll: false });
     }
 
     if (result.notice) {

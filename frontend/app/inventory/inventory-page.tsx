@@ -312,9 +312,7 @@ export function InventoryPage() {
     const nextQueryString = nextParams.toString();
     const nextHref = nextQueryString ? `${pathname}?${nextQueryString}` : pathname;
 
-    React.startTransition(() => {
-      router.replace(nextHref, { scroll: false });
-    });
+    router.replace(nextHref, { scroll: false });
   }
 
   function resetBrowseState() {
@@ -322,9 +320,7 @@ export function InventoryPage() {
     setSelectedAssetIds(new Set());
     setIsBrowsePanelOpen(false);
 
-    React.startTransition(() => {
-      router.replace(pathname, { scroll: false });
-    });
+    router.replace(pathname, { scroll: false });
   }
 
   function onShowPlannedFeature(title: string, description: string) {

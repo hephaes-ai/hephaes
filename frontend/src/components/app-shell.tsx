@@ -5,22 +5,52 @@ import { Menu } from "lucide-react"
 import { BackendStatus } from "@/components/backend-status"
 import { BackendConnectionNotice } from "@/components/backend-connection-notice"
 import { ThemeToggle } from "@/components/theme-toggle"
-import { Button } from "@/components/ui/button"
+import { Button, buttonVariants } from "@/components/ui/button"
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { AppLink, useAppPathname } from "@/lib/app-routing"
+import { AppLink, useAppPathname, useAppRouter } from "@/lib/app-routing"
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = useAppPathname()
+  const router = useAppRouter()
   const isDashboardRoute = pathname === "/" || pathname === "/dashboard"
   const isInventoryRoute = pathname === "/inventory"
   const isJobsRoute = pathname === "/jobs" || pathname.startsWith("/jobs/")
   const isOutputsRoute =
     pathname === "/outputs" || pathname.startsWith("/outputs/")
+  const navItems = [
+    {
+      active: isDashboardRoute,
+      href: "/dashboard",
+      label: "Dashboard",
+    },
+    {
+      active: isInventoryRoute,
+      href: "/inventory",
+      label: "Inventory",
+    },
+    {
+      active: isOutputsRoute,
+      href: "/outputs",
+      label: "Outputs",
+    },
+    {
+      active: isJobsRoute,
+      href: "/jobs",
+      label: "Jobs",
+    },
+  ]
+
+  function onNavigate(href: string) {
+    return (event: Parameters<NonNullable<React.ComponentProps<typeof AppLink>["onClick"]>>[0]) => {
+      event.preventDefault()
+      router.push(href, { flushSync: true, scroll: false })
+    }
+  }
 
   return (
     <div className="flex min-h-svh flex-col bg-background">
@@ -31,6 +61,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <AppLink
                 className="flex items-center gap-2 text-sm font-semibold tracking-tight text-foreground"
                 href="/dashboard"
+                onClick={onNavigate("/dashboard")}
               >
                 <span className="relative block size-8 shrink-0">
                   <img
@@ -61,50 +92,32 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start">
-                <DropdownMenuItem asChild>
-                  <AppLink href="/dashboard">Dashboard</AppLink>
-                </DropdownMenuItem>
-                <DropdownMenuItem asChild>
-                  <AppLink href="/inventory">Inventory</AppLink>
-                </DropdownMenuItem>
-                <DropdownMenuItem asChild>
-                  <AppLink href="/outputs">Outputs</AppLink>
-                </DropdownMenuItem>
-                <DropdownMenuItem asChild>
-                  <AppLink href="/jobs">Jobs</AppLink>
-                </DropdownMenuItem>
+                {navItems.map((item) => (
+                  <DropdownMenuItem
+                    key={item.href}
+                    onSelect={() => router.push(item.href, { flushSync: true, scroll: false })}
+                  >
+                    {item.label}
+                  </DropdownMenuItem>
+                ))}
               </DropdownMenuContent>
             </DropdownMenu>
             <nav className="hidden sm:flex">
               <div className="flex items-center gap-1">
-                <Button
-                  asChild
-                  size="sm"
-                  variant={isDashboardRoute ? "secondary" : "ghost"}
-                >
-                  <AppLink href="/dashboard">Dashboard</AppLink>
-                </Button>
-                <Button
-                  asChild
-                  size="sm"
-                  variant={isInventoryRoute ? "secondary" : "ghost"}
-                >
-                  <AppLink href="/inventory">Inventory</AppLink>
-                </Button>
-                <Button
-                  asChild
-                  size="sm"
-                  variant={isOutputsRoute ? "secondary" : "ghost"}
-                >
-                  <AppLink href="/outputs">Outputs</AppLink>
-                </Button>
-                <Button
-                  asChild
-                  size="sm"
-                  variant={isJobsRoute ? "secondary" : "ghost"}
-                >
-                  <AppLink href="/jobs">Jobs</AppLink>
-                </Button>
+                {navItems.map((item) => (
+                  <AppLink
+                    aria-current={item.active ? "page" : undefined}
+                    className={buttonVariants({
+                      size: "sm",
+                      variant: item.active ? "secondary" : "ghost",
+                    })}
+                    href={item.href}
+                    key={item.href}
+                    onClick={onNavigate(item.href)}
+                  >
+                    {item.label}
+                  </AppLink>
+                ))}
               </div>
             </nav>
           </div>
