@@ -10,7 +10,6 @@ from sqlalchemy import delete
 from app.db.models import OutputArtifact
 from app.services import conversions as conversion_service
 from app.services import indexing as indexing_service
-from app.services import outputs as outputs_service
 from hephaes.models import BagMetadata, Topic
 
 
@@ -282,33 +281,7 @@ def test_outputs_refresh_missing_file_status_and_content_returns_404(
     }
 
 
-def test_outputs_lazy_backfill_recreates_deleted_artifact_rows(
-    client: TestClient,
-    monkeypatch,
-    sample_asset_file: Path,
-):
-    _asset_id, _conversion = create_conversion(client, monkeypatch, sample_asset_file)
-    original_outputs = client.get("/outputs").json()
-    assert len(original_outputs) == 2
-
-    session = client.app.state.session_factory()
-    try:
-        session.execute(delete(OutputArtifact))
-        session.commit()
-    finally:
-        session.close()
-
-    restored_response = client.get("/outputs")
-    assert restored_response.status_code == 200
-    restored_outputs = restored_response.json()
-    assert len(restored_outputs) == 2
-    assert {item["file_name"] for item in restored_outputs} == {
-        "episode_0001.parquet",
-        "episode_0001.manifest.json",
-    }
-
-
-def test_outputs_routes_fall_back_to_workspace_when_legacy_rows_are_missing(
+def test_outputs_routes_do_not_depend_on_legacy_rows(
     client: TestClient,
     monkeypatch,
     sample_asset_file: Path,
@@ -320,8 +293,6 @@ def test_outputs_routes_fall_back_to_workspace_when_legacy_rows_are_missing(
         session.commit()
     finally:
         session.close()
-
-    monkeypatch.setattr(outputs_service, "backfill_output_artifacts", lambda _session: None)
 
     outputs_response = client.get("/outputs")
     assert outputs_response.status_code == 200
@@ -350,6 +321,13 @@ def test_output_actions_refresh_metadata_updates_latest_action_and_detail(
 ):
     _asset_id, conversion = create_conversion(client, monkeypatch, sample_asset_file)
     dataset_output = client.get("/outputs", params={"format": "parquet"}).json()[0]
+
+    session = client.app.state.session_factory()
+    try:
+        session.execute(delete(OutputArtifact))
+        session.commit()
+    finally:
+        session.close()
 
     dataset_path = Path(conversion["output_path"]) / "episode_0001.parquet"
     dataset_path.write_bytes(b"parquet-data-updated")

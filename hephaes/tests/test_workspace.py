@@ -536,6 +536,57 @@ def test_register_output_artifacts_can_limit_to_specific_paths(tmp_path: Path) -
     assert all(output.output_path != str(unrelated_path.resolve()) for output in registered)
 
 
+def test_register_output_artifacts_marks_missing_files_on_refresh(
+    tmp_path: Path,
+    tmp_mcap_file: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = Workspace.init(tmp_path)
+    asset = workspace.register_asset(tmp_mcap_file)
+    spec = ConversionSpec(
+        schema=SchemaSpec(name="demo", version=1),
+        output=OutputSpec(format="parquet"),
+    )
+    saved_config = workspace.save_conversion_config(
+        name="Demo Config",
+        spec_document=build_conversion_spec_document(spec),
+    )
+
+    class FakeConverter:
+        def __init__(self, _file_paths, _mapping, output_dir, **kwargs) -> None:
+            self.output_dir = Path(output_dir)
+
+        def convert(self) -> list[Path]:
+            dataset_path = self.output_dir / "episode_0001.parquet"
+            dataset_path.parent.mkdir(parents=True, exist_ok=True)
+            dataset_path.write_bytes(b"parquet")
+            dataset_path.with_suffix(".manifest.json").write_text(
+                '{"episode_id":"episode_0001"}',
+                encoding="utf-8",
+            )
+            return [dataset_path]
+
+    monkeypatch.setattr("hephaes.workspace.Converter", FakeConverter)
+
+    registered = workspace.run_conversion(asset.id, saved_config_selector=saved_config.id)
+    dataset = next(output for output in registered if output.role == "dataset")
+    run = workspace.list_conversion_runs()[0]
+
+    Path(dataset.output_path).unlink()
+
+    workspace.register_output_artifacts(
+        output_root=run.output_dir,
+        conversion_run_id=run.id,
+        source_asset_id=asset.id,
+        source_asset_path=str(tmp_mcap_file.resolve()),
+        saved_config_id=saved_config.id,
+    )
+
+    refreshed_dataset = workspace.get_output_artifact_or_raise(dataset.id)
+    assert refreshed_dataset.availability_status == "missing"
+    assert refreshed_dataset.size_bytes == 0
+
+
 def test_run_conversion_registers_emitted_outputs(
     tmp_path: Path,
     tmp_mcap_file: Path,

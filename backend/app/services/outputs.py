@@ -317,7 +317,6 @@ def list_output_artifacts(session: Session, filters: OutputListFilters | None = 
         select(OutputArtifact)
         .options(
             selectinload(OutputArtifact.conversion),
-            selectinload(OutputArtifact.output_actions),
         )
         .order_by(OutputArtifact.created_at.desc(), OutputArtifact.id.desc())
     )
@@ -363,7 +362,6 @@ def get_output_artifact(session: Session, output_id: str) -> OutputArtifact | No
         select(OutputArtifact)
         .options(
             selectinload(OutputArtifact.conversion),
-            selectinload(OutputArtifact.output_actions),
         )
         .where(OutputArtifact.id == output_id)
     )
@@ -377,7 +375,6 @@ def get_output_artifact(session: Session, output_id: str) -> OutputArtifact | No
             select(OutputArtifact)
             .options(
                 selectinload(OutputArtifact.conversion),
-                selectinload(OutputArtifact.output_actions),
             )
             .where(OutputArtifact.id == output_id)
         )

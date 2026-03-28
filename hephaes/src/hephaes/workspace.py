@@ -1511,6 +1511,33 @@ class Workspace:
                 )
                 registered_paths.append(output_path)
 
+            if conversion_run_id is not None and paths is None:
+                registered_path_set = set(registered_paths)
+                missing_rows = connection.execute(
+                    """
+                    SELECT id
+                    FROM output_artifacts
+                    WHERE conversion_run_id = ? AND output_path NOT IN (
+                        SELECT value FROM json_each(?)
+                    )
+                    """,
+                    (conversion_run_id, json.dumps(sorted(registered_path_set))),
+                ).fetchall()
+                for row in missing_rows:
+                    connection.execute(
+                        """
+                        UPDATE output_artifacts
+                        SET availability_status = ?, size_bytes = ?, updated_at = ?
+                        WHERE id = ?
+                        """,
+                        (
+                            "missing",
+                            0,
+                            to_db_timestamp(timestamp),
+                            row["id"],
+                        ),
+                    )
+
         return [self.get_output_artifact_or_raise_by_path(path) for path in registered_paths]
 
     def run_conversion(

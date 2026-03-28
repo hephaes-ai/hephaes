@@ -7,14 +7,11 @@ from pathlib import Path
 from typing import Any
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.db.models import OutputAction, OutputArtifact, utc_now
-from app.services.outputs import (
-    get_output_artifact_or_raise,
-    sync_output_artifacts_for_conversion,
-)
+from app.db.models import OutputAction, utc_now
+from hephaes import OutputArtifactNotFoundError, Workspace
 
 
 class OutputActionServiceError(Exception):
@@ -30,13 +27,7 @@ class OutputActionValidationError(OutputActionServiceError):
 
 
 def get_output_action(session: Session, action_id: str) -> OutputAction | None:
-    statement = (
-        select(OutputAction)
-        .options(
-            selectinload(OutputAction.output_artifact).selectinload(OutputArtifact.conversion),
-        )
-        .where(OutputAction.id == action_id)
-    )
+    statement = select(OutputAction).where(OutputAction.id == action_id)
     return session.scalar(statement)
 
 
@@ -48,16 +39,26 @@ def get_output_action_or_raise(session: Session, action_id: str) -> OutputAction
 
 
 def list_output_actions_for_output(session: Session, output_id: str) -> list[OutputAction]:
-    get_output_artifact_or_raise(session, output_id)
     statement = (
         select(OutputAction)
-        .options(
-            selectinload(OutputAction.output_artifact).selectinload(OutputArtifact.conversion),
-        )
         .where(OutputAction.output_artifact_id == output_id)
         .order_by(OutputAction.created_at.desc(), OutputAction.id.desc())
     )
     return list(session.scalars(statement).all())
+
+
+def get_latest_output_actions(session: Session, output_ids: list[str]) -> dict[str, OutputAction]:
+    if not output_ids:
+        return {}
+    statement = (
+        select(OutputAction)
+        .where(OutputAction.output_artifact_id.in_(output_ids))
+        .order_by(OutputAction.created_at.desc(), OutputAction.id.desc())
+    )
+    latest_by_output_id: dict[str, OutputAction] = {}
+    for action in session.scalars(statement).all():
+        latest_by_output_id.setdefault(action.output_artifact_id, action)
+    return latest_by_output_id
 
 
 def _result_output_dir(action_id: str) -> Path:
@@ -114,27 +115,39 @@ def _mark_action_failed(session: Session, action: OutputAction, *, error_message
     return get_output_action_or_raise(session, action.id)
 
 
-def _validate_action_request(artifact: OutputArtifact, *, action_type: str) -> None:
+def _validate_action_request(*, action_type: str) -> None:
     if action_type != "refresh_metadata":
         raise OutputActionValidationError(f"unsupported output action type: {action_type}")
 
-    if artifact.conversion is None:
-        raise OutputActionValidationError(f"output artifact has no linked conversion: {artifact.id}")
+def _execute_refresh_metadata(session: Session, workspace: Workspace, action: OutputAction) -> OutputAction:
+    artifact = workspace.get_output_artifact(action.output_artifact_id)
+    if artifact is None:
+        raise OutputActionValidationError(f"output artifact not found: {action.output_artifact_id}")
+    if artifact.conversion_run_id is None:
+        raise OutputActionValidationError(f"output artifact has no linked conversion run: {artifact.id}")
+    run = workspace.get_conversion_run(artifact.conversion_run_id)
+    if run is None:
+        raise OutputActionValidationError(
+            f"conversion run not found for output artifact: {artifact.conversion_run_id}"
+        )
 
-
-def _execute_refresh_metadata(session: Session, action: OutputAction) -> OutputAction:
-    artifact = get_output_artifact_or_raise(session, action.output_artifact_id)
-    if artifact.conversion is None:
-        raise OutputActionValidationError(f"output artifact has no linked conversion: {artifact.id}")
-
-    sync_output_artifacts_for_conversion(session, artifact.conversion, commit=True)
-    refreshed_artifact = get_output_artifact_or_raise(session, artifact.id)
+    refreshed_artifacts = workspace.register_output_artifacts(
+        output_root=run.output_dir,
+        conversion_run_id=run.id,
+        source_asset_id=artifact.source_asset_id,
+        source_asset_path=artifact.source_asset_path,
+        saved_config_id=artifact.saved_config_id,
+    )
+    refreshed_artifact = next(
+        (candidate for candidate in refreshed_artifacts if candidate.id == artifact.id),
+        workspace.get_output_artifact_or_raise(artifact.id),
+    )
 
     result_payload = {
         "output_id": refreshed_artifact.id,
         "availability_status": refreshed_artifact.availability_status,
         "size_bytes": refreshed_artifact.size_bytes,
-        "metadata": dict(refreshed_artifact.metadata_json),
+        "metadata": dict(refreshed_artifact.metadata),
         "relative_path": refreshed_artifact.relative_path,
     }
     output_dir = _write_result_summary(action.id, result_payload)
@@ -148,8 +161,9 @@ def _execute_refresh_metadata(session: Session, action: OutputAction) -> OutputA
 
 
 class OutputActionService:
-    def __init__(self, session: Session) -> None:
+    def __init__(self, session: Session, workspace: Workspace) -> None:
         self.session = session
+        self.workspace = workspace
 
     def create_action(
         self,
@@ -158,11 +172,14 @@ class OutputActionService:
         action_type: str,
         config: dict[str, Any] | None = None,
     ) -> OutputAction:
-        artifact = get_output_artifact_or_raise(self.session, output_id)
-        _validate_action_request(artifact, action_type=action_type)
+        try:
+            self.workspace.get_output_artifact_or_raise(output_id)
+        except OutputArtifactNotFoundError as exc:
+            raise OutputActionValidationError(str(exc)) from exc
+        _validate_action_request(action_type=action_type)
 
         action = OutputAction(
-            output_artifact_id=artifact.id,
+            output_artifact_id=output_id,
             action_type=action_type,
             status="queued",
             config_json=dict(config or {}),
@@ -179,7 +196,7 @@ class OutputActionService:
 
         try:
             if action.action_type == "refresh_metadata":
-                return _execute_refresh_metadata(self.session, action)
+                return _execute_refresh_metadata(self.session, self.workspace, action)
             raise OutputActionValidationError(f"unsupported output action type: {action.action_type}")
         except Exception as exc:
             self.session.rollback()

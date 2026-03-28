@@ -450,13 +450,6 @@ class OutputArtifact(Base):
     )
 
     conversion: Mapped[Conversion] = relationship(back_populates="output_artifacts")
-    output_actions: Mapped[list["OutputAction"]] = relationship(
-        back_populates="output_artifact",
-        cascade="all, delete-orphan",
-        order_by="OutputAction.created_at.desc()",
-    )
-
-
 class OutputAction(Base):
     """Durable record for one output-scoped compute action."""
 
@@ -471,7 +464,6 @@ class OutputAction(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
     output_artifact_id: Mapped[str] = mapped_column(
         String(36),
-        ForeignKey("output_artifacts.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
@@ -495,5 +487,3 @@ class OutputAction(Base):
     )
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-
-    output_artifact: Mapped[OutputArtifact] = relationship(back_populates="output_actions")
