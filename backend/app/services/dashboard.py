@@ -22,8 +22,13 @@ from app.schemas.dashboard import (
     DashboardTrendBucket,
     DashboardTrendsResponse,
 )
-from hephaes import Workspace, WorkspaceJob
-from hephaes._workspace_models import ConversionRun, OutputArtifact as WorkspaceOutputArtifact, RegisteredAsset
+from hephaes import (
+    ConversionRun,
+    OutputArtifact as WorkspaceOutputArtifact,
+    RegisteredAsset,
+    Workspace,
+    WorkspaceJob,
+)
 
 OUTPUT_AVAILABILITY_STATUSES = ("ready", "missing", "invalid")
 ASSET_INDEXING_STATUSES = ("pending", "indexing", "indexed", "failed")

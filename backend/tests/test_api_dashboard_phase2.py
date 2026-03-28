@@ -14,6 +14,14 @@ from app.services import dashboard as dashboard_service
 from app.services import indexing as indexing_service
 from app.services.jobs import JobService
 from hephaes.models import BagMetadata, Topic
+import hephaes.workspace.assets as workspace_assets
+import hephaes.workspace.configs.documents as workspace_config_documents
+import hephaes.workspace.configs.mutations as workspace_config_mutations
+import hephaes.workspace.conversions as workspace_conversions
+import hephaes.workspace.drafts as workspace_drafts
+import hephaes.workspace.jobs as workspace_jobs
+import hephaes.workspace.outputs as workspace_outputs
+import hephaes.workspace.tags as workspace_tags
 
 
 def register_asset(client: TestClient, asset_path: Path):
@@ -106,6 +114,17 @@ def parse_api_datetime(value: str | None) -> datetime | None:
 
 def count_entries_by_key(entries: list[dict[str, object]]) -> dict[str, int]:
     return {str(entry["key"]): int(entry["count"]) for entry in entries}
+
+
+def patch_workspace_utc_now(monkeypatch, fixed_now: datetime) -> None:
+    monkeypatch.setattr(workspace_assets, "_utc_now", lambda: fixed_now)
+    monkeypatch.setattr(workspace_config_documents, "_utc_now", lambda: fixed_now)
+    monkeypatch.setattr(workspace_config_mutations, "_utc_now", lambda: fixed_now)
+    monkeypatch.setattr(workspace_conversions, "_utc_now", lambda: fixed_now)
+    monkeypatch.setattr(workspace_drafts, "_utc_now", lambda: fixed_now)
+    monkeypatch.setattr(workspace_jobs, "_utc_now", lambda: fixed_now)
+    monkeypatch.setattr(workspace_outputs, "_utc_now", lambda: fixed_now)
+    monkeypatch.setattr(workspace_tags, "_utc_now", lambda: fixed_now)
 
 
 def _update_workspace_asset(
@@ -213,7 +232,7 @@ def test_dashboard_routes_return_zeroed_shapes_for_empty_catalog(
 ):
     fixed_now = datetime(2026, 3, 19, 12, 0, 0, tzinfo=UTC)
     monkeypatch.setattr(dashboard_service, "utc_now", lambda: fixed_now)
-    monkeypatch.setattr("hephaes.workspace._utc_now", lambda: fixed_now)
+    patch_workspace_utc_now(monkeypatch, fixed_now)
 
     summary_response = client.get("/dashboard/summary")
     trends_response = client.get("/dashboard/trends?days=3")
@@ -308,7 +327,7 @@ def test_dashboard_routes_aggregate_mixed_operational_states(
 ):
     fixed_now = datetime(2026, 3, 19, 12, 0, 0, tzinfo=UTC)
     monkeypatch.setattr(dashboard_service, "utc_now", lambda: fixed_now)
-    monkeypatch.setattr("hephaes.workspace._utc_now", lambda: fixed_now)
+    patch_workspace_utc_now(monkeypatch, fixed_now)
 
     indexed_asset = tmp_path / "indexed.mcap"
     pending_asset = tmp_path / "pending.mcap"
