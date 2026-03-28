@@ -5,9 +5,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi.testclient import TestClient
-from sqlalchemy import delete
 
-from app.db.models import OutputArtifact
 from app.services import conversions as conversion_service
 from app.services import indexing as indexing_service
 from hephaes.models import BagMetadata, Topic
@@ -281,18 +279,12 @@ def test_outputs_refresh_missing_file_status_and_content_returns_404(
     }
 
 
-def test_outputs_routes_do_not_depend_on_legacy_rows(
+def test_outputs_routes_use_workspace_artifacts_only(
     client: TestClient,
     monkeypatch,
     sample_asset_file: Path,
 ):
     _asset_id, conversion = create_conversion(client, monkeypatch, sample_asset_file)
-    session = client.app.state.session_factory()
-    try:
-        session.execute(delete(OutputArtifact))
-        session.commit()
-    finally:
-        session.close()
 
     outputs_response = client.get("/outputs")
     assert outputs_response.status_code == 200
@@ -321,13 +313,6 @@ def test_output_actions_refresh_metadata_updates_latest_action_and_detail(
 ):
     _asset_id, conversion = create_conversion(client, monkeypatch, sample_asset_file)
     dataset_output = client.get("/outputs", params={"format": "parquet"}).json()[0]
-
-    session = client.app.state.session_factory()
-    try:
-        session.execute(delete(OutputArtifact))
-        session.commit()
-    finally:
-        session.close()
 
     dataset_path = Path(conversion["output_path"]) / "episode_0001.parquet"
     dataset_path.write_bytes(b"parquet-data-updated")
