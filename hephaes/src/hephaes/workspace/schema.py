@@ -4,7 +4,7 @@ import sqlite3
 
 WORKSPACE_DIRNAME = ".hephaes"
 WORKSPACE_DB_FILENAME = "workspace.sqlite3"
-WORKSPACE_SCHEMA_VERSION = 9
+WORKSPACE_SCHEMA_VERSION = 10
 
 
 def initialize_workspace_schema(connection: sqlite3.Connection) -> None:
@@ -97,8 +97,29 @@ def initialize_workspace_schema(connection: sqlite3.Connection) -> None:
         CREATE UNIQUE INDEX IF NOT EXISTS idx_conversion_config_revisions_config_revision
         ON conversion_config_revisions(config_id, revision_number);
 
+        CREATE TABLE IF NOT EXISTS conversion_drafts (
+            id TEXT PRIMARY KEY,
+            source_asset_id TEXT NULL,
+            status TEXT NOT NULL DEFAULT 'draft',
+            current_revision_id TEXT NULL,
+            confirmed_revision_id TEXT NULL,
+            saved_config_id TEXT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            discarded_at TEXT NULL,
+            FOREIGN KEY(source_asset_id) REFERENCES assets(id) ON DELETE SET NULL,
+            FOREIGN KEY(saved_config_id) REFERENCES conversion_configs(id) ON DELETE SET NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_conversion_drafts_source_asset_id
+        ON conversion_drafts(source_asset_id);
+
+        CREATE INDEX IF NOT EXISTS idx_conversion_drafts_saved_config_id
+        ON conversion_drafts(saved_config_id);
+
         CREATE TABLE IF NOT EXISTS conversion_draft_revisions (
             id TEXT PRIMARY KEY,
+            draft_id TEXT NULL,
             revision_number INTEGER NOT NULL DEFAULT 1,
             label TEXT NULL,
             saved_config_id TEXT NULL,
@@ -109,15 +130,20 @@ def initialize_workspace_schema(connection: sqlite3.Connection) -> None:
             inspection_json TEXT NOT NULL DEFAULT '{}',
             draft_request_json TEXT NOT NULL DEFAULT '{}',
             draft_result_json TEXT NOT NULL DEFAULT '{}',
+            preview_request_json TEXT NOT NULL DEFAULT '{}',
             preview_json TEXT NULL,
             spec_document_path TEXT NOT NULL,
             spec_document_version INTEGER NOT NULL,
             invalid_reason TEXT NULL,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
+            FOREIGN KEY(draft_id) REFERENCES conversion_drafts(id) ON DELETE CASCADE,
             FOREIGN KEY(saved_config_id) REFERENCES conversion_configs(id) ON DELETE SET NULL,
             FOREIGN KEY(source_asset_id) REFERENCES assets(id) ON DELETE SET NULL
         );
+
+        CREATE INDEX IF NOT EXISTS idx_conversion_draft_revisions_draft_id
+        ON conversion_draft_revisions(draft_id);
 
         CREATE INDEX IF NOT EXISTS idx_conversion_draft_revisions_saved_config_id
         ON conversion_draft_revisions(saved_config_id);
@@ -529,6 +555,137 @@ def migrate_workspace_schema(connection: sqlite3.Connection, schema_version: int
             WHERE updated_at IS NULL
             """
         )
+        connection.execute(
+            "UPDATE workspace_meta SET value = ? WHERE key = 'schema_version'",
+            ("9",),
+        )
+        schema_version = 9
+
+    if schema_version == 9:
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS conversion_drafts (
+                id TEXT PRIMARY KEY,
+                source_asset_id TEXT NULL,
+                status TEXT NOT NULL DEFAULT 'draft',
+                current_revision_id TEXT NULL,
+                confirmed_revision_id TEXT NULL,
+                saved_config_id TEXT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                discarded_at TEXT NULL,
+                FOREIGN KEY(source_asset_id) REFERENCES assets(id) ON DELETE SET NULL,
+                FOREIGN KEY(saved_config_id) REFERENCES conversion_configs(id) ON DELETE SET NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_conversion_drafts_source_asset_id
+            ON conversion_drafts(source_asset_id)
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_conversion_drafts_saved_config_id
+            ON conversion_drafts(saved_config_id)
+            """
+        )
+
+        columns = {
+            row["name"]
+            for row in connection.execute("PRAGMA table_info(conversion_draft_revisions)").fetchall()
+        }
+        if "draft_id" not in columns:
+            connection.execute(
+                "ALTER TABLE conversion_draft_revisions ADD COLUMN draft_id TEXT NULL"
+            )
+        if "preview_request_json" not in columns:
+            connection.execute(
+                "ALTER TABLE conversion_draft_revisions ADD COLUMN preview_request_json TEXT NOT NULL DEFAULT '{}'"
+            )
+        connection.execute(
+            """
+            UPDATE conversion_draft_revisions
+            SET preview_request_json = COALESCE(preview_request_json, '{}')
+            WHERE preview_request_json IS NULL
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_conversion_draft_revisions_draft_id
+            ON conversion_draft_revisions(draft_id)
+            """
+        )
+
+        rows = connection.execute(
+            """
+            SELECT
+                id,
+                draft_id,
+                source_asset_id,
+                status,
+                saved_config_id,
+                created_at,
+                updated_at
+            FROM conversion_draft_revisions
+            ORDER BY created_at ASC, id ASC
+            """
+        ).fetchall()
+        for row in rows:
+            draft_id = row["draft_id"] or row["id"]
+            confirmed_revision_id = (
+                row["id"]
+                if row["status"] in {"confirmed", "saved"} or row["saved_config_id"] is not None
+                else None
+            )
+            discarded_at = row["updated_at"] if row["status"] == "discarded" else None
+            connection.execute(
+                """
+                INSERT INTO conversion_drafts(
+                    id,
+                    source_asset_id,
+                    status,
+                    current_revision_id,
+                    confirmed_revision_id,
+                    saved_config_id,
+                    created_at,
+                    updated_at,
+                    discarded_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    source_asset_id = excluded.source_asset_id,
+                    status = excluded.status,
+                    current_revision_id = excluded.current_revision_id,
+                    confirmed_revision_id = excluded.confirmed_revision_id,
+                    saved_config_id = excluded.saved_config_id,
+                    updated_at = excluded.updated_at,
+                    discarded_at = excluded.discarded_at
+                """,
+                (
+                    draft_id,
+                    row["source_asset_id"],
+                    row["status"],
+                    row["id"],
+                    confirmed_revision_id,
+                    row["saved_config_id"],
+                    row["created_at"],
+                    row["updated_at"],
+                    discarded_at,
+                ),
+            )
+            connection.execute(
+                """
+                UPDATE conversion_draft_revisions
+                SET draft_id = ?, preview_request_json = COALESCE(preview_request_json, '{}')
+                WHERE id = ?
+                """,
+                (
+                    draft_id,
+                    row["id"],
+                ),
+            )
+
         connection.execute(
             "UPDATE workspace_meta SET value = ? WHERE key = 'schema_version'",
             (str(WORKSPACE_SCHEMA_VERSION),),

@@ -22,101 +22,127 @@ cd hephaes
 python -m pip install -e ".[dev]"
 ```
 
-## Typical Workflow
+## Recommended Paths
 
-The standard flow is:
+`hephaes` now supports three main ways to work:
 
-1. Profile a log
-2. Build a stable mapping template
-3. Configure conversion output and row strategy
-4. Convert to dataset files
-5. Optionally stream rows for validation
+- human authoring: use the interactive CLI wizard
+- automation and tests: use the scriptable CLI commands
+- embedded Python integrations: use `Workspace` as the durable package API
 
-## 1) Profile a Log
+The package still exposes lower-level stateless helpers and direct conversion APIs, but those are best treated as building blocks rather than the default authoring path.
 
-```python
-from hephaes import Profiler
+## CLI-First Workflow
 
-profile = Profiler(["data/run_001.mcap"], max_workers=1).profile()[0]
+Recommended for people working directly in a terminal:
 
-print(profile.ros_version)
-print(profile.duration_seconds)
-print(profile.start_time_iso, profile.end_time_iso)
-print([(topic.name, topic.message_type, topic.rate_hz) for topic in profile.topics])
+```bash
+hephaes init ./demo
+hephaes add --workspace ./demo ./logs/run_001.mcap
+hephaes drafts wizard --workspace ./demo <asset-id>
 ```
 
-Use this step to verify what topics exist and which ones should map into your canonical fields.
+If you want a fully scriptable flow instead of the wizard:
 
-## 2) Build a Mapping Template
-
-Auto-build from discovered topics:
-
-```python
-from hephaes import build_mapping_template
-
-mapping = build_mapping_template(profile.topics)
+```bash
+hephaes init ./demo
+hephaes add --workspace ./demo ./logs/run_001.mcap
+hephaes drafts create --workspace ./demo <asset-id> --topic /camera --trigger-topic /camera
+hephaes drafts preview --workspace ./demo <draft-id> --sample-n 5
+hephaes drafts confirm --workspace ./demo <draft-id> --yes
+hephaes drafts save-config --workspace ./demo <draft-id> --name camera-demo
+hephaes convert --workspace ./demo <asset-id> --config camera-demo
 ```
 
-Or explicitly define canonical fields with topic fallbacks:
+See the full [CLI reference](./cli) for the complete command surface.
+
+## Using The Workspace API
+
+Recommended for future backends, automation services, or package-level integrations:
 
 ```python
-from hephaes import build_mapping_template_from_json
+from hephaes.conversion.draft_spec import DraftSpecRequest
+from hephaes.conversion.introspection import InspectionRequest
+from hephaes.workspace import Workspace
 
-mapping = build_mapping_template_from_json(
-    profile.topics,
-    {
-        "front_camera": ["/camera/front/image_raw", "/sensors/front_cam"],
-        "imu": ["/imu/data", "/sensors/imu"],
-        "vehicle_twist": ["/cmd_vel", "/vehicle/twist"],
-    },
-    strict_unknown_topics=False,
+workspace = Workspace.init("demo", exist_ok=True)
+asset = workspace.register_asset("./logs/run_001.mcap")
+
+draft = workspace.create_conversion_draft(
+    asset.id,
+    inspection_request=InspectionRequest(
+        topics=["/camera"],
+        sample_n=8,
+    ),
+    draft_request=DraftSpecRequest(
+        trigger_topic="/camera",
+        selected_topics=["/camera"],
+        output_format="tfrecord",
+        output_compression="none",
+        max_features_per_topic=2,
+    ),
+    label="Initial Draft",
 )
+
+draft = workspace.preview_conversion_draft(draft.id, sample_n=5)
+draft = workspace.confirm_conversion_draft(draft.id)
+config = workspace.save_conversion_config_from_draft(
+    draft.id,
+    name="camera-demo",
+    description="Front camera TFRecord export",
+)
+outputs = workspace.run_conversion(
+    asset.id,
+    saved_config_selector=config.name,
+)
+
+print(config.id, config.name)
+print(outputs[0].output_path)
 ```
 
-This keeps downstream schema stable even when source topic names differ between robots or runs.
+This is the main durable package boundary for the end-to-end authoring flow:
 
-## 3) Configure Conversion
+1. inspect an asset
+2. create a draft
+3. preview the draft
+4. confirm it
+5. save it as a config
+6. run conversions from that config later
+
+## Stateless Authoring Helpers
+
+Recommended when you want package primitives without workspace persistence:
+
+- `inspect_reader(...)`
+- `inspect_bag(...)`
+- `build_draft_conversion_spec(...)`
+- `preview_conversion_spec(...)`
+- `preflight_conversion_spec(...)`
+- conversion spec load/dump and migration helpers
+
+These helpers are useful when you are building a custom authoring interface and want to manage persistence yourself.
+They do not own workflow state, draft revisions, or config promotion rules.
+
+## Direct Conversion APIs
+
+Recommended when you already have a stable conversion spec and just want execution:
 
 ```python
-from hephaes import Converter, ResampleConfig, TFRecordOutputConfig
+from hephaes import Converter, TFRecordOutputConfig
 
 converter = Converter(
     ["data/run_001.mcap"],
-    mapping,
+    mapping=...,
     output_dir="dataset/processed",
     output=TFRecordOutputConfig(image_payload_contract="bytes_v2"),
-    resample=ResampleConfig(freq_hz=10.0, method="interpolate"),
-    robot_context={"robot_id": "alpha-01", "platform": "spot"},
     max_workers=1,
 )
-```
 
-### Resampling Modes
-
-- `resample=None`: preserve observed timestamps
-- `method="downsample"`: fixed-rate buckets, latest sample per bucket
-- `method="interpolate"`: fixed-rate numeric interpolation
-
-### Image Payload Contract
-
-For TFRecord output:
-
-- `bytes_v2` (default): image bytes in raw bytes features with metadata fields
-- `legacy_list_v1`: list-based compatibility mode for migration windows
-
-## 4) Convert
-
-```python
 dataset_paths = converter.convert()
 print(dataset_paths[0])
-print(dataset_paths[0].with_suffix(".manifest.json"))
 ```
 
-Each input log produces one output data file plus one manifest sidecar.
-
-## 5) Stream Rows For Verification
-
-TFRecord:
+You can also inspect produced rows:
 
 ```python
 from hephaes import stream_tfrecord_rows
@@ -126,7 +152,7 @@ for row in stream_tfrecord_rows(dataset_paths[0]):
     break
 ```
 
-Parquet:
+Or for Parquet:
 
 ```python
 from hephaes import stream_wide_parquet_rows
@@ -136,24 +162,16 @@ for row in stream_wide_parquet_rows(dataset_paths[0]):
     break
 ```
 
-## Additional APIs You Can Use
+## Choosing The Right Layer
 
-- Direct reading: `RosReader.open(...)`
-- Inspection: `inspect_bag(...)`, `inspect_reader(...)`
-- Drafting/preview: `build_draft_conversion_spec(...)`, `preview_conversion_spec(...)`
-- Spec lifecycle: `load_conversion_spec(...)`, `dump_conversion_spec(...)`
-- Contract migration: `set_tfrecord_image_payload_contract(...)`
-
-## What Is Implemented Today
-
-- End-to-end conversion from ROS logs to Parquet/TFRecord
-- Topic-to-field schema normalization
-- Resampling and interpolation strategies
-- TFRecord image payload contract modes (`bytes_v2`, `legacy_list_v1`)
-- Manifest generation and output row streaming helpers
+- use the CLI wizard when a person is authoring a config interactively
+- use the scriptable CLI when a shell script, test, or automation needs stable command-level behavior
+- use `Workspace` when another Python integration needs durable workflow ownership inside the package
+- use stateless helpers when you want package logic but not package persistence
+- use `Converter` directly when the spec is already settled and authoring is out of scope
 
 ## Related Docs
 
 - [Overview](./overview)
-- [Current State](./current-state)
 - [CLI](./cli)
+- [Current State](./current-state)

@@ -4,13 +4,16 @@
 
 The `hephaes` Python package turns ROS logs into standardized, ML-ready datasets with stable schemas across runs, robots, and recording variations.
 
-It is the core data-conversion engine used by the backend and frontend, but it is also usable directly as a standalone Python library.
+It is the core data-conversion engine used by the backend and frontend, but it is also usable directly as a standalone Python library and CLI.
 
 ## What The Package Solves
 
 - Ingest ROS1 `.bag` and ROS2 `.mcap` logs
-- Profile recordings to understand topics, rates, and time bounds
+- Inspect recordings to understand topics, rates, and time bounds
+- Draft and revise conversion specs from real source assets
+- Preview drafted specs before saving them
 - Map variable source topic names into a canonical output schema
+- Save reusable conversion configs from confirmed drafts
 - Synchronize asynchronous streams onto a shared timeline
 - Convert episodes into Parquet or TFRecord outputs
 - Emit sidecar manifests with provenance and metadata
@@ -25,7 +28,7 @@ It is the core data-conversion engine used by the backend and frontend, but it i
 ## Where It Fits
 
 ```
-ROS/MCAP logs -> hephaes (profile + map + convert) -> Parquet/TFRecord + manifest
+ROS/MCAP logs -> hephaes (inspect + draft + preview + save + convert) -> Parquet/TFRecord + manifest
 ```
 
 In the full local stack:
@@ -39,10 +42,11 @@ Frontend (Next.js) <-> Backend (FastAPI) <-> hephaes (Python package)
 - Python 3.11+
 - Local filesystem inputs and outputs
 - One output dataset file per input log
-- Library and CLI interface (see [CLI](./cli))
+- Library and CLI interface
+- Full draft-first authoring workflow through both `Workspace` and the CLI (see [CLI](./cli))
 
 ## Related Docs
 
-- [Current State](./current-state)
-- [How To Use](./how-to-use)
 - [CLI](./cli)
+- [How To Use](./how-to-use)
+- [Current State](./current-state)

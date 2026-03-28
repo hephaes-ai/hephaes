@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 
 from .. import __version__
-from .commands import assets, configs, convert, inspect, jobs, outputs, runs, tags, workspace
+from .commands import assets, configs, convert, drafts, inspect, jobs, outputs, runs, tags, workspace
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -25,6 +25,7 @@ def build_parser() -> argparse.ArgumentParser:
     inspect.register(subparsers)
     convert.register(subparsers)
     configs.register(subparsers)
+    drafts.register(subparsers)
     jobs.register(subparsers)
     runs.register(subparsers)
     outputs.register(subparsers)

@@ -25,6 +25,10 @@ class AssetNotFoundError(WorkspaceError):
     """Raised when a requested asset cannot be found in the workspace."""
 
 
+class AssetReadError(WorkspaceError):
+    """Raised when a workspace asset cannot be opened or read for authoring."""
+
+
 class TagAlreadyExistsError(WorkspaceError):
     """Raised when a tag with the requested name already exists."""
 
@@ -43,6 +47,22 @@ class ConversionConfigNotFoundError(WorkspaceError):
 
 class ConversionConfigInvalidError(WorkspaceError):
     """Raised when a saved conversion config document cannot be loaded."""
+
+
+class ConversionDraftNotFoundError(WorkspaceError):
+    """Raised when a conversion draft cannot be found."""
+
+
+class ConversionDraftRevisionNotFoundError(WorkspaceError):
+    """Raised when a conversion draft revision cannot be found."""
+
+
+class ConversionDraftStateError(WorkspaceError):
+    """Raised when a conversion draft cannot perform the requested state transition."""
+
+
+class ConversionDraftConfirmationError(WorkspaceError):
+    """Raised when a draft cannot be confirmed because required conditions are unmet."""
 
 
 class OutputArtifactNotFoundError(WorkspaceError):

@@ -88,12 +88,19 @@ class TestPublicExports:
 
     def test_workspace_summary_models_exported(self):
         from hephaes import (
+            AssetReadError,
             ConversionConfigAlreadyExistsError,
             ConversionConfigInvalidError,
             ConversionConfigNotFoundError,
+            ConversionDraftConfirmationError,
+            ConversionDraft,
+            ConversionDraftNotFoundError,
             ConversionRun,
+            ConversionDraftSummary,
             ConversionDraftRevision,
+            ConversionDraftRevisionNotFoundError,
             ConversionDraftRevisionSummary,
+            ConversionDraftStateError,
             DefaultEpisodeSummary,
             IndexedTopicSummary,
             OutputArtifact,
@@ -110,12 +117,19 @@ class TestPublicExports:
             WorkspaceJob,
             WorkspaceTag,
         )
+        assert AssetReadError is not None
         assert ConversionConfigAlreadyExistsError is not None
         assert ConversionConfigInvalidError is not None
         assert ConversionConfigNotFoundError is not None
+        assert ConversionDraftConfirmationError is not None
+        assert ConversionDraft is not None
+        assert ConversionDraftNotFoundError is not None
+        assert ConversionDraftSummary is not None
         assert ConversionRun is not None
         assert ConversionDraftRevision is not None
+        assert ConversionDraftRevisionNotFoundError is not None
         assert ConversionDraftRevisionSummary is not None
+        assert ConversionDraftStateError is not None
         assert DefaultEpisodeSummary is not None
         assert IndexedTopicSummary is not None
         assert OutputArtifact is not None
@@ -204,9 +218,16 @@ class TestPublicExports:
             "ConversionConfigAlreadyExistsError",
             "ConversionConfigInvalidError",
             "ConversionConfigNotFoundError",
+            "AssetReadError",
+            "ConversionDraft",
+            "ConversionDraftConfirmationError",
+            "ConversionDraftNotFoundError",
+            "ConversionDraftSummary",
             "ConversionRun",
             "ConversionDraftRevision",
+            "ConversionDraftRevisionNotFoundError",
             "ConversionDraftRevisionSummary",
+            "ConversionDraftStateError",
             "DefaultEpisodeSummary",
             "IndexedAssetMetadata",
             "IndexedTopicSummary",

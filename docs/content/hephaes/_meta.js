@@ -1,6 +1,6 @@
 export default {
   overview: 'Overview',
-  'current-state': 'Current State',
-  'how-to-use': 'How To Use',
   cli: 'CLI',
+  'how-to-use': 'How To Use',
+  'current-state': 'Current State',
 }
