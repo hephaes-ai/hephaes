@@ -245,9 +245,9 @@ def build_preview_response(
 def create_conversion_route(
     payload: ConversionCreateRequest,
     request: Request,
-    session: DbSession,
+    workspace: WorkspaceDep,
 ) -> ConversionDetailResponse:
-    service = ConversionService(session)
+    service = ConversionService(workspace)
 
     try:
         conversion, execution = service.create_conversion(payload)
@@ -258,13 +258,12 @@ def create_conversion_route(
         request.app.state.job_runner.submit(
             f"convert assets for conversion {conversion.id}",
             run_conversion_job_in_background,
-            request.app.state.session_factory,
+            workspace,
             execution=execution,
         )
     except ConversionExecutionError as exc:
         raise HTTPException(status_code=HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
 
-    workspace = request.app.state.workspace
     run = workspace.get_conversion_run(conversion.id)
     if run is None:
         raise HTTPException(
