@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.db.models import ASSET_INDEXING_STATUSES, JOB_STATUSES, Conversion, Job, OutputArtifact, utc_now
+from app.db.models import ASSET_INDEXING_STATUSES, JOB_STATUSES, Job, utc_now
 from app.schemas.dashboard import (
     DashboardBlockersResponse,
     DashboardConversionsSummary,
@@ -21,7 +22,6 @@ from app.schemas.dashboard import (
     DashboardTrendBucket,
     DashboardTrendsResponse,
 )
-from app.services.outputs import backfill_output_artifacts
 from hephaes import Workspace, WorkspaceJob
 from hephaes._workspace_models import ConversionRun, OutputArtifact as WorkspaceOutputArtifact, RegisteredAsset
 
@@ -112,51 +112,49 @@ def _latest_timestamp(values: list[datetime | None]) -> datetime | None:
     return max(filtered, default=None)
 
 
-def _legacy_jobs(session: Session) -> list[Job]:
-    return list(session.scalars(select(Job).order_by(Job.created_at.desc(), Job.id.desc())).all())
-
-
-def _legacy_conversions(session: Session) -> list[Conversion]:
-    return list(session.scalars(select(Conversion).order_by(Conversion.created_at.desc(), Conversion.id.desc())).all())
-
-
-def _legacy_outputs(session: Session) -> list[OutputArtifact]:
-    return list(
-        session.scalars(select(OutputArtifact).order_by(OutputArtifact.created_at.desc(), OutputArtifact.id.desc())).all()
+def _backend_visualization_jobs(session: Session) -> list[Job]:
+    statement = (
+        select(Job)
+        .where(Job.type == "prepare_visualization")
+        .order_by(Job.created_at.desc(), Job.id.desc())
     )
+    return list(session.scalars(statement).all())
 
 
-def _workspace_outputs(workspace: Workspace) -> list[WorkspaceOutputArtifact]:
-    return [
+def _refresh_workspace_outputs(workspace: Workspace) -> list[WorkspaceOutputArtifact]:
+    artifacts = [
         workspace.get_output_artifact_or_raise(summary.id)
         for summary in workspace.list_output_artifacts()
     ]
+    artifacts_by_run_id: dict[str | None, list[WorkspaceOutputArtifact]] = {}
+    for artifact in artifacts:
+        artifacts_by_run_id.setdefault(artifact.conversion_run_id, []).append(artifact)
 
+    refreshed_by_id: dict[str, WorkspaceOutputArtifact] = {}
+    for conversion_run_id, grouped_artifacts in artifacts_by_run_id.items():
+        if conversion_run_id is None:
+            for artifact in grouped_artifacts:
+                refreshed_by_id[artifact.id] = artifact
+            continue
 
-def _merged_jobs(workspace: Workspace, session: Session) -> list[WorkspaceJob | Job]:
-    by_id = {job.id: job for job in _legacy_jobs(session)}
-    for job in workspace.list_jobs():
-        by_id.setdefault(job.id, job)
-    return list(by_id.values())
+        run = workspace.get_conversion_run(conversion_run_id)
+        if run is None:
+            for artifact in grouped_artifacts:
+                refreshed_by_id[artifact.id] = artifact
+            continue
 
+        representative = grouped_artifacts[0]
+        workspace.register_output_artifacts(
+            output_root=Path(run.output_dir),
+            conversion_run_id=run.id,
+            source_asset_id=representative.source_asset_id,
+            source_asset_path=representative.source_asset_path,
+            saved_config_id=representative.saved_config_id,
+        )
+        for artifact in grouped_artifacts:
+            refreshed_by_id[artifact.id] = workspace.get_output_artifact_or_raise(artifact.id)
 
-def _merged_conversions(workspace: Workspace, session: Session) -> list[ConversionRun | Conversion]:
-    by_id = {conversion.id: conversion for conversion in _legacy_conversions(session)}
-    for run in workspace.list_conversion_runs():
-        by_id.setdefault(run.id, run)
-    return list(by_id.values())
-
-
-def _merged_outputs(workspace: Workspace, session: Session) -> list[WorkspaceOutputArtifact | OutputArtifact]:
-    def _output_identity(artifact: WorkspaceOutputArtifact | OutputArtifact) -> str:
-        if isinstance(artifact, WorkspaceOutputArtifact):
-            return artifact.output_path
-        return str(Path(artifact.conversion.output_path) / artifact.relative_path)
-
-    by_path = {_output_identity(artifact): artifact for artifact in _legacy_outputs(session)}
-    for artifact in _workspace_outputs(workspace):
-        by_path.setdefault(_output_identity(artifact), artifact)
-    return list(by_path.values())
+    return [refreshed_by_id[artifact.id] for artifact in artifacts]
 
 
 def _job_status(job: WorkspaceJob | Job) -> str:
@@ -175,35 +173,35 @@ def _job_updated_at(job: WorkspaceJob | Job) -> datetime | None:
     return job.updated_at
 
 
-def _conversion_status(conversion: ConversionRun | Conversion) -> str:
+def _conversion_status(conversion: ConversionRun) -> str:
     return conversion.status
 
 
-def _conversion_created_at(conversion: ConversionRun | Conversion) -> datetime:
+def _conversion_created_at(conversion: ConversionRun) -> datetime:
     return conversion.created_at
 
 
-def _conversion_updated_at(conversion: ConversionRun | Conversion) -> datetime:
+def _conversion_updated_at(conversion: ConversionRun) -> datetime:
     return conversion.updated_at
 
 
-def _output_format(output: WorkspaceOutputArtifact | OutputArtifact) -> str:
+def _output_format(output: WorkspaceOutputArtifact) -> str:
     return output.format
 
 
-def _output_availability(output: WorkspaceOutputArtifact | OutputArtifact) -> str:
+def _output_availability(output: WorkspaceOutputArtifact) -> str:
     return output.availability_status
 
 
-def _output_size(output: WorkspaceOutputArtifact | OutputArtifact) -> int:
+def _output_size(output: WorkspaceOutputArtifact) -> int:
     return int(output.size_bytes or 0)
 
 
-def _output_created_at(output: WorkspaceOutputArtifact | OutputArtifact) -> datetime:
+def _output_created_at(output: WorkspaceOutputArtifact) -> datetime:
     return output.created_at
 
 
-def _output_updated_at(output: WorkspaceOutputArtifact | OutputArtifact) -> datetime:
+def _output_updated_at(output: WorkspaceOutputArtifact) -> datetime:
     return output.updated_at
 
 
@@ -216,12 +214,11 @@ def _asset_last_indexed_at(asset: RegisteredAsset) -> datetime | None:
 
 
 def get_dashboard_summary(workspace: Workspace, session: Session) -> DashboardSummaryResponse:
-    backfill_output_artifacts(session)
     now = utc_now()
     assets = workspace.list_assets()
-    jobs = _merged_jobs(workspace, session)
-    conversions = _merged_conversions(workspace, session)
-    outputs = _merged_outputs(workspace, session)
+    jobs = [*workspace.list_jobs(), *_backend_visualization_jobs(session)]
+    conversions = workspace.list_conversion_runs()
+    outputs = _refresh_workspace_outputs(workspace)
 
     inventory = DashboardInventorySummary(
         asset_count=len(assets),
@@ -308,12 +305,11 @@ def get_dashboard_summary(workspace: Workspace, session: Session) -> DashboardSu
 
 
 def get_dashboard_trends(workspace: Workspace, session: Session, *, days: int = 7) -> DashboardTrendsResponse:
-    backfill_output_artifacts(session)
     now = utc_now()
     assets = workspace.list_assets()
-    jobs = _merged_jobs(workspace, session)
-    conversions = _merged_conversions(workspace, session)
-    outputs = _merged_outputs(workspace, session)
+    jobs = [*workspace.list_jobs(), *_backend_visualization_jobs(session)]
+    conversions = workspace.list_conversion_runs()
+    outputs = _refresh_workspace_outputs(workspace)
 
     return DashboardTrendsResponse(
         days=days,
@@ -350,11 +346,10 @@ def get_dashboard_trends(workspace: Workspace, session: Session, *, days: int = 
 
 
 def get_dashboard_blockers(workspace: Workspace, session: Session) -> DashboardBlockersResponse:
-    backfill_output_artifacts(session)
     assets = workspace.list_assets()
-    jobs = _merged_jobs(workspace, session)
-    conversions = _merged_conversions(workspace, session)
-    outputs = _merged_outputs(workspace, session)
+    jobs = [*workspace.list_jobs(), *_backend_visualization_jobs(session)]
+    conversions = workspace.list_conversion_runs()
+    outputs = _refresh_workspace_outputs(workspace)
 
     asset_status_counts = _status_counts(
         [asset.indexing_status for asset in assets],

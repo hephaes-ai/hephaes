@@ -8,11 +8,10 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
-from app.db.models import Conversion, Job, OutputArtifact
+from app.db.models import Job
 from app.services import conversions as conversion_service
 from app.services import dashboard as dashboard_service
 from app.services import indexing as indexing_service
-from app.services import outputs as outputs_service
 from app.services.jobs import JobService
 from hephaes.models import BagMetadata, Topic
 
@@ -161,13 +160,60 @@ def _update_workspace_job(
         connection.commit()
 
 
+def _update_workspace_conversion_run(
+    client: TestClient,
+    *,
+    status: str,
+    created_at: datetime,
+    updated_at: datetime,
+    started_at: datetime | None = None,
+    completed_at: datetime | None = None,
+) -> None:
+    with sqlite3.connect(client.app.state.workspace.database_path) as connection:
+        connection.execute(
+            """
+            UPDATE conversion_runs
+            SET created_at = ?, updated_at = ?, started_at = ?, completed_at = ?
+            WHERE status = ?
+            """,
+            (
+                created_at.isoformat(),
+                updated_at.isoformat(),
+                started_at.isoformat() if started_at is not None else None,
+                completed_at.isoformat() if completed_at is not None else None,
+                status,
+            ),
+        )
+        connection.commit()
+
+
+def _update_workspace_outputs(
+    client: TestClient,
+    *,
+    created_at: datetime,
+    updated_at: datetime,
+) -> None:
+    with sqlite3.connect(client.app.state.workspace.database_path) as connection:
+        connection.execute(
+            """
+            UPDATE output_artifacts
+            SET created_at = ?, updated_at = ?
+            """,
+            (
+                created_at.isoformat(),
+                updated_at.isoformat(),
+            ),
+        )
+        connection.commit()
+
+
 def test_dashboard_routes_return_zeroed_shapes_for_empty_catalog(
     client: TestClient,
     monkeypatch,
 ):
     fixed_now = datetime(2026, 3, 19, 12, 0, 0, tzinfo=UTC)
     monkeypatch.setattr(dashboard_service, "utc_now", lambda: fixed_now)
-    monkeypatch.setattr(outputs_service, "utc_now", lambda: fixed_now)
+    monkeypatch.setattr("hephaes.workspace._utc_now", lambda: fixed_now)
 
     summary_response = client.get("/dashboard/summary")
     trends_response = client.get("/dashboard/trends?days=3")
@@ -262,7 +308,7 @@ def test_dashboard_routes_aggregate_mixed_operational_states(
 ):
     fixed_now = datetime(2026, 3, 19, 12, 0, 0, tzinfo=UTC)
     monkeypatch.setattr(dashboard_service, "utc_now", lambda: fixed_now)
-    monkeypatch.setattr(outputs_service, "utc_now", lambda: fixed_now)
+    monkeypatch.setattr("hephaes.workspace._utc_now", lambda: fixed_now)
 
     indexed_asset = tmp_path / "indexed.mcap"
     pending_asset = tmp_path / "pending.mcap"
@@ -369,6 +415,45 @@ def test_dashboard_routes_aggregate_mixed_operational_states(
         started_at=datetime(2026, 3, 19, 8, 0, 30, tzinfo=UTC),
         completed_at=datetime(2026, 3, 19, 8, 3, 0, tzinfo=UTC),
     )
+    _update_workspace_job(
+        client,
+        kind="conversion",
+        status="succeeded",
+        created_at=datetime(2026, 3, 18, 13, 0, 0, tzinfo=UTC),
+        updated_at=datetime(2026, 3, 18, 13, 2, 0, tzinfo=UTC),
+        started_at=datetime(2026, 3, 18, 13, 0, 30, tzinfo=UTC),
+        completed_at=datetime(2026, 3, 18, 13, 2, 0, tzinfo=UTC),
+    )
+    _update_workspace_job(
+        client,
+        kind="conversion",
+        status="failed",
+        created_at=datetime(2026, 3, 19, 7, 0, 0, tzinfo=UTC),
+        updated_at=datetime(2026, 3, 19, 7, 2, 0, tzinfo=UTC),
+        started_at=datetime(2026, 3, 19, 7, 0, 30, tzinfo=UTC),
+        completed_at=datetime(2026, 3, 19, 7, 2, 0, tzinfo=UTC),
+    )
+    _update_workspace_conversion_run(
+        client,
+        status="succeeded",
+        created_at=datetime(2026, 3, 18, 13, 0, 0, tzinfo=UTC),
+        updated_at=datetime(2026, 3, 18, 13, 2, 0, tzinfo=UTC),
+        started_at=datetime(2026, 3, 18, 13, 0, 30, tzinfo=UTC),
+        completed_at=datetime(2026, 3, 18, 13, 2, 0, tzinfo=UTC),
+    )
+    _update_workspace_conversion_run(
+        client,
+        status="failed",
+        created_at=datetime(2026, 3, 19, 7, 0, 0, tzinfo=UTC),
+        updated_at=datetime(2026, 3, 19, 7, 2, 0, tzinfo=UTC),
+        started_at=datetime(2026, 3, 19, 7, 0, 30, tzinfo=UTC),
+        completed_at=datetime(2026, 3, 19, 7, 2, 0, tzinfo=UTC),
+    )
+    _update_workspace_outputs(
+        client,
+        created_at=datetime(2026, 3, 18, 13, 3, 0, tzinfo=UTC),
+        updated_at=datetime(2026, 3, 18, 13, 3, 0, tzinfo=UTC),
+    )
 
     session = client.app.state.session_factory()
     try:
@@ -383,28 +468,6 @@ def test_dashboard_routes_aggregate_mixed_operational_states(
                 job.updated_at = datetime(2026, 3, 19, 9, 35, 0, tzinfo=UTC)
                 job.started_at = datetime(2026, 3, 19, 9, 31, 0, tzinfo=UTC)
                 job.finished_at = None
-            elif job.type == "convert" and job.status == "succeeded":
-                job.created_at = datetime(2026, 3, 18, 13, 0, 0, tzinfo=UTC)
-                job.updated_at = datetime(2026, 3, 18, 13, 2, 0, tzinfo=UTC)
-                job.started_at = datetime(2026, 3, 18, 13, 0, 30, tzinfo=UTC)
-                job.finished_at = datetime(2026, 3, 18, 13, 2, 0, tzinfo=UTC)
-            elif job.type == "convert" and job.status == "failed":
-                job.created_at = datetime(2026, 3, 19, 7, 0, 0, tzinfo=UTC)
-                job.updated_at = datetime(2026, 3, 19, 7, 2, 0, tzinfo=UTC)
-                job.started_at = datetime(2026, 3, 19, 7, 0, 30, tzinfo=UTC)
-                job.finished_at = datetime(2026, 3, 19, 7, 2, 0, tzinfo=UTC)
-
-        for conversion in session.scalars(select(Conversion)).all():
-            if conversion.status == "succeeded":
-                conversion.created_at = datetime(2026, 3, 18, 13, 0, 0, tzinfo=UTC)
-                conversion.updated_at = datetime(2026, 3, 18, 13, 2, 0, tzinfo=UTC)
-            elif conversion.status == "failed":
-                conversion.created_at = datetime(2026, 3, 19, 7, 0, 0, tzinfo=UTC)
-                conversion.updated_at = datetime(2026, 3, 19, 7, 2, 0, tzinfo=UTC)
-
-        for artifact in session.scalars(select(OutputArtifact)).all():
-            artifact.created_at = datetime(2026, 3, 18, 13, 3, 0, tzinfo=UTC)
-            artifact.updated_at = datetime(2026, 3, 18, 13, 3, 0, tzinfo=UTC)
 
         session.commit()
     finally:
