@@ -8,7 +8,6 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
 
 from app.api._status import HTTP_422_UNPROCESSABLE_CONTENT
-from app.db.models import Conversion
 from app.dependencies import get_db_session, get_workspace
 from app.mappers.workspace import map_conversion_detail, map_conversion_summary
 from app.schemas.conversion_authoring import (
@@ -26,7 +25,6 @@ from app.schemas.conversions import (
     ConversionDetailResponse,
     ConversionSummaryResponse,
 )
-from app.schemas.jobs import JobResponse
 from app.services.conversion_authoring import (
     ConversionAuthoringInspectionError,
     ConversionAuthoringNotFoundError,
@@ -140,24 +138,6 @@ def _json_safe_preview(preview: PreviewResult | None) -> PreviewResult | None:
 def _json_safe_draft_result(draft: DraftSpecResult) -> DraftSpecResult:
     safe_preview = _json_safe_preview(draft.preview)
     return draft.model_copy(update={"preview": safe_preview})
-
-
-def build_conversion_summary_response(conversion: Conversion) -> ConversionSummaryResponse:
-    config_payload = dict(conversion.config_json)
-    return ConversionSummaryResponse(
-        id=conversion.id,
-        job_id=conversion.job_id,
-        status=conversion.status,
-        asset_ids=list(conversion.source_asset_ids_json),
-        config=config_payload,
-        output_path=conversion.output_path,
-        error_message=conversion.error_message,
-        representation_policy=_build_representation_policy(config_payload),
-        created_at=conversion.created_at,
-        updated_at=conversion.updated_at,
-    )
-
-
 def _matches_conversion_filters(
     config: dict[str, object],
     *,
@@ -177,22 +157,6 @@ def _matches_conversion_filters(
         if is_legacy_compatible != legacy_compatible:
             return False
     return True
-
-
-def build_conversion_detail_response(conversion: Conversion) -> ConversionDetailResponse:
-    if conversion.job is None:  # pragma: no cover - defensive integrity guard
-        raise ValueError(f"conversion is missing linked job: {conversion.id}")
-
-    job_payload = JobResponse.model_validate(conversion.job).model_dump()
-    config_payload = job_payload.get("config_json")
-    if isinstance(config_payload, dict):
-        job_payload["representation_policy"] = config_payload.get("representation_policy")
-
-    return ConversionDetailResponse(
-        **build_conversion_summary_response(conversion).model_dump(),
-        output_files=list(conversion.output_files_json),
-        job=JobResponse.model_validate(job_payload),
-    )
 
 
 def build_inspection_response(
