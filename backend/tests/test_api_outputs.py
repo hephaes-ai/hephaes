@@ -10,6 +10,7 @@ from sqlalchemy import delete
 from app.db.models import OutputArtifact
 from app.services import conversions as conversion_service
 from app.services import indexing as indexing_service
+from app.services import outputs as outputs_service
 from hephaes.models import BagMetadata, Topic
 
 
@@ -305,6 +306,41 @@ def test_outputs_lazy_backfill_recreates_deleted_artifact_rows(
         "episode_0001.parquet",
         "episode_0001.manifest.json",
     }
+
+
+def test_outputs_routes_fall_back_to_workspace_when_legacy_rows_are_missing(
+    client: TestClient,
+    monkeypatch,
+    sample_asset_file: Path,
+):
+    _asset_id, conversion = create_conversion(client, monkeypatch, sample_asset_file)
+    session = client.app.state.session_factory()
+    try:
+        session.execute(delete(OutputArtifact))
+        session.commit()
+    finally:
+        session.close()
+
+    monkeypatch.setattr(outputs_service, "backfill_output_artifacts", lambda _session: None)
+
+    outputs_response = client.get("/outputs")
+    assert outputs_response.status_code == 200
+    outputs = outputs_response.json()
+    assert len(outputs) == 2
+    dataset = next(item for item in outputs if item["role"] == "dataset")
+    assert dataset["conversion_id"] == conversion["id"]
+    assert dataset["job_id"] == conversion["job_id"]
+    assert dataset["file_name"] == "episode_0001.parquet"
+    assert dataset["size_bytes"] == len(b"parquet-data")
+
+    detail_response = client.get(f"/outputs/{dataset['id']}")
+    assert detail_response.status_code == 200
+    detail = detail_response.json()
+    assert detail["file_path"] == str(Path(conversion["output_path"]) / "episode_0001.parquet")
+
+    content_response = client.get(detail["content_url"])
+    assert content_response.status_code == 200
+    assert content_response.content == b"parquet-data"
 
 
 def test_output_actions_refresh_metadata_updates_latest_action_and_detail(

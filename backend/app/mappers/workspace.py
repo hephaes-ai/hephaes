@@ -409,9 +409,13 @@ def map_saved_conversion_config_detail(
     )
 
 
-def map_output_summary(artifact: OutputArtifactSummary) -> OutputArtifactSummaryResponse:
+def map_output_summary(
+    artifact: OutputArtifactSummary,
+    *,
+    job_id: str | None = None,
+) -> OutputArtifactSummaryResponse:
     conversion_id = artifact.conversion_run_id or ""
-    job_id = conversion_id
+    resolved_job_id = job_id or conversion_id
     content_url = f"/outputs/{artifact.id}/content"
     relative_path = (
         str(Path(artifact.output_path).name)
@@ -421,7 +425,7 @@ def map_output_summary(artifact: OutputArtifactSummary) -> OutputArtifactSummary
     return OutputArtifactSummaryResponse(
         id=artifact.id,
         conversion_id=conversion_id,
-        job_id=job_id,
+        job_id=resolved_job_id,
         asset_ids=[artifact.source_asset_id] if artifact.source_asset_id is not None else [],
         relative_path=relative_path,
         file_name=Path(artifact.output_path).name,
@@ -438,7 +442,11 @@ def map_output_summary(artifact: OutputArtifactSummary) -> OutputArtifactSummary
     )
 
 
-def map_output_detail(artifact: OutputArtifact) -> OutputArtifactDetailResponse:
+def map_output_detail(
+    artifact: OutputArtifact,
+    *,
+    job_id: str | None = None,
+) -> OutputArtifactDetailResponse:
     summary = map_output_summary(
         OutputArtifactSummary(
             id=artifact.id,
@@ -452,14 +460,18 @@ def map_output_detail(artifact: OutputArtifact) -> OutputArtifactDetailResponse:
             saved_config_id=artifact.saved_config_id,
             manifest_available=artifact.manifest_available,
             report_available=artifact.report_available,
-        )
+        ),
+        job_id=job_id,
     )
-    return OutputArtifactDetailResponse(
-        **summary.model_dump(),
-        media_type=artifact.media_type,
-        size_bytes=artifact.size_bytes,
-        availability_status=artifact.availability_status,
-        metadata=dict(artifact.metadata),
-        file_path=artifact.output_path,
-        updated_at=artifact.updated_at,
+    payload = summary.model_dump()
+    payload.update(
+        {
+            "media_type": artifact.media_type,
+            "size_bytes": artifact.size_bytes,
+            "availability_status": artifact.availability_status,
+            "metadata": dict(artifact.metadata),
+            "file_path": artifact.output_path,
+            "updated_at": artifact.updated_at,
+        }
     )
+    return OutputArtifactDetailResponse.model_validate(payload)
