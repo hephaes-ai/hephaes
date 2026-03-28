@@ -33,6 +33,7 @@ from .models import (
     ConversionDraftRevision,
     ConversionDraftRevisionSummary,
     ConversionDraftSummary,
+    SavedConversionConfig,
 )
 from .serialization import (
     build_conversion_draft,
@@ -522,6 +523,60 @@ class WorkspaceDraftMixin:
         self._set_conversion_draft_status(draft.id, "discarded")
         return self.resolve_conversion_draft(draft.id)
 
+    def save_conversion_config_from_draft(
+        self,
+        draft_selector: str,
+        *,
+        name: str,
+        description: str | None = None,
+    ) -> SavedConversionConfig:
+        draft = self.resolve_conversion_draft(draft_selector)
+        if draft.status != "confirmed":
+            raise ConversionDraftConfirmationError(
+                f"draft {draft.id} must be confirmed before it can be saved as a config"
+            )
+
+        confirmed_revision = draft.confirmed_revision
+        if confirmed_revision is None:
+            raise ConversionDraftConfirmationError(
+                f"draft {draft.id} does not have a confirmed revision to save"
+            )
+
+        timestamp = _utc_now()
+        promoted_document = self._build_saved_config_document_from_draft(
+            draft,
+            confirmed_revision,
+        )
+        with self._transaction() as connection:
+            config = self._insert_saved_conversion_config(
+                connection,
+                name=name,
+                spec_document=promoted_document,
+                description=description,
+                timestamp=timestamp,
+            )
+            self._set_conversion_draft_revision_saved_config(
+                confirmed_revision.id,
+                saved_config_id=config.id,
+                status="saved",
+                connection=connection,
+                timestamp=timestamp,
+            )
+            self._set_conversion_draft_saved_config(
+                draft.id,
+                config.id,
+                connection=connection,
+                timestamp=timestamp,
+            )
+            self._set_conversion_draft_status(
+                draft.id,
+                "saved",
+                connection=connection,
+                timestamp=timestamp,
+            )
+
+        return config
+
     @contextmanager
     def _open_asset_reader(
         self,
@@ -613,6 +668,34 @@ class WorkspaceDraftMixin:
             "sample_n": sample_n,
             "topic_type_hints": dict(topic_type_hints or {}),
         }
+
+    def _build_saved_config_document_from_draft(
+        self,
+        draft: ConversionDraft,
+        confirmed_revision: ConversionDraftRevision,
+    ) -> ConversionSpecDocument:
+        metadata = dict(confirmed_revision.document.metadata)
+        workspace_metadata = metadata.get("hephaes_workspace")
+        if not isinstance(workspace_metadata, dict):
+            workspace_metadata = {}
+        else:
+            workspace_metadata = dict(workspace_metadata)
+        workspace_metadata["draft_promotion"] = {
+            "draft_id": draft.id,
+            "confirmed_revision_id": confirmed_revision.id,
+            "source_asset_id": draft.source_asset_id,
+            "preview_request": dict(confirmed_revision.preview_request_json),
+            "preview": (
+                dict(confirmed_revision.preview_json)
+                if confirmed_revision.preview_json is not None
+                else None
+            ),
+        }
+        metadata["hephaes_workspace"] = workspace_metadata
+        return confirmed_revision.document.model_copy(
+            deep=True,
+            update={"metadata": metadata},
+        )
 
     def _resolve_conversion_draft(
         self,
@@ -991,6 +1074,45 @@ class WorkspaceDraftMixin:
                 saved_config_id,
                 to_db_timestamp(timestamp),
                 draft_id,
+            ),
+        )
+
+    def _set_conversion_draft_revision_saved_config(
+        self,
+        revision_id: str,
+        *,
+        saved_config_id: str | None,
+        status: RevisionStatus | None = None,
+        connection: sqlite3.Connection | None = None,
+        timestamp=None,
+    ) -> None:
+        timestamp = timestamp or _utc_now()
+        if connection is None:
+            with self._transaction() as connection:
+                self._set_conversion_draft_revision_saved_config(
+                    revision_id,
+                    saved_config_id=saved_config_id,
+                    status=status,
+                    connection=connection,
+                    timestamp=timestamp,
+                )
+            return
+
+        revision = self._get_conversion_draft_revision_summary_or_raise(
+            revision_id,
+            connection=connection,
+        )
+        connection.execute(
+            """
+            UPDATE conversion_draft_revisions
+            SET saved_config_id = ?, status = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (
+                saved_config_id,
+                status or revision.status,
+                to_db_timestamp(timestamp),
+                revision_id,
             ),
         )
 

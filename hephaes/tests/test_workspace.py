@@ -1003,6 +1003,130 @@ def test_workspace_authoring_update_preview_confirm_and_discard_draft(
         )
 
 
+def test_save_conversion_config_from_draft_requires_confirmation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    tmp_mcap_file: Path,
+) -> None:
+    workspace = Workspace.init(tmp_path)
+    asset = workspace.register_asset(tmp_mcap_file)
+    monkeypatch.setattr(
+        "hephaes.workspace.drafts.RosReader.open",
+        lambda bag_path, ros_version=None, registry=None: FakeWorkspaceAuthoringReader(
+            bag_path=bag_path,
+        ),
+    )
+
+    draft = workspace.create_conversion_draft(
+        asset.id,
+        inspection_request={"sample_n": 2, "topics": ["/doom_image", "/joy"]},
+        draft_request={
+            "trigger_topic": "/doom_image",
+            "selected_topics": ["/doom_image", "/joy"],
+            "max_features_per_topic": 1,
+            "label_feature": "buttons",
+            "include_preview": False,
+        },
+    )
+
+    with pytest.raises(ConversionDraftConfirmationError):
+        workspace.save_conversion_config_from_draft(
+            draft.id,
+            name="Unconfirmed Draft Config",
+        )
+
+
+def test_save_conversion_config_from_draft_persists_lineage_and_supports_conversion(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    tmp_mcap_file: Path,
+) -> None:
+    workspace = Workspace.init(tmp_path)
+    asset = workspace.register_asset(tmp_mcap_file)
+    monkeypatch.setattr(
+        "hephaes.workspace.drafts.RosReader.open",
+        lambda bag_path, ros_version=None, registry=None: FakeWorkspaceAuthoringReader(
+            bag_path=bag_path,
+        ),
+    )
+
+    draft = workspace.create_conversion_draft(
+        asset.id,
+        inspection_request={"sample_n": 2, "topics": ["/doom_image", "/joy"]},
+        draft_request={
+            "trigger_topic": "/doom_image",
+            "selected_topics": ["/doom_image", "/joy"],
+            "max_features_per_topic": 1,
+            "label_feature": "buttons",
+            "include_preview": False,
+        },
+    )
+    previewed = workspace.preview_conversion_draft(draft.id, sample_n=1)
+    confirmed = workspace.confirm_conversion_draft(draft.id)
+    assert previewed.current_revision is not None
+    assert confirmed.confirmed_revision is not None
+
+    class FakeConverter:
+        def __init__(
+            self,
+            file_paths,
+            mapping,
+            output_dir,
+            *,
+            spec,
+            max_workers=1,
+            **kwargs,
+        ) -> None:
+            assert len(file_paths) == 1
+            assert Path(file_paths[0]).is_file()
+            assert spec.schema.name == confirmed.current_revision.document.spec.schema.name
+            assert max_workers == 1
+            self.output_dir = Path(output_dir)
+
+        def convert(self) -> list[Path]:
+            dataset_path = self.output_dir / "episode_0001.parquet"
+            dataset_path.parent.mkdir(parents=True, exist_ok=True)
+            dataset_path.write_bytes(b"parquet")
+            dataset_path.with_suffix(".manifest.json").write_text(
+                '{"episode_id":"episode_0001"}',
+                encoding="utf-8",
+            )
+            return [dataset_path]
+
+    monkeypatch.setattr("hephaes.workspace.Converter", FakeConverter)
+
+    saved = workspace.save_conversion_config_from_draft(
+        draft.id,
+        name="Promoted Draft Config",
+        description="from confirmed draft",
+    )
+    refreshed_draft = workspace.resolve_conversion_draft(draft.id)
+    saved_lookup = workspace.resolve_saved_conversion_config(saved.id)
+    outputs = workspace.run_conversion(asset.id, saved_config_selector=saved.id)
+
+    assert saved.id == saved_lookup.id
+    assert saved.description == "from confirmed draft"
+    assert saved.metadata["hephaes_workspace"]["draft_promotion"]["draft_id"] == draft.id
+    assert (
+        saved.metadata["hephaes_workspace"]["draft_promotion"]["confirmed_revision_id"]
+        == confirmed.confirmed_revision.id
+    )
+    assert (
+        saved.metadata["hephaes_workspace"]["draft_promotion"]["source_asset_id"]
+        == asset.id
+    )
+    assert saved.metadata["hephaes_workspace"]["draft_promotion"]["preview"]["rows"]
+    assert refreshed_draft.status == "saved"
+    assert refreshed_draft.saved_config_id == saved.id
+    assert refreshed_draft.current_revision is not None
+    assert refreshed_draft.current_revision.saved_config_id == saved.id
+    assert refreshed_draft.current_revision.status == "saved"
+    assert [draft_summary.id for draft_summary in workspace.list_conversion_drafts(saved_config_selector=saved.id)] == [
+        draft.id
+    ]
+    assert any(output.saved_config_id == saved.id for output in outputs)
+
+
 def test_migrate_workspace_schema_creates_draft_heads_for_legacy_draft_revisions(
     tmp_path: Path,
 ) -> None:

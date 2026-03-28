@@ -28,7 +28,7 @@ This implementation plan is intentionally package-first:
 | 3 | completed | Added package-owned `Workspace` authoring methods for inspect/create/update/preview/confirm/discard plus reader error normalization and workflow tests. |
 | 4 | not started | Pending scriptable `drafts` CLI surface. |
 | 5 | not started | Pending required interactive wizard. |
-| 6 | not started | Pending explicit draft promotion and saved-config lineage. |
+| 6 | completed | Pulled forward to unblock the CLI save flow; added `Workspace.save_conversion_config_from_draft(...)`, draft-to-config lineage in config metadata, and promotion coverage including conversion execution. |
 | 7 | not started | Pending expanded workflow and migration validation. |
 | 8 | not started | Pending final docs/examples refresh. |
 
@@ -300,6 +300,10 @@ Ship a required interactive wizard that becomes the default human path through t
 ### Goal
 
 Make saving from a confirmed draft explicit and preserve the lineage needed for later conversions and queries.
+
+### Status
+
+Completed on `2026-03-28`.
 
 ### Tasks
 

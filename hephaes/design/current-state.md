@@ -18,11 +18,11 @@ This document is package-focused. It intentionally does not treat the backend as
 As of `2026-03-28`, `hephaes` already contains:
 
 - pure conversion authoring helpers for inspect, draft generation, and preview
-- a `Workspace` package API with durable local SQLite state and package-owned authoring workflow methods through draft confirmation
+- a `Workspace` package API with durable local SQLite state and package-owned authoring workflow methods through config promotion
 - asset registration, indexing, tags, saved configs, config revisions, draft heads, public draft lookup/state primitives, draft revision persistence, jobs, conversion runs, and outputs
 - CLI commands for workspace init, asset add/index/list, inspect, convert, configs, jobs, runs, and outputs
 
-What it does **not** yet contain is a package-owned end-to-end authoring workflow through the CLI, or draft promotion into saved configs.
+What it does **not** yet contain is a package-owned end-to-end authoring workflow through the CLI.
 
 ## Current Package Surface
 
@@ -61,6 +61,7 @@ Implemented through `Workspace` mixins:
 - package-owned `preview_conversion_draft(...)`
 - package-owned `confirm_conversion_draft(...)`
 - package-owned `discard_conversion_draft(...)`
+- package-owned `save_conversion_config_from_draft(...)`
 - job lifecycle
 - conversion run lifecycle
 - output artifact registration/list/get
@@ -69,8 +70,8 @@ Implemented through `Workspace` mixins:
 Current role:
 
 - `Workspace` owns durable state
-- `Workspace` now owns inspect -> draft -> preview -> confirm authoring flow
-- `Workspace` does **not** yet own draft promotion into saved configs or the CLI UX
+- `Workspace` now owns inspect -> draft -> preview -> confirm -> save authoring flow
+- `Workspace` does **not** yet own the CLI UX
 
 ### Current CLI
 
@@ -206,20 +207,22 @@ Missing today:
 
 ### 7. Save confirmed draft as reusable config
 
-Status: partially implemented, but not as draft promotion
+Status: implemented through `Workspace`
 
 Implemented today:
 
 - generic saved config persistence exists
+- `Workspace.save_conversion_config_from_draft(...)` promotes a confirmed draft into a saved config
+- promoted configs carry draft lineage in config metadata
+- confirmed draft revisions are linked to the saved config id and draft status moves to `saved`
 
 Missing today:
 
-- no `save_conversion_config_from_draft(...)`
-- no promotion from a confirmed draft
-- no durable lineage from saved config back to draft and confirmed revision
+- no scriptable `drafts save-config` CLI surface yet
 
 Relevant files:
 
+- `src/hephaes/workspace/drafts.py`
 - `src/hephaes/workspace/configs/mutations.py`
 - `src/hephaes/workspace/configs/queries.py`
 - `src/hephaes/workspace/configs/revisions.py`
@@ -276,13 +279,13 @@ Current behavior:
 - public draft listings now support filters by status, source asset, and saved config
 - draft lookups now resolve current and confirmed revisions through `ConversionDraft`
 - high-level `Workspace` methods now orchestrate create/update/preview/confirm/discard on top of those primitives
+- draft promotion now links confirmed revisions to saved configs and stores lineage in saved config metadata
 
 Current limitation:
 
-- saved-config promotion is still missing
 - the new workflow is still not exposed through a `drafts` CLI surface or wizard
 
-So the structural gap has narrowed from "no draft head exists" to "the workflow is package-owned in `Workspace`, but promotion and CLI UX are still missing."
+So the structural gap has narrowed from "no draft head exists" to "the workflow is package-owned in `Workspace`, but the CLI UX is still missing."
 
 ## Current CLI State
 
@@ -324,7 +327,6 @@ The required interactive wizard does not exist yet.
 
 ### Not yet package-owned in the right form
 
-- draft promotion from confirmed drafts into saved configs
 - CLI-first authoring UX
 
 ## Known Gaps Relative To The Target Design
@@ -333,7 +335,6 @@ The target design in `design/architecture.md` and `design/implementation.md` is 
 
 Main gaps:
 
-- no `Workspace.save_conversion_config_from_draft(...)`
 - no `drafts` CLI command group
 - no required interactive wizard
 
@@ -382,6 +383,7 @@ Relevant package tests already exist for:
 - draft-head schema/migration compatibility
 - draft-head lookup and state primitive behavior
 - workspace-owned inspect/create/update/preview/confirm/discard authoring flow
+- workspace-owned draft promotion and lineage
 - draft revision persistence
 - conversion authoring helpers
 - conversion execution
@@ -398,7 +400,6 @@ Observed during implementation on `2026-03-28`:
 
 What is not covered yet:
 
-- draft promotion to saved config
 - CLI command behavior for draft workflow
 - wizard behavior
 
@@ -423,5 +424,5 @@ Current shorthand:
 - authoring primitives exist
 - durable workspace exists
 - draft-head persistence primitives now exist
-- `Workspace` owns inspect -> draft -> preview -> confirm
-- config promotion and CLI-first authoring still do not exist
+- `Workspace` owns inspect -> draft -> preview -> confirm -> save
+- CLI-first authoring still does not exist
