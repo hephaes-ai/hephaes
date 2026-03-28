@@ -6,6 +6,14 @@ The `hephaes` Python package turns ROS logs into standardized, ML-ready datasets
 
 It is the core data-conversion engine used by the backend and frontend, but it is also usable directly as a standalone Python library and CLI.
 
+## 0.3 Release Highlights
+
+- local `.hephaes` workspaces for assets, drafts, configs, jobs, runs, and outputs
+- path-backed asset registration with no raw-log copying into the workspace
+- a complete draft-first authoring workflow through both `Workspace` and the CLI
+- an interactive `drafts wizard` for human-driven authoring
+- reusable saved configs that can be used later for conversions
+
 ## What The Package Solves
 
 - Ingest ROS1 `.bag` and ROS2 `.mcap` logs

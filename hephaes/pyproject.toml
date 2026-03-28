@@ -34,6 +34,8 @@ dependencies = [
 
 [project.urls]
 Homepage = "https://hephaes.ai"
+Documentation = "https://hephaes.ai/hephaes/overview"
+Repository = "https://github.com/hephaes-ai/hephaes"
 
 [project.scripts]
 hephaes = "hephaes.cli:entrypoint"

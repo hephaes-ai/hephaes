@@ -10,7 +10,7 @@ class TestVersion:
     def test_version_defined(self):
         assert hasattr(hephaes, "__version__")
         assert isinstance(hephaes.__version__, str)
-        assert hephaes.__version__ == "0.2.2"
+        assert hephaes.__version__ == "0.3.0"
 
 
 class TestPublicExports:

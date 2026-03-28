@@ -8,14 +8,31 @@ your own machine.
 
 ## Core Workflow
 
-- register local `.bag` and `.mcap` logs by file path, upload, native file picker, or directory scan
+- register local `.bag` and `.mcap` logs by file path or directory scan
 - index logs to extract duration, start and end time, topic summaries, message counts, sensor types, and raw metadata
-- browse assets in a sortable/filterable inventory with tags and indexing status
-- inspect each asset in a detail page with topic breakdowns, replay readiness, related jobs, and conversion history
+- inspect source assets and draft conversion specs from real data
+- preview drafts, confirm them, and save reusable configs
 - convert selected sessions to Parquet or TFRecord with custom mappings, compression, resampling, and manifests
 - browse generated outputs and open artifact content directly
 - track durable jobs for indexing, conversion, and visualization preparation
 - prepare local replay and visualization artifacts for indexed assets
+
+## Open Source Package Today
+
+The `hephaes` Python package is now independently usable as a local CLI and library.
+
+It currently supports:
+
+- local `.hephaes` workspaces rooted in your project directory
+- path-backed asset registration without copying raw log files
+- a draft-first authoring workflow through `hephaes drafts ...` and `hephaes drafts wizard`
+- reusable saved conversion configs and later conversion runs from those configs
+
+See the package docs here:
+
+- [Hephaes Overview](/hephaes/overview)
+- [Hephaes CLI](/hephaes/cli)
+- [Hephaes How To Use](/hephaes/how-to-use)
 
 ## Enterprise Features
 
