@@ -5,7 +5,7 @@ import sqlite3
 from dataclasses import asdict
 from datetime import datetime
 
-from ._workspace_models import (
+from .models import (
     ConversionDraftRevision,
     ConversionDraftRevisionSummary,
     DefaultEpisodeSummary,
@@ -25,7 +25,7 @@ from ._workspace_models import (
     WorkspaceTag,
     WorkspaceJob,
 )
-from .conversion.spec_io import ConversionSpecDocument
+from ..conversion.spec_io import ConversionSpecDocument
 
 
 def to_db_timestamp(value: datetime) -> str:
