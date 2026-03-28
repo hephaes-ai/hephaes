@@ -4,7 +4,7 @@ import sqlite3
 
 WORKSPACE_DIRNAME = ".hephaes"
 WORKSPACE_DB_FILENAME = "workspace.sqlite3"
-WORKSPACE_SCHEMA_VERSION = 8
+WORKSPACE_SCHEMA_VERSION = 9
 
 
 def initialize_workspace_schema(connection: sqlite3.Connection) -> None:
@@ -99,14 +99,22 @@ def initialize_workspace_schema(connection: sqlite3.Connection) -> None:
 
         CREATE TABLE IF NOT EXISTS conversion_draft_revisions (
             id TEXT PRIMARY KEY,
+            revision_number INTEGER NOT NULL DEFAULT 1,
             label TEXT NULL,
             saved_config_id TEXT NULL,
             source_asset_id TEXT NULL,
+            status TEXT NOT NULL DEFAULT 'draft',
             metadata_json TEXT NOT NULL DEFAULT '{}',
+            inspection_request_json TEXT NOT NULL DEFAULT '{}',
+            inspection_json TEXT NOT NULL DEFAULT '{}',
+            draft_request_json TEXT NOT NULL DEFAULT '{}',
+            draft_result_json TEXT NOT NULL DEFAULT '{}',
+            preview_json TEXT NULL,
             spec_document_path TEXT NOT NULL,
             spec_document_version INTEGER NOT NULL,
             invalid_reason TEXT NULL,
             created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
             FOREIGN KEY(saved_config_id) REFERENCES conversion_configs(id) ON DELETE SET NULL,
             FOREIGN KEY(source_asset_id) REFERENCES assets(id) ON DELETE SET NULL
         );
@@ -392,14 +400,22 @@ def migrate_workspace_schema(connection: sqlite3.Connection, schema_version: int
             """
             CREATE TABLE IF NOT EXISTS conversion_draft_revisions (
                 id TEXT PRIMARY KEY,
+                revision_number INTEGER NOT NULL DEFAULT 1,
                 label TEXT NULL,
                 saved_config_id TEXT NULL,
                 source_asset_id TEXT NULL,
+                status TEXT NOT NULL DEFAULT 'draft',
                 metadata_json TEXT NOT NULL DEFAULT '{}',
+                inspection_request_json TEXT NOT NULL DEFAULT '{}',
+                inspection_json TEXT NOT NULL DEFAULT '{}',
+                draft_request_json TEXT NOT NULL DEFAULT '{}',
+                draft_result_json TEXT NOT NULL DEFAULT '{}',
+                preview_json TEXT NULL,
                 spec_document_path TEXT NOT NULL,
                 spec_document_version INTEGER NOT NULL,
                 invalid_reason TEXT NULL,
                 created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
                 FOREIGN KEY(saved_config_id) REFERENCES conversion_configs(id) ON DELETE SET NULL,
                 FOREIGN KEY(source_asset_id) REFERENCES assets(id) ON DELETE SET NULL
             )
@@ -480,6 +496,37 @@ def migrate_workspace_schema(connection: sqlite3.Connection, schema_version: int
             """
             CREATE INDEX IF NOT EXISTS idx_conversion_runs_created_at
             ON conversion_runs(created_at DESC, id DESC)
+            """
+        )
+        connection.execute(
+            "UPDATE workspace_meta SET value = ? WHERE key = 'schema_version'",
+            ("8",),
+        )
+        schema_version = 8
+
+    if schema_version == 8:
+        columns = {
+            row["name"]
+            for row in connection.execute("PRAGMA table_info(conversion_draft_revisions)").fetchall()
+        }
+        for statement in (
+            "ALTER TABLE conversion_draft_revisions ADD COLUMN revision_number INTEGER NOT NULL DEFAULT 1",
+            "ALTER TABLE conversion_draft_revisions ADD COLUMN status TEXT NOT NULL DEFAULT 'draft'",
+            "ALTER TABLE conversion_draft_revisions ADD COLUMN inspection_request_json TEXT NOT NULL DEFAULT '{}'",
+            "ALTER TABLE conversion_draft_revisions ADD COLUMN inspection_json TEXT NOT NULL DEFAULT '{}'",
+            "ALTER TABLE conversion_draft_revisions ADD COLUMN draft_request_json TEXT NOT NULL DEFAULT '{}'",
+            "ALTER TABLE conversion_draft_revisions ADD COLUMN draft_result_json TEXT NOT NULL DEFAULT '{}'",
+            "ALTER TABLE conversion_draft_revisions ADD COLUMN preview_json TEXT NULL",
+            "ALTER TABLE conversion_draft_revisions ADD COLUMN updated_at TEXT NULL",
+        ):
+            column_name = statement.split(" ADD COLUMN ", 1)[1].split(" ", 1)[0]
+            if column_name not in columns:
+                connection.execute(statement)
+        connection.execute(
+            """
+            UPDATE conversion_draft_revisions
+            SET updated_at = COALESCE(updated_at, created_at)
+            WHERE updated_at IS NULL
             """
         )
         connection.execute(

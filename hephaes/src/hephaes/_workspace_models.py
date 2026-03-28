@@ -171,27 +171,43 @@ class SavedConversionConfigRevision:
 @dataclass(frozen=True)
 class ConversionDraftRevisionSummary:
     id: str
+    revision_number: int
     label: str | None
     saved_config_id: str | None
     source_asset_id: str | None
+    status: Literal["draft", "saved", "discarded"]
     metadata: dict[str, Any]
+    inspection_request_json: dict[str, Any]
+    inspection_json: dict[str, Any]
+    draft_request_json: dict[str, Any]
+    draft_result_json: dict[str, Any]
+    preview_json: dict[str, Any] | None
     spec_document_version: int
     document_path: str
     created_at: datetime
+    updated_at: datetime
     invalid_reason: str | None
 
 
 @dataclass(frozen=True)
 class ConversionDraftRevision:
     id: str
+    revision_number: int
     label: str | None
     saved_config_id: str | None
     source_asset_id: str | None
+    status: Literal["draft", "saved", "discarded"]
     metadata: dict[str, Any]
+    inspection_request_json: dict[str, Any]
+    inspection_json: dict[str, Any]
+    draft_request_json: dict[str, Any]
+    draft_result_json: dict[str, Any]
+    preview_json: dict[str, Any] | None
     document: ConversionSpecDocument
     spec_document_version: int
     document_path: str
     created_at: datetime
+    updated_at: datetime
     invalid_reason: str | None
 
 

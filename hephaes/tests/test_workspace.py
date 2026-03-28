@@ -465,17 +465,28 @@ def test_record_and_list_conversion_draft_revisions(tmp_path: Path, tmp_mcap_fil
         saved_config_selector=saved.id,
         source_asset_selector=asset.id,
         spec_document=build_conversion_spec_document(spec, metadata={"draft": True}),
+        inspection_request={"asset_id": asset.id, "sample_n": 2},
+        inspection={"bag_path": str(tmp_mcap_file), "sample_n": 2, "topics": {}, "warnings": []},
+        draft_request={"include_preview": True},
+        draft_result={"selected_topics": [], "warnings": [], "assumptions": [], "unresolved_fields": []},
+        preview={"rows": [], "checked_records": 0, "bad_records": 0},
     )
     drafts = workspace.list_conversion_draft_revisions(saved_config_selector=saved.id)
     resolved = workspace.get_conversion_draft_revision(draft.id)
 
     assert len(drafts) == 1
     assert drafts[0].id == draft.id
+    assert drafts[0].revision_number == 1
     assert drafts[0].saved_config_id == saved.id
     assert drafts[0].source_asset_id == asset.id
+    assert drafts[0].status == "saved"
+    assert drafts[0].inspection_request_json == {"asset_id": asset.id, "sample_n": 2}
     assert resolved is not None
     assert resolved.label == "Draft 1"
+    assert resolved.revision_number == 1
+    assert resolved.status == "saved"
     assert resolved.metadata == {"draft": True}
+    assert resolved.preview_json == {"rows": [], "checked_records": 0, "bad_records": 0}
 
 
 def test_register_and_list_output_artifacts(tmp_path: Path) -> None:

@@ -16,7 +16,9 @@ from app.schemas.assets import (
     VisualizationSummary,
 )
 from app.schemas.conversion_authoring import (
+    ConversionInspectionRequest,
     SavedConversionConfigDetailResponse,
+    SavedConversionDraftRevisionResponse,
     SavedConversionConfigRevisionResponse,
     SavedConversionConfigSummaryResponse,
 )
@@ -28,12 +30,17 @@ from app.schemas.conversions import (
 from app.schemas.jobs import JobResponse
 from app.schemas.outputs import OutputArtifactDetailResponse, OutputArtifactSummaryResponse
 from hephaes import (
+    DraftSpecRequest,
+    DraftSpecResult,
     ConversionDraftRevisionSummary,
     ConversionRun,
     IndexedAssetMetadata,
+    InspectionResult,
     OutputArtifact,
     OutputArtifactSummary,
+    PreviewResult,
     RegisteredAsset,
+    ConversionDraftRevision,
     SavedConversionConfig,
     SavedConversionConfigRevision,
     SavedConversionConfigSummary,
@@ -257,15 +264,12 @@ def map_saved_conversion_config_summary(
     *,
     revision_count: int,
     draft_count: int,
+    migration_notes: list[str] | None = None,
+    resolved_config: SavedConversionConfig | None = None,
+    latest_preview_available: bool = False,
+    latest_preview_updated_at=None,
 ) -> SavedConversionConfigSummaryResponse:
-    resolved_document = None
-    try:
-        # Best-effort load is handled by Workspace before returning invalid summaries.
-        resolved_document = None
-    except Exception:  # pragma: no cover - defensive guard
-        resolved_document = None
-
-    return SavedConversionConfigSummaryResponse(
+    response = SavedConversionConfigSummaryResponse(
         id=config.id,
         name=config.name,
         description=config.description,
@@ -279,15 +283,18 @@ def map_saved_conversion_config_summary(
         spec_feature_count=0,
         revision_count=revision_count,
         draft_count=draft_count,
-        migration_notes=[],
+        migration_notes=list(migration_notes or []),
         invalid_reason=config.invalid_reason,
-        latest_preview_available=False,
-        latest_preview_updated_at=None,
+        latest_preview_available=latest_preview_available,
+        latest_preview_updated_at=latest_preview_updated_at,
         created_at=config.created_at,
         updated_at=config.updated_at,
         last_opened_at=config.last_opened_at,
         status="invalid" if config.invalid_reason else "ready",
     )
+    if resolved_config is not None:
+        return _apply_config_document_fields(response, resolved_config)
+    return response
 
 
 def _apply_config_document_fields(
@@ -310,22 +317,45 @@ def _apply_config_document_fields(
 def _map_config_revision_kind(revision: SavedConversionConfigRevision, *, total_count: int) -> str:
     if revision.revision_number == 1:
         return "create"
+    if revision.description is not None and "migrat" in revision.description.casefold():
+        return "migration"
     if revision.revision_number == total_count:
         return "update"
-    return "migration"
+    return "update"
+
+
+def _collect_config_migration_notes(revisions: list[SavedConversionConfigRevision]) -> list[str]:
+    notes: list[str] = []
+    for revision in revisions:
+        description = revision.description
+        if description is None or "migrat" not in description.casefold():
+            continue
+        if description not in notes:
+            notes.append(description)
+    return notes
 
 
 def map_saved_conversion_config_detail(
     config: SavedConversionConfig,
     *,
     revisions: list[SavedConversionConfigRevision],
-    draft_revisions: list[ConversionDraftRevisionSummary],
+    draft_revisions: list[ConversionDraftRevision],
 ) -> SavedConversionConfigDetailResponse:
+    latest_preview_revision = next(
+        (draft_revision for draft_revision in draft_revisions if draft_revision.preview_json is not None),
+        None,
+    )
     summary = _apply_config_document_fields(
         map_saved_conversion_config_summary(
             config,
             revision_count=len(revisions),
             draft_count=len(draft_revisions),
+            migration_notes=_collect_config_migration_notes(revisions),
+            resolved_config=config,
+            latest_preview_available=latest_preview_revision is not None,
+            latest_preview_updated_at=(
+                latest_preview_revision.updated_at if latest_preview_revision is not None else None
+            ),
         ),
         config,
     )
@@ -334,7 +364,11 @@ def map_saved_conversion_config_detail(
         spec_document_json=config.document.model_dump(mode="json", by_alias=True),
         resolved_spec=config.document.spec,
         resolved_spec_document=config.document,
-        latest_preview=None,
+        latest_preview=(
+            PreviewResult.model_validate(latest_preview_revision.preview_json)
+            if latest_preview_revision is not None and latest_preview_revision.preview_json is not None
+            else None
+        ),
         revisions=[
             SavedConversionConfigRevisionResponse(
                 id=revision.id,
@@ -349,7 +383,29 @@ def map_saved_conversion_config_detail(
             )
             for revision in revisions
         ],
-        draft_revisions=[],
+        draft_revisions=[
+            SavedConversionDraftRevisionResponse(
+                id=draft_revision.id,
+                saved_config_id=draft_revision.saved_config_id,
+                revision_number=draft_revision.revision_number,
+                source_asset_id=draft_revision.source_asset_id,
+                status=draft_revision.status,
+                inspection_request=ConversionInspectionRequest.model_validate(
+                    draft_revision.inspection_request_json
+                ),
+                inspection=InspectionResult.model_validate(draft_revision.inspection_json),
+                draft_request=DraftSpecRequest.model_validate(draft_revision.draft_request_json),
+                draft_result=DraftSpecResult.model_validate(draft_revision.draft_result_json),
+                preview=(
+                    PreviewResult.model_validate(draft_revision.preview_json)
+                    if draft_revision.preview_json is not None
+                    else None
+                ),
+                created_at=draft_revision.created_at,
+                updated_at=draft_revision.updated_at,
+            )
+            for draft_revision in draft_revisions
+        ],
     )
 
 

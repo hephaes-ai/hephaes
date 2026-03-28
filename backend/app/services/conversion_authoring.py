@@ -12,7 +12,6 @@ from app.schemas.conversion_authoring import (
     ConversionInspectionRequest,
     ConversionPreviewRequest,
 )
-from app.services.conversion_configs import ConversionConfigService
 from app.services.episodes import open_asset_reader
 from hephaes import AssetNotFoundError, Workspace, build_conversion_capabilities
 from hephaes.conversion import (
@@ -107,9 +106,11 @@ class ConversionAuthoringService:
                     request=request.draft_request,
                     reader=reader,
                 )
-                draft_revision = ConversionConfigService(self.session).record_draft_revision(
-                    saved_config_id=None,
-                    source_asset_id=request.asset_id,
+                draft_revision = self.workspace.record_conversion_draft_revision(
+                    label=None,
+                    saved_config_selector=None,
+                    source_asset_selector=request.asset_id,
+                    spec_document=draft.spec,
                     inspection_request=ConversionInspectionRequest(
                         asset_id=request.asset_id,
                         topics=list(request.topics),
@@ -120,7 +121,7 @@ class ConversionAuthoringService:
                         topic_type_hints=dict(request.topic_type_hints),
                     ),
                     inspection=inspection,
-                    draft_request=request,
+                    draft_request=request.draft_request,
                     draft_result=draft,
                     preview=draft.preview,
                 )

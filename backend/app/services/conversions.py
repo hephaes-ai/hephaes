@@ -13,6 +13,7 @@ from sqlalchemy.orm.session import sessionmaker
 
 from hephaes import (
     Converter,
+    ConversionConfigNotFoundError as WorkspaceConversionConfigNotFoundError,
     Workspace,
     build_legacy_conversion_spec,
     build_mapping_template,
@@ -345,14 +346,25 @@ class ConversionService:
 
         if request.saved_config_id is not None:
             config_service = ConversionConfigService(self.session)
+            saved_config_revision_number: int | None = None
             try:
                 saved_config_document = config_service.resolve_saved_config_spec_document(
                     request.saved_config_id,
                     persist_migration=True,
                     mark_opened=True,
                 )
-            except ConversionConfigNotFoundError as exc:
-                raise ConversionValidationError(str(exc)) from exc
+                saved_config_revision_number = config_service._get_config_or_raise(
+                    request.saved_config_id
+                ).current_revision_number
+            except ConversionConfigNotFoundError:
+                workspace = Workspace.open(get_settings().workspace_root)
+                try:
+                    saved_config = workspace.resolve_saved_conversion_config(request.saved_config_id)
+                except WorkspaceConversionConfigNotFoundError as exc:
+                    raise ConversionValidationError(str(exc)) from exc
+                saved_config_document = saved_config.document
+                revisions = workspace.list_saved_conversion_config_revisions(saved_config.id)
+                saved_config_revision_number = revisions[0].revision_number if revisions else 1
             except ConversionConfigInvalidError as exc:
                 raise ConversionValidationError(str(exc)) from exc
 
@@ -372,9 +384,7 @@ class ConversionService:
                 representation_policy=representation_policy,
             )
             conversion_config["saved_config_id"] = request.saved_config_id
-            conversion_config["saved_config_revision_number"] = config_service._get_config_or_raise(
-                request.saved_config_id
-            ).current_revision_number
+            conversion_config["saved_config_revision_number"] = saved_config_revision_number
             conversion_config["saved_config_spec_document_version"] = saved_config_document.spec_version
         else:
             mapping = _resolve_mapping(assets, request)

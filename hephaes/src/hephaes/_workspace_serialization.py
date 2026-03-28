@@ -292,13 +292,25 @@ def row_to_conversion_draft_revision_summary(
 ) -> ConversionDraftRevisionSummary:
     return ConversionDraftRevisionSummary(
         id=row["id"],
+        revision_number=int(row["revision_number"]),
         label=row["label"],
         saved_config_id=row["saved_config_id"],
         source_asset_id=row["source_asset_id"],
+        status=row["status"],
         metadata=dict(json.loads(row["metadata_json"])),
+        inspection_request_json=dict(json.loads(row["inspection_request_json"])),
+        inspection_json=dict(json.loads(row["inspection_json"])),
+        draft_request_json=dict(json.loads(row["draft_request_json"])),
+        draft_result_json=dict(json.loads(row["draft_result_json"])),
+        preview_json=(
+            dict(json.loads(row["preview_json"]))
+            if row["preview_json"] is not None
+            else None
+        ),
         spec_document_version=int(row["spec_document_version"]),
         document_path=document_path,
         created_at=from_db_timestamp(row["created_at"]),
+        updated_at=from_db_timestamp(row["updated_at"]),
         invalid_reason=row["invalid_reason"],
     )
 
@@ -310,14 +322,22 @@ def build_conversion_draft_revision(
 ) -> ConversionDraftRevision:
     return ConversionDraftRevision(
         id=summary.id,
+        revision_number=summary.revision_number,
         label=summary.label,
         saved_config_id=summary.saved_config_id,
         source_asset_id=summary.source_asset_id,
+        status=summary.status,
         metadata=summary.metadata,
+        inspection_request_json=summary.inspection_request_json,
+        inspection_json=summary.inspection_json,
+        draft_request_json=summary.draft_request_json,
+        draft_result_json=summary.draft_result_json,
+        preview_json=summary.preview_json,
         document=document,
         spec_document_version=summary.spec_document_version,
         document_path=summary.document_path,
         created_at=summary.created_at,
+        updated_at=summary.updated_at,
         invalid_reason=summary.invalid_reason,
     )
 
