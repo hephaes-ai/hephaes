@@ -7,10 +7,9 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from pydantic import ValidationError
-from sqlalchemy.orm import Session
 
 from app.api._status import HTTP_422_UNPROCESSABLE_CONTENT
-from app.dependencies import get_db_session, get_workspace
+from app.dependencies import get_workspace
 from app.mappers.workspace import (
     asset_display_path,
     map_asset_list_item,
@@ -40,10 +39,6 @@ from app.schemas.conversions import ConversionSummaryResponse
 from app.schemas.jobs import JobResponse
 from app.services import assets as asset_services
 from app.services import indexing as indexing_service
-from app.services.assets import (
-    list_related_conversions_for_asset,
-    list_related_jobs_for_asset,
-)
 from hephaes import (
     AssetAlreadyRegisteredError,
     AssetNotFoundError,
@@ -55,7 +50,6 @@ import hephaes.workspace as workspace_module
 
 router = APIRouter(prefix="/assets", tags=["assets"])
 WorkspaceDep = Annotated[Workspace, Depends(get_workspace)]
-DbSession = Annotated[Session, Depends(get_db_session)]
 
 
 def parse_list_assets_query(
@@ -108,23 +102,15 @@ def _related_jobs(
     workspace: Workspace,
     *,
     asset_id: str,
-    session: Session | None = None,
     limit: int = 10,
 ) -> list[JobResponse]:
-    responses = {
-        job.id: map_job_response(job)
+    responses = [
+        map_job_response(job)
         for job in workspace.list_jobs()
         if asset_id in job.target_asset_ids
-    }
-    if session is not None:
-        for job in list_related_jobs_for_asset(session, asset_id=asset_id, limit=limit):
-            payload = JobResponse.model_validate(job).model_dump()
-            config_payload = payload.get("config_json")
-            if isinstance(config_payload, dict):
-                payload["representation_policy"] = config_payload.get("representation_policy")
-            responses.setdefault(job.id, JobResponse.model_validate(payload))
+    ]
     return sorted(
-        responses.values(),
+        responses,
         key=lambda job: (job.created_at, job.id),
         reverse=True,
     )[:limit]
@@ -134,39 +120,23 @@ def _related_conversions(
     workspace: Workspace,
     *,
     asset_id: str,
-    session: Session | None = None,
     limit: int = 10,
 ) -> list[ConversionSummaryResponse]:
-    responses = {
-        run.id: map_conversion_summary(run)
+    responses = [
+        map_conversion_summary(run)
         for run in workspace.list_conversion_runs()
         if asset_id in run.source_asset_ids
-    }
-    if session is not None:
-        for conversion in list_related_conversions_for_asset(session, asset_id=asset_id, limit=limit):
-            responses.setdefault(
-                conversion.id,
-                ConversionSummaryResponse(
-                    id=conversion.id,
-                    job_id=conversion.job_id,
-                    status=conversion.status,
-                    asset_ids=list(conversion.source_asset_ids_json),
-                    config=dict(conversion.config_json),
-                    output_path=conversion.output_path,
-                    error_message=conversion.error_message,
-                    representation_policy=None,
-                    created_at=conversion.created_at,
-                    updated_at=conversion.updated_at,
-                ),
-            )
-    return list(responses.values())[:limit]
+    ]
+    return sorted(
+        responses,
+        key=lambda conversion: (conversion.created_at, conversion.id),
+        reverse=True,
+    )[:limit]
 
 
 def _build_asset_detail_response(
     workspace: Workspace,
     asset_id: str,
-    *,
-    session: Session | None = None,
 ) -> AssetDetailResponse:
     asset = workspace.get_asset_or_raise(asset_id)
     metadata = workspace.get_asset_metadata(asset_id)
@@ -176,8 +146,8 @@ def _build_asset_detail_response(
         metadata=map_asset_metadata(metadata) if metadata is not None else None,
         tags=[map_tag_response(tag) for tag in tags],
         episodes=map_episode_summary(metadata) if metadata is not None else [],
-        related_jobs=_related_jobs(workspace, asset_id=asset_id, session=session),
-        conversions=_related_conversions(workspace, asset_id=asset_id, session=session),
+        related_jobs=_related_jobs(workspace, asset_id=asset_id),
+        conversions=_related_conversions(workspace, asset_id=asset_id),
     )
 
 
@@ -373,7 +343,6 @@ def index_asset_route(
     asset_id: str,
     request: Request,
     workspace: WorkspaceDep,
-    session: DbSession,
 ) -> AssetDetailResponse:
     try:
         _configure_workspace_indexing_adapter(workspace)
@@ -388,7 +357,7 @@ def index_asset_route(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
-    return _build_asset_detail_response(workspace, asset_id, session=session)
+    return _build_asset_detail_response(workspace, asset_id)
 
 
 @router.post("/{asset_id}/tags", response_model=AssetDetailResponse)
@@ -396,7 +365,6 @@ def attach_tag_to_asset_route(
     asset_id: str,
     payload: AssetTagAttachRequest,
     workspace: WorkspaceDep,
-    session: DbSession,
 ) -> AssetDetailResponse:
     try:
         asset = workspace.get_asset_or_raise(asset_id)
@@ -414,7 +382,7 @@ def attach_tag_to_asset_route(
         )
 
     workspace.attach_tag_to_asset(asset.id, tag.id)
-    return _build_asset_detail_response(workspace, asset.id, session=session)
+    return _build_asset_detail_response(workspace, asset.id)
 
 
 @router.delete("/{asset_id}/tags/{tag_id}", response_model=AssetDetailResponse)
@@ -422,7 +390,6 @@ def remove_tag_from_asset_route(
     asset_id: str,
     tag_id: str,
     workspace: WorkspaceDep,
-    session: DbSession,
 ) -> AssetDetailResponse:
     try:
         asset = workspace.get_asset_or_raise(asset_id)
@@ -446,7 +413,7 @@ def remove_tag_from_asset_route(
     )
     if not attached_elsewhere:
         workspace.delete_tag(tag.id)
-    return _build_asset_detail_response(workspace, asset.id, session=session)
+    return _build_asset_detail_response(workspace, asset.id)
 
 
 @router.post("/reindex-all", response_model=ReindexAllResponse)
@@ -517,8 +484,8 @@ def get_asset_episodes_route(asset_id: str, workspace: WorkspaceDep):
 
 
 @router.get("/{asset_id}", response_model=AssetDetailResponse)
-def get_asset_route(asset_id: str, workspace: WorkspaceDep, session: DbSession) -> AssetDetailResponse:
+def get_asset_route(asset_id: str, workspace: WorkspaceDep) -> AssetDetailResponse:
     try:
-        return _build_asset_detail_response(workspace, asset_id, session=session)
+        return _build_asset_detail_response(workspace, asset_id)
     except AssetNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
