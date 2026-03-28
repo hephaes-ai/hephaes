@@ -25,6 +25,10 @@ class AssetNotFoundError(WorkspaceError):
     """Raised when a requested asset cannot be found in the workspace."""
 
 
+class AssetUnavailableError(WorkspaceError):
+    """Raised when a registered asset path no longer points to a usable local file."""
+
+
 class AssetReadError(WorkspaceError):
     """Raised when a workspace asset cannot be opened or read for authoring."""
 

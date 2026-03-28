@@ -36,7 +36,8 @@ Current phase status:
 
 - Phase 1 complete: the package already matches the desired local workspace baseline
 - Phase 2 complete: assets are now linked by path and the workspace no longer creates `.hephaes/imports`
-- Phase 3 onward not yet implemented: runtime path-availability errors and the remaining copy/import cleanup still need to land
+- Phase 3 complete: runtime path-availability errors are now package-owned across index, inspect, drafts, and convert
+- Phase 4 onward not yet implemented: the remaining copy/import cleanup and wording cleanup still need to land
 
 ## Current Package Surface
 
@@ -124,6 +125,7 @@ Important current behavior:
 
 - the workspace now stores the normalized source file path directly on the asset record
 - assets are no longer copied into `.hephaes/imports`
+- registered asset paths are validated before indexing, authoring, and conversion work begins
 
 Relevant files:
 
@@ -144,6 +146,11 @@ Implemented today:
 Missing today:
 
 - standalone `inspect` still calls `inspect_bag(...)` directly instead of reusing `Workspace.inspect_asset(...)`
+
+Important current behavior:
+
+- CLI inspect path resolution now validates the registered asset path first when the selector matches a workspace asset
+- missing registered asset files now fail with a workspace-level asset-unavailable error instead of falling through to a generic reader/path failure
 
 Relevant files:
 

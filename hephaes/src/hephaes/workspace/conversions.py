@@ -184,7 +184,7 @@ class WorkspaceConversionMixin:
         registered_asset = None
         try:
             registered_asset = self.resolve_asset(source)
-            source_path = Path(registered_asset.file_path)
+            source_path = self._require_asset_file_path(registered_asset, operation="convert")
         except AssetNotFoundError:
             source_path, _file_type, _file_size = _inspect_asset_path(source)
 

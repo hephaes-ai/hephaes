@@ -64,7 +64,7 @@ Workspaces continue to live at:
 | --- | --- | --- |
 | 1 | completed | Confirmed the existing package already matches the target local `.hephaes` workspace baseline; no home-directory workspace-manager work is needed. |
 | 2 | completed | Removed `imports/` from the workspace layout, simplified the asset schema around `file_path`, switched registration to linked source paths, and made older workspace schema versions fail clearly. |
-| 3 | pending | Runtime asset-path validation and path-backed execution have not landed yet. |
+| 3 | completed | Added package-owned registered-path validation, introduced clear asset-unavailable errors, and wired index, inspect, drafts, and convert through the validated linked-path flow. |
 | 4 | pending | Copy/import cleanup and CLI wording updates have not landed yet. |
 | 5 | pending | Final tests, docs refresh, and smoke validation have not landed yet. |
 
@@ -162,6 +162,10 @@ Completed on `2026-03-28`.
 
 Ensure every package workflow uses the registered asset path as the source of truth.
 
+### Status
+
+Completed on `2026-03-28`.
+
 ### Tasks
 
 - Add a shared asset-path validation helper in the workspace layer.
@@ -178,6 +182,12 @@ Ensure every package workflow uses the registered asset path as the source of tr
   - moved asset file
   - deleted asset file
   - unreadable asset file
+
+### Notes
+
+- The workspace now exposes a package-owned linked-path validation helper for registered assets.
+- Missing registered files now raise a dedicated `AssetUnavailableError`.
+- `index_asset(...)`, workspace authoring flows, conversion execution, and CLI inspect resolution now use the validated asset path instead of assuming the stored path is still usable.
 
 ### Exit Criteria
 

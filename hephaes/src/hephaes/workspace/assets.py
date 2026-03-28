@@ -4,7 +4,12 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from .errors import AssetAlreadyRegisteredError, AssetNotFoundError
+from .errors import (
+    AssetAlreadyRegisteredError,
+    AssetNotFoundError,
+    AssetUnavailableError,
+    InvalidAssetPathError,
+)
 from .indexing import build_index_metadata_payload
 from .models import AssetRegistrationMode, IndexedAssetMetadata, RegisteredAsset
 from .serialization import (
@@ -165,6 +170,30 @@ class WorkspaceAssetMixin:
             raise AssetNotFoundError(f"asset not found: {asset_id}")
         return asset
 
+    def resolve_asset_path(
+        self,
+        selector: str | Path,
+        *,
+        operation: str = "use",
+    ) -> str:
+        asset = self.resolve_asset(selector)
+        return str(self._require_asset_file_path(asset, operation=operation))
+
+    def _require_asset_file_path(
+        self,
+        asset: RegisteredAsset,
+        *,
+        operation: str,
+    ) -> Path:
+        try:
+            normalized_path, _file_type, _file_size = _inspect_asset_path(asset.file_path)
+        except InvalidAssetPathError as exc:
+            raise AssetUnavailableError(
+                "registered asset path is unavailable for "
+                f"{operation}: {asset.file_path}: {exc}"
+            ) from exc
+        return normalized_path
+
     def get_asset_metadata(self, asset_id: str) -> IndexedAssetMetadata | None:
         with self._connect() as connection:
             row = connection.execute(
@@ -211,7 +240,7 @@ class WorkspaceAssetMixin:
             resolved_profile_path = (
                 str(Path(profile_path).expanduser())
                 if profile_path is not None
-                else asset.file_path
+                else str(self._require_asset_file_path(asset, operation="index"))
             )
             if profile_fn is None:
                 profile = profile_asset_file_impl(

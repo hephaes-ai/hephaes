@@ -10,6 +10,7 @@ from hephaes import (
     AssetAlreadyRegisteredError,
     AssetNotFoundError,
     AssetReadError,
+    AssetUnavailableError,
     ConversionConfigAlreadyExistsError,
     ConversionDraftConfirmationError,
     ConversionDraftNotFoundError,
@@ -325,6 +326,27 @@ def test_index_asset_persists_failure_state(
     assert len(jobs) == 1
     assert jobs[0].status == "failed"
     assert jobs[0].error_message == "boom"
+
+
+def test_index_asset_rejects_missing_registered_path(
+    tmp_path: Path,
+    tmp_bag_file: Path,
+) -> None:
+    workspace = Workspace.init(tmp_path)
+    asset = workspace.register_asset(tmp_bag_file)
+    tmp_bag_file.unlink()
+
+    with pytest.raises(
+        AssetUnavailableError,
+        match="registered asset path is unavailable for index",
+    ):
+        workspace.index_asset(asset.id)
+
+    failed_asset = workspace.get_asset_or_raise(asset.id)
+    assert failed_asset.indexing_status == "failed"
+    jobs = workspace.list_jobs()
+    assert len(jobs) == 1
+    assert jobs[0].status == "failed"
 
 
 def test_reindex_failure_preserves_previous_metadata(
@@ -907,6 +929,21 @@ def test_workspace_inspect_asset_normalizes_reader_failures(
         workspace.inspect_asset(asset.id)
 
 
+def test_workspace_inspect_asset_rejects_missing_registered_path(
+    tmp_path: Path,
+    tmp_mcap_file: Path,
+) -> None:
+    workspace = Workspace.init(tmp_path)
+    asset = workspace.register_asset(tmp_mcap_file)
+    tmp_mcap_file.unlink()
+
+    with pytest.raises(
+        AssetUnavailableError,
+        match="registered asset path is unavailable for inspect",
+    ):
+        workspace.inspect_asset(asset.id)
+
+
 def test_workspace_authoring_update_preview_confirm_and_discard_draft(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -1390,6 +1427,32 @@ def test_run_conversion_failure_records_job_and_run(
     assert runs[0].status == "failed"
     assert runs[0].error_message == "convert boom"
     assert runs[0].job_id == jobs[0].id
+
+
+def test_run_conversion_rejects_missing_registered_asset_path(
+    tmp_path: Path,
+    tmp_mcap_file: Path,
+) -> None:
+    workspace = Workspace.init(tmp_path)
+    asset = workspace.register_asset(tmp_mcap_file)
+    spec = ConversionSpec(
+        schema=SchemaSpec(name="demo", version=1),
+        output=OutputSpec(format="parquet"),
+    )
+    saved_config = workspace.save_conversion_config(
+        name="Demo Config",
+        spec_document=build_conversion_spec_document(spec),
+    )
+    tmp_mcap_file.unlink()
+
+    with pytest.raises(
+        AssetUnavailableError,
+        match="registered asset path is unavailable for convert",
+    ):
+        workspace.run_conversion(asset.id, saved_config_selector=saved_config.id)
+
+    assert workspace.list_jobs() == []
+    assert workspace.list_conversion_runs() == []
 
 
 def test_get_output_artifact_returns_metadata(tmp_path: Path) -> None:
