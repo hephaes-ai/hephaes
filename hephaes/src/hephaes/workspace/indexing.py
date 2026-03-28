@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from ._workspace_models import (
+from .models import (
     DefaultEpisodeSummary,
     IndexedTopicSummary,
     IndexMetadataPayload,
@@ -10,9 +10,9 @@ from ._workspace_models import (
     SourceAssetMetadata,
     VisualizationSummary,
 )
-from .metrics import infer_topic_modality, summarize_bag_topics
-from .models import BagMetadata
-from .profiler import Profiler
+from ..metrics import infer_topic_modality, summarize_bag_topics
+from ..models import BagMetadata
+from ..profiler import Profiler
 
 
 def profile_asset_file(file_path: str, *, max_workers: int = 1) -> BagMetadata:

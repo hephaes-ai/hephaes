@@ -1,17 +1,39 @@
 from __future__ import annotations
 
 import json
-import mimetypes
-import shutil
 import sqlite3
 from contextlib import contextmanager
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterator
 from uuid import uuid4
 
-from ._workspace_indexing import build_index_metadata_payload, profile_asset_file
-from ._workspace_models import (
+from .._converter_helpers import _normalize_payload
+from ..conversion.spec_io import (
+    CONVERSION_SPEC_DOCUMENT_VERSION,
+    ConversionSpecDocument,
+    build_conversion_spec_document,
+    dump_conversion_spec_document,
+    load_conversion_spec_document,
+    migrate_conversion_spec_document,
+)
+from ..models import ConversionSpec
+from .errors import (
+    AssetAlreadyRegisteredError,
+    AssetNotFoundError,
+    ConversionConfigAlreadyExistsError,
+    ConversionConfigInvalidError,
+    ConversionConfigNotFoundError,
+    InvalidAssetPathError,
+    OutputArtifactNotFoundError,
+    TagAlreadyExistsError,
+    TagNotFoundError,
+    WorkspaceAlreadyExistsError,
+    WorkspaceError,
+    WorkspaceNotFoundError,
+)
+from .indexing import build_index_metadata_payload
+from .models import (
     AssetRegistrationMode,
     ConversionRun,
     ConversionDraftRevision,
@@ -32,14 +54,13 @@ from ._workspace_models import (
     WorkspaceTag,
     WorkspacePaths,
 )
-from ._workspace_schema import (
+from .schema import (
     WORKSPACE_DB_FILENAME,
     WORKSPACE_DIRNAME,
-    WORKSPACE_SCHEMA_VERSION,
     initialize_workspace_schema,
     migrate_workspace_schema,
 )
-from ._workspace_serialization import (
+from .serialization import (
     build_conversion_draft_revision,
     build_saved_conversion_config,
     build_saved_conversion_config_revision,
@@ -57,213 +78,25 @@ from ._workspace_serialization import (
     to_db_timestamp,
     upsert_asset_metadata,
 )
-from ._converter_helpers import _normalize_payload
-from .conversion.spec_io import (
-    CONVERSION_SPEC_DOCUMENT_VERSION,
-    ConversionSpecDocument,
-    build_conversion_spec_document,
-    dump_conversion_spec_document,
-    load_conversion_spec_document,
-    migrate_conversion_spec_document,
+from .utils import (
+    SUPPORTED_ASSET_FILE_TYPES,
+    _build_config_document_relative_path,
+    _build_config_revision_relative_path,
+    _build_draft_revision_relative_path,
+    _copy_file_atomically,
+    _infer_media_type,
+    _infer_output_format_and_role,
+    _inspect_asset_path,
+    _load_conversion_document_input,
+    _normalize_asset_path,
+    _normalize_name,
+    _normalize_optional_text,
+    _normalize_root,
+    _relative_output_path,
+    _summarize_output_metadata,
+    _utc_now,
+    _write_text_atomically,
 )
-from .converter import Converter
-from .models import ConversionSpec
-
-SUPPORTED_ASSET_FILE_TYPES = frozenset({"bag", "mcap"})
-
-
-class WorkspaceError(Exception):
-    """Base exception for workspace operations."""
-
-
-class WorkspaceNotFoundError(WorkspaceError):
-    """Raised when no workspace can be resolved for the requested path."""
-
-
-class WorkspaceAlreadyExistsError(WorkspaceError):
-    """Raised when attempting to initialize an existing workspace."""
-
-
-class InvalidAssetPathError(WorkspaceError):
-    """Raised when a requested asset path does not point to a supported local file."""
-
-
-class AssetAlreadyRegisteredError(WorkspaceError):
-    """Raised when a requested asset path already exists in the workspace."""
-
-
-class AssetNotFoundError(WorkspaceError):
-    """Raised when a requested asset cannot be found in the workspace."""
-
-
-class TagAlreadyExistsError(WorkspaceError):
-    """Raised when a tag with the requested name already exists."""
-
-
-class TagNotFoundError(WorkspaceError):
-    """Raised when a requested tag cannot be found in the workspace."""
-
-
-class ConversionConfigAlreadyExistsError(WorkspaceError):
-    """Raised when a saved conversion config name already exists."""
-
-
-class ConversionConfigNotFoundError(WorkspaceError):
-    """Raised when a saved conversion config cannot be found."""
-
-
-class ConversionConfigInvalidError(WorkspaceError):
-    """Raised when a saved conversion config document cannot be loaded."""
-
-
-class OutputArtifactNotFoundError(WorkspaceError):
-    """Raised when a tracked output artifact cannot be found."""
-
-
-def _utc_now() -> datetime:
-    return datetime.now(UTC)
-
-
-def _normalize_root(path: str | Path) -> Path:
-    return Path(path).expanduser().resolve(strict=False)
-
-
-def _normalize_asset_path(path: str | Path) -> Path:
-    return Path(path).expanduser().resolve(strict=False)
-
-
-def _infer_asset_file_type(path: Path) -> str:
-    suffix = path.suffix.strip().lower()
-    if suffix.startswith("."):
-        suffix = suffix[1:]
-    return suffix or "unknown"
-
-
-def _inspect_asset_path(path: str | Path) -> tuple[Path, str, int]:
-    normalized = _normalize_asset_path(path)
-    if not normalized.exists():
-        raise InvalidAssetPathError(f"asset path does not exist: {normalized}")
-    if not normalized.is_file():
-        raise InvalidAssetPathError(f"asset path is not a file: {normalized}")
-
-    file_type = _infer_asset_file_type(normalized)
-    if file_type not in SUPPORTED_ASSET_FILE_TYPES:
-        supported_types = ", ".join(sorted(SUPPORTED_ASSET_FILE_TYPES))
-        raise InvalidAssetPathError(
-            f"unsupported asset type: {normalized.name} (supported: {supported_types})"
-        )
-
-    return normalized, file_type, normalized.stat().st_size
-
-
-def _normalize_name(value: str) -> str:
-    return " ".join(value.strip().split()).casefold()
-
-
-def _normalize_optional_text(value: str | None) -> str | None:
-    if value is None:
-        return None
-    stripped = value.strip()
-    return stripped or None
-
-
-def _write_text_atomically(path: Path, content: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary_path = path.with_name(f".{path.name}.tmp")
-    temporary_path.write_text(content, encoding="utf-8")
-    temporary_path.replace(path)
-
-
-def _copy_file_atomically(source_path: Path, destination_path: Path) -> None:
-    destination_path.parent.mkdir(parents=True, exist_ok=True)
-    temporary_path = destination_path.with_name(f".{destination_path.name}.tmp")
-    shutil.copy2(source_path, temporary_path)
-    temporary_path.replace(destination_path)
-
-
-def _load_conversion_document_input(
-    spec_document: ConversionSpecDocument | ConversionSpec | dict | str | Path,
-) -> ConversionSpecDocument:
-    if isinstance(spec_document, ConversionSpec):
-        return build_conversion_spec_document(spec_document)
-    return load_conversion_spec_document(spec_document)
-
-
-def _build_config_document_relative_path(config_id: str) -> str:
-    return f"{config_id}.json"
-
-
-def _build_config_revision_relative_path(revision_id: str) -> str:
-    return f"revisions/{revision_id}.json"
-
-
-def _build_draft_revision_relative_path(draft_id: str) -> str:
-    return f"drafts/{draft_id}.json"
-
-
-def _infer_output_format_and_role(path: Path) -> tuple[str, str]:
-    name = path.name.lower()
-    if name.endswith(".manifest.json"):
-        return "json", "manifest"
-    if name.endswith(".report.md"):
-        return "md", "report"
-    suffix = path.suffix.lower()
-    if suffix == ".parquet":
-        return "parquet", "dataset"
-    if suffix == ".tfrecord":
-        return "tfrecord", "dataset"
-    if suffix == ".jsonl":
-        return "jsonl", "sidecar"
-    if suffix == ".json":
-        return "json", "sidecar"
-    return suffix.lstrip(".") or "unknown", "sidecar"
-
-
-def _infer_media_type(path: Path, format_name: str) -> str | None:
-    if format_name == "parquet":
-        return "application/x-parquet"
-    if format_name == "tfrecord":
-        return "application/octet-stream"
-    if format_name == "json":
-        return "application/json"
-    if format_name == "jsonl":
-        return "application/x-ndjson"
-    return mimetypes.guess_type(path.name)[0]
-
-
-def _load_json_file(path: Path) -> dict | None:
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return None
-    if not isinstance(payload, dict):
-        return None
-    return payload
-
-
-def _summarize_output_metadata(path: Path, *, format_name: str, role: str) -> dict:
-    metadata: dict = {}
-    if role == "manifest":
-        payload = _load_json_file(path)
-        if payload is not None:
-            metadata["manifest"] = payload
-        return metadata
-
-    manifest_path = path.with_suffix(".manifest.json")
-    if manifest_path.exists():
-        manifest_payload = _load_json_file(manifest_path)
-        if manifest_payload is not None:
-            metadata["manifest"] = manifest_payload
-    return metadata
-
-
-def _relative_output_path(output_root: Path, artifact_path: Path) -> str:
-    try:
-        return str(artifact_path.relative_to(output_root))
-    except ValueError:
-        return artifact_path.name
-
-
 class Workspace:
     """Package-owned local workspace for persistent Hephaes state."""
 
@@ -1549,6 +1382,8 @@ class Workspace:
         output_dir: str | Path | None = None,
         max_workers: int = 1,
     ) -> list[OutputArtifact]:
+        from . import Converter as WorkspaceConverter
+
         if max_workers < 1:
             raise WorkspaceError("--max-workers must be >= 1")
         if (saved_config_selector is None) == (spec_document is None):
@@ -1619,7 +1454,7 @@ class Workspace:
         self.mark_conversion_run_running(run.id)
 
         try:
-            converter = Converter(
+            converter = WorkspaceConverter(
                 [str(source_path)],
                 None,
                 resolved_output_dir,
@@ -1707,6 +1542,8 @@ class Workspace:
         profile_path: str | Path | None = None,
         profile_fn: Any | None = None,
     ) -> RegisteredAsset:
+        from . import profile_asset_file as profile_asset_file_impl
+
         self.get_asset_or_raise(asset_id)
         job = self.create_job(
             kind="index_asset",
@@ -1735,7 +1572,10 @@ class Workspace:
                 else asset.file_path
             )
             if profile_fn is None:
-                profile = profile_asset_file(resolved_profile_path, max_workers=max_workers)
+                profile = profile_asset_file_impl(
+                    resolved_profile_path,
+                    max_workers=max_workers,
+                )
             else:
                 profile = profile_fn(resolved_profile_path)
             payload = build_index_metadata_payload(asset, profile)

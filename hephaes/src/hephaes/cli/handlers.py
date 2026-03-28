@@ -6,9 +6,8 @@ import sys
 from pathlib import Path
 from typing import Sequence
 
-from . import __version__
-from .conversion.introspection import inspect_bag
-from .workspace import (
+from .. import __version__
+from ..workspace import (
     AssetAlreadyRegisteredError,
     ConversionConfigAlreadyExistsError,
     InvalidAssetPathError,
@@ -490,7 +489,7 @@ def _handle_init(args: argparse.Namespace) -> int:
 
 
 def _collect_asset_files(paths: list[str]) -> tuple[list[Path], list[Path]]:
-    from .workspace import SUPPORTED_ASSET_FILE_TYPES
+    from ..workspace import SUPPORTED_ASSET_FILE_TYPES
 
     explicit: list[Path] = []
     discovered: list[Path] = []
@@ -640,6 +639,8 @@ def _handle_index(args: argparse.Namespace) -> int:
 
 
 def _handle_inspect(args: argparse.Namespace) -> int:
+    from . import inspect_bag
+
     bag_path = _resolve_inspect_path(args.selector, args.workspace)
     inspection = inspect_bag(
         bag_path,
