@@ -5,6 +5,7 @@ from .api import Workspace
 from .errors import (
     AssetAlreadyRegisteredError,
     AssetNotFoundError,
+    AssetReadError,
     ConversionConfigAlreadyExistsError,
     ConversionConfigInvalidError,
     ConversionConfigNotFoundError,
@@ -48,6 +49,7 @@ __all__ = [
     "SUPPORTED_ASSET_FILE_TYPES",
     "AssetAlreadyRegisteredError",
     "AssetNotFoundError",
+    "AssetReadError",
     "build_index_metadata_payload",
     "ConversionConfigAlreadyExistsError",
     "ConversionConfigInvalidError",

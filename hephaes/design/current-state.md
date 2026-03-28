@@ -18,11 +18,11 @@ This document is package-focused. It intentionally does not treat the backend as
 As of `2026-03-28`, `hephaes` already contains:
 
 - pure conversion authoring helpers for inspect, draft generation, and preview
-- a `Workspace` package API with durable local SQLite state
+- a `Workspace` package API with durable local SQLite state and package-owned authoring workflow methods through draft confirmation
 - asset registration, indexing, tags, saved configs, config revisions, draft heads, public draft lookup/state primitives, draft revision persistence, jobs, conversion runs, and outputs
 - CLI commands for workspace init, asset add/index/list, inspect, convert, configs, jobs, runs, and outputs
 
-What it does **not** yet contain is a package-owned end-to-end authoring workflow through `Workspace` and the CLI.
+What it does **not** yet contain is a package-owned end-to-end authoring workflow through the CLI, or draft promotion into saved configs.
 
 ## Current Package Surface
 
@@ -55,6 +55,12 @@ Implemented through `Workspace` mixins:
 - draft head create/list/get/resolve primitives
 - draft revision record/list/get
 - low-level draft state transition helpers
+- package-owned `inspect_asset(...)`
+- package-owned `create_conversion_draft(...)`
+- package-owned `update_conversion_draft(...)`
+- package-owned `preview_conversion_draft(...)`
+- package-owned `confirm_conversion_draft(...)`
+- package-owned `discard_conversion_draft(...)`
 - job lifecycle
 - conversion run lifecycle
 - output artifact registration/list/get
@@ -63,7 +69,8 @@ Implemented through `Workspace` mixins:
 Current role:
 
 - `Workspace` owns durable state
-- `Workspace` does **not** yet own the full authoring workflow
+- `Workspace` now owns inspect -> draft -> preview -> confirm authoring flow
+- `Workspace` does **not** yet own draft promotion into saved configs or the CLI UX
 
 ### Current CLI
 
@@ -105,17 +112,17 @@ Relevant files:
 
 ### 2. Inspect asset
 
-Status: partially implemented
+Status: implemented
 
 Implemented today:
 
 - inspection helpers exist in `hephaes.conversion.introspection`
+- `Workspace.inspect_asset(...)` resolves the asset and opens the reader internally
 - CLI command `hephaes inspect` exists
 
 Missing today:
 
-- no `Workspace.inspect_asset(...)`
-- no package-owned workflow method that resolves an asset and opens the reader internally for authoring
+- CLI still calls `inspect_bag(...)` directly instead of reusing `Workspace.inspect_asset(...)`
 
 Relevant files:
 
@@ -124,7 +131,7 @@ Relevant files:
 
 ### 3. Create draft spec from inspection
 
-Status: partially implemented
+Status: implemented through `Workspace`
 
 Implemented today:
 
@@ -132,15 +139,15 @@ Implemented today:
 - draft revisions can be persisted with `record_conversion_draft_revision(...)`
 - the current draft revision write path now creates a linked draft head row in `conversion_drafts`
 - public `Workspace` draft lookups now resolve draft heads plus current/confirmed revisions
+- `Workspace.create_conversion_draft(...)` runs inspect + draft + persistence as one package-owned flow
 
 Missing today:
 
-- no `Workspace.create_conversion_draft(...)`
-- no package-owned method that runs inspect + draft + persistence as one workflow
+- no scriptable `drafts create` CLI surface yet
 
 Important current limitation:
 
-- draft storage is now head-based, but the authoring workflow itself is still not package-owned
+- the workflow is package-owned at the `Workspace` layer, but not yet exposed through the new CLI surface
 
 Relevant files:
 
@@ -150,34 +157,32 @@ Relevant files:
 
 ### 4. Revise draft
 
-Status: partially implemented at the persistence layer
+Status: implemented through `Workspace`
 
 Implemented today:
 
 - one draft can own multiple immutable revision rows
 - draft heads track `current_revision_id`
 - internal workspace helpers exist to append revisions and move the current revision pointer
+- `Workspace.update_conversion_draft(...)` appends a new immutable revision and resets confirmation when needed
 
 Missing today:
 
-- no public `Workspace.update_conversion_draft(...)`
-- no package-owned validation around what edits are allowed
-- no high-level workflow method that appends a new revision and manages confirmation state
+- no scriptable `drafts update` CLI surface yet
 
 ### 5. Preview draft
 
-Status: partially implemented
+Status: implemented through `Workspace`
 
 Implemented today:
 
 - preview helpers exist
 - preview payloads can be stored on draft revision rows
+- `Workspace.preview_conversion_draft(...)` opens the source asset reader, runs preview, and persists preview request/result state
 
 Missing today:
 
-- no `Workspace.preview_conversion_draft(...)`
-- no package-owned preview workflow that operates on a draft entity
-- no preview request persistence separate from preview result
+- no scriptable `drafts preview` CLI surface yet
 
 Relevant files:
 
@@ -186,19 +191,18 @@ Relevant files:
 
 ### 6. Confirm draft
 
-Status: partially implemented at the persistence layer
+Status: implemented through `Workspace`
 
 Implemented today:
 
 - draft heads track `confirmed_revision_id`
 - draft status values include `confirmed`
 - internal state-transition helpers and draft lifecycle errors now exist
+- `Workspace.confirm_conversion_draft(...)` requires a successful current preview before confirmation
 
 Missing today:
 
-- no public confirmation API
-- no lifecycle rule requiring preview before confirmation
-- no package-owned confirmation workflow
+- no scriptable `drafts confirm` CLI surface yet
 
 ### 7. Save confirmed draft as reusable config
 
@@ -271,13 +275,14 @@ Current behavior:
 - new calls to `record_conversion_draft_revision(...)` create one draft head plus one revision row
 - public draft listings now support filters by status, source asset, and saved config
 - draft lookups now resolve current and confirmed revisions through `ConversionDraft`
+- high-level `Workspace` methods now orchestrate create/update/preview/confirm/discard on top of those primitives
 
 Current limitation:
 
-- the package still does not expose high-level authoring workflow methods
-- inspect, draft generation, preview, confirmation, and config promotion are not yet orchestrated through public `Workspace` methods
+- saved-config promotion is still missing
+- the new workflow is still not exposed through a `drafts` CLI surface or wizard
 
-So the structural gap has narrowed from "no draft head exists" to "draft heads and low-level lifecycle primitives exist, but the public workflow still does not operate on them end-to-end."
+So the structural gap has narrowed from "no draft head exists" to "the workflow is package-owned in `Workspace`, but promotion and CLI UX are still missing."
 
 ## Current CLI State
 
@@ -319,8 +324,7 @@ The required interactive wizard does not exist yet.
 
 ### Not yet package-owned in the right form
 
-- authoring orchestration across inspect -> draft -> preview -> confirm -> save
-- draft lifecycle semantics
+- draft promotion from confirmed drafts into saved configs
 - CLI-first authoring UX
 
 ## Known Gaps Relative To The Target Design
@@ -329,13 +333,7 @@ The target design in `design/architecture.md` and `design/implementation.md` is 
 
 Main gaps:
 
-- no `Workspace.inspect_asset(...)`
-- no `Workspace.create_conversion_draft(...)`
-- no `Workspace.update_conversion_draft(...)`
-- no `Workspace.preview_conversion_draft(...)`
-- no `Workspace.confirm_conversion_draft(...)`
 - no `Workspace.save_conversion_config_from_draft(...)`
-- no `Workspace.discard_conversion_draft(...)`
 - no `drafts` CLI command group
 - no required interactive wizard
 
@@ -383,6 +381,7 @@ Relevant package tests already exist for:
 - saved config lifecycle
 - draft-head schema/migration compatibility
 - draft-head lookup and state primitive behavior
+- workspace-owned inspect/create/update/preview/confirm/discard authoring flow
 - draft revision persistence
 - conversion authoring helpers
 - conversion execution
@@ -399,9 +398,8 @@ Observed during implementation on `2026-03-28`:
 
 What is not covered yet:
 
-- package-owned inspect/draft/preview workflow methods
-- draft confirmation rules
 - draft promotion to saved config
+- CLI command behavior for draft workflow
 - wizard behavior
 
 ## Working Assumptions For Implementation
@@ -425,4 +423,5 @@ Current shorthand:
 - authoring primitives exist
 - durable workspace exists
 - draft-head persistence primitives now exist
-- full package-owned authoring workflow does not yet exist
+- `Workspace` owns inspect -> draft -> preview -> confirm
+- config promotion and CLI-first authoring still do not exist

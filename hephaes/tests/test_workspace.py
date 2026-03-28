@@ -9,10 +9,14 @@ import pytest
 from hephaes import (
     AssetAlreadyRegisteredError,
     AssetNotFoundError,
+    AssetReadError,
     ConversionConfigAlreadyExistsError,
+    ConversionDraftConfirmationError,
     ConversionDraftNotFoundError,
     ConversionDraftRevisionNotFoundError,
     ConversionDraftStateError,
+    DraftSpecRequest,
+    InspectionRequest,
     InvalidAssetPathError,
     TagAlreadyExistsError,
     Workspace,
@@ -21,8 +25,52 @@ from hephaes import (
 )
 from hephaes.conversion.spec_io import build_conversion_spec_document, dump_conversion_spec_document
 from hephaes.workspace.schema import migrate_workspace_schema, WORKSPACE_SCHEMA_VERSION
-from hephaes.models import BagMetadata, Topic
+from hephaes.models import BagMetadata, Message, Topic
 from hephaes.models import ConversionSpec, OutputSpec, SchemaSpec
+
+
+class FakeWorkspaceAuthoringReader:
+    def __init__(
+        self,
+        *,
+        bag_path: str = "/tmp/test.mcap",
+        ros_version: str = "ROS2",
+        fail_on_read: bool = False,
+    ) -> None:
+        self.bag_path = Path(bag_path)
+        self.ros_version = ros_version
+        self.fail_on_read = fail_on_read
+        self.topics = {
+            "/doom_image": "custom_msgs/msg/RawImageBGRA",
+            "/joy": "sensor_msgs/msg/Joy",
+        }
+        self._messages = [
+            Message(timestamp=90, topic="/joy", data={"buttons": [1, 0, 0] + [0] * 12, "axes": [0.0, 0.5]}),
+            Message(timestamp=100, topic="/doom_image", data={"data": bytes(range(16))}),
+            Message(timestamp=190, topic="/joy", data={"buttons": [0, 1, 0] + [0] * 12, "axes": [0.25, -0.25]}),
+            Message(timestamp=200, topic="/doom_image", data={"data": bytes(range(16, 32))}),
+        ]
+
+    def read_messages(
+        self,
+        topics=None,
+        *,
+        on_failure="warn",
+        topic_type_hints=None,
+        start_ns=None,
+        stop_ns=None,
+    ):
+        del on_failure, topic_type_hints, start_ns, stop_ns
+        if self.fail_on_read:
+            raise RuntimeError("reader exploded")
+        topic_filter = set(topics) if topics else None
+        for message in self._messages:
+            if topic_filter is not None and message.topic not in topic_filter:
+                continue
+            yield message
+
+    def close(self) -> None:
+        return None
 
 
 def test_workspace_init_creates_layout(tmp_path: Path) -> None:
@@ -785,6 +833,174 @@ def test_conversion_draft_primitives_validate_state_and_revision_membership(
 
     with pytest.raises(ConversionDraftStateError):
         workspace._set_conversion_draft_status(first_draft.id, "draft")
+
+
+def test_workspace_inspect_asset_and_create_conversion_draft(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    tmp_mcap_file: Path,
+) -> None:
+    workspace = Workspace.init(tmp_path)
+    asset = workspace.register_asset(tmp_mcap_file)
+    monkeypatch.setattr(
+        "hephaes.workspace.drafts.RosReader.open",
+        lambda bag_path, ros_version=None, registry=None: FakeWorkspaceAuthoringReader(
+            bag_path=bag_path,
+        ),
+    )
+
+    inspection = workspace.inspect_asset(
+        asset.id,
+        request=InspectionRequest(sample_n=2, topics=["/doom_image", "/joy"]),
+    )
+    draft = workspace.create_conversion_draft(
+        asset.id,
+        inspection_request={"sample_n": 2, "topics": ["/doom_image", "/joy"]},
+        draft_request=DraftSpecRequest(
+            trigger_topic="/doom_image",
+            selected_topics=["/doom_image", "/joy"],
+            max_features_per_topic=1,
+            label_feature="buttons",
+            include_preview=False,
+        ),
+        label="Initial Draft",
+    )
+
+    assert inspection.sample_n == 2
+    assert set(inspection.topics) == {"/doom_image", "/joy"}
+    assert draft.source_asset_id == asset.id
+    assert draft.status == "draft"
+    assert draft.current_revision is not None
+    assert draft.current_revision.label == "Initial Draft"
+    assert draft.current_revision.revision_number == 1
+    assert draft.current_revision.inspection_request_json == {
+        "topics": ["/doom_image", "/joy"],
+        "sample_n": 2,
+        "max_depth": 4,
+        "max_sequence_items": 4,
+        "on_failure": "warn",
+        "topic_type_hints": {},
+    }
+    assert draft.current_revision.draft_request_json["selected_topics"] == [
+        "/doom_image",
+        "/joy",
+    ]
+    assert draft.current_revision.draft_result_json["trigger_topic"] == "/doom_image"
+    assert set(draft.current_revision.document.spec.features) == {"image", "buttons"}
+    assert draft.current_revision.preview_json is None
+    assert draft.confirmed_revision is None
+
+
+def test_workspace_inspect_asset_normalizes_reader_failures(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    tmp_mcap_file: Path,
+) -> None:
+    workspace = Workspace.init(tmp_path)
+    asset = workspace.register_asset(tmp_mcap_file)
+    monkeypatch.setattr(
+        "hephaes.workspace.drafts.RosReader.open",
+        lambda bag_path, ros_version=None, registry=None: FakeWorkspaceAuthoringReader(
+            bag_path=bag_path,
+            fail_on_read=True,
+        ),
+    )
+
+    with pytest.raises(AssetReadError):
+        workspace.inspect_asset(asset.id)
+
+
+def test_workspace_authoring_update_preview_confirm_and_discard_draft(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    tmp_mcap_file: Path,
+) -> None:
+    workspace = Workspace.init(tmp_path)
+    asset = workspace.register_asset(tmp_mcap_file)
+    monkeypatch.setattr(
+        "hephaes.workspace.drafts.RosReader.open",
+        lambda bag_path, ros_version=None, registry=None: FakeWorkspaceAuthoringReader(
+            bag_path=bag_path,
+        ),
+    )
+
+    draft = workspace.create_conversion_draft(
+        asset.id,
+        inspection_request={"sample_n": 2, "topics": ["/doom_image", "/joy"]},
+        draft_request={
+            "trigger_topic": "/doom_image",
+            "selected_topics": ["/doom_image", "/joy"],
+            "max_features_per_topic": 1,
+            "label_feature": "buttons",
+            "include_preview": False,
+        },
+    )
+
+    with pytest.raises(ConversionDraftConfirmationError):
+        workspace.confirm_conversion_draft(draft.id)
+
+    assert draft.current_revision is not None
+    edited_document = draft.current_revision.document.model_copy(
+        update={"metadata": {"stage": "edited"}}
+    )
+    updated = workspace.update_conversion_draft(
+        draft.id,
+        spec_document=edited_document,
+        label="Edited Draft",
+    )
+
+    assert updated.status == "draft"
+    assert updated.current_revision is not None
+    assert updated.current_revision.revision_number == 2
+    assert updated.current_revision.label == "Edited Draft"
+    assert updated.current_revision.metadata == {"stage": "edited"}
+    assert updated.current_revision.preview_json is None
+    assert updated.confirmed_revision is None
+
+    previewed = workspace.preview_conversion_draft(draft.id, sample_n=1)
+
+    assert previewed.current_revision is not None
+    assert previewed.current_revision.preview_request_json == {
+        "sample_n": 1,
+        "topic_type_hints": {
+            "/doom_image": "custom_msgs/msg/RawImageBGRA",
+            "/joy": "sensor_msgs/msg/Joy",
+        },
+    }
+    assert previewed.current_revision.preview_json is not None
+    assert len(previewed.current_revision.preview_json["rows"]) == 1
+
+    confirmed = workspace.confirm_conversion_draft(draft.id)
+
+    assert confirmed.status == "confirmed"
+    assert confirmed.current_revision is not None
+    assert confirmed.confirmed_revision is not None
+    assert confirmed.confirmed_revision.id == confirmed.current_revision.id
+
+    revised_document = confirmed.current_revision.document.model_copy(
+        update={"metadata": {"stage": "revised"}}
+    )
+    reopened = workspace.update_conversion_draft(
+        draft.id,
+        spec_document=revised_document,
+        label="Revised Draft",
+    )
+
+    assert reopened.status == "draft"
+    assert reopened.current_revision is not None
+    assert reopened.current_revision.revision_number == 3
+    assert reopened.confirmed_revision is None
+
+    discarded = workspace.discard_conversion_draft(draft.id)
+
+    assert discarded.status == "discarded"
+    assert discarded.discarded_at is not None
+
+    with pytest.raises(ConversionDraftStateError):
+        workspace.update_conversion_draft(
+            draft.id,
+            spec_document=revised_document,
+        )
 
 
 def test_migrate_workspace_schema_creates_draft_heads_for_legacy_draft_revisions(

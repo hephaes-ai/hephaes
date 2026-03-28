@@ -25,7 +25,7 @@ This implementation plan is intentionally package-first:
 | --- | --- | --- |
 | 1 | completed | Added draft-head models, `conversion_drafts` schema, legacy migration, and compatible draft-head writes from the existing draft revision path. |
 | 2 | completed | Refactored `workspace/drafts.py` around draft heads plus revisions, added public draft lookup APIs and draft lifecycle errors, and expanded workspace/package export coverage. |
-| 3 | not started | Pending package-owned inspect/draft/preview/confirm workflow methods on `Workspace`. |
+| 3 | completed | Added package-owned `Workspace` authoring methods for inspect/create/update/preview/confirm/discard plus reader error normalization and workflow tests. |
 | 4 | not started | Pending scriptable `drafts` CLI surface. |
 | 5 | not started | Pending required interactive wizard. |
 | 6 | not started | Pending explicit draft promotion and saved-config lineage. |
@@ -38,7 +38,7 @@ This implementation plan is intentionally package-first:
 | --- | --- |
 | 1 | Drafts become first-class durable entities |
 | 2 | Workspace gets stable draft/config persistence primitives |
-| 3 | Workspace owns inspect/draft/preview/confirm/save workflow methods |
+| 3 | Workspace owns inspect/draft/update/preview/confirm/discard workflow methods |
 | 4 | Scriptable CLI commands cover the full lifecycle |
 | 5 | Interactive wizard becomes the default human workflow |
 | 6 | Saved config promotion and conversion lineage are fully wired |
@@ -153,6 +153,10 @@ Completed on `2026-03-28`.
 ### Goal
 
 Move the actual authoring workflow into `Workspace` so adapters only invoke package services.
+
+### Status
+
+Completed on `2026-03-28`.
 
 ### Tasks
 

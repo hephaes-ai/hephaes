@@ -2,11 +2,15 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Iterator, Literal
 from uuid import uuid4
 
 from .._converter_helpers import _normalize_payload
+from ..conversion.draft_spec import DraftSpecRequest, DraftSpecResult, build_draft_conversion_spec
+from ..conversion.introspection import InspectionRequest, InspectionResult, inspect_reader
+from ..conversion.preview import PreviewResult, preview_conversion_spec
 from ..conversion.spec_io import (
     CONVERSION_SPEC_DOCUMENT_VERSION,
     ConversionSpecDocument,
@@ -15,8 +19,11 @@ from ..conversion.spec_io import (
     migrate_conversion_spec_document,
 )
 from ..models import ConversionSpec
+from ..reader import RosReader
 from .errors import (
+    AssetReadError,
     ConversionConfigInvalidError,
+    ConversionDraftConfirmationError,
     ConversionDraftNotFoundError,
     ConversionDraftRevisionNotFoundError,
     ConversionDraftStateError,
@@ -66,6 +73,33 @@ def _json_safe_optional_payload(value: dict[str, Any] | Any | None) -> dict[str,
     if value is None:
         return None
     return _json_safe_payload(value)
+
+
+def _coerce_inspection_request(
+    request: InspectionRequest | dict[str, Any] | None,
+) -> InspectionRequest:
+    if request is None:
+        return InspectionRequest()
+    if isinstance(request, InspectionRequest):
+        return request
+    return InspectionRequest.model_validate(request)
+
+
+def _coerce_draft_request(
+    request: DraftSpecRequest | dict[str, Any] | None,
+) -> DraftSpecRequest:
+    if request is None:
+        return DraftSpecRequest()
+    if isinstance(request, DraftSpecRequest):
+        return request
+    return DraftSpecRequest.model_validate(request)
+
+
+def _build_draft_result_payload(draft_result: DraftSpecResult) -> dict[str, Any]:
+    return draft_result.model_dump(
+        mode="python",
+        exclude={"request", "spec", "preview"},
+    )
 
 
 class WorkspaceDraftMixin:
@@ -248,6 +282,337 @@ class WorkspaceDraftMixin:
             document_path=str(self.paths.specs_dir / row["spec_document_path"]),
         )
         return self._resolve_conversion_draft_revision(summary, persist_migration=True)
+
+    def inspect_asset(
+        self,
+        asset_selector: str | Path,
+        *,
+        request: InspectionRequest | dict[str, Any] | None = None,
+    ) -> InspectionResult:
+        inspection_request = _coerce_inspection_request(request)
+        with self._open_asset_reader(asset_selector, operation="inspect") as (_asset, reader):
+            try:
+                return inspect_reader(
+                    reader,
+                    **inspection_request.model_dump(mode="python"),
+                )
+            except Exception as exc:
+                raise AssetReadError(
+                    f"failed to inspect asset {_asset.file_path}: {exc}"
+                ) from exc
+
+    def create_conversion_draft(
+        self,
+        asset_selector: str | Path,
+        *,
+        inspection_request: InspectionRequest | dict[str, Any] | None = None,
+        draft_request: DraftSpecRequest | dict[str, Any] | None = None,
+        label: str | None = None,
+    ) -> ConversionDraft:
+        resolved_inspection_request = _coerce_inspection_request(inspection_request)
+        resolved_draft_request = _coerce_draft_request(draft_request)
+
+        with self._open_asset_reader(asset_selector, operation="draft") as (asset, reader):
+            try:
+                inspection = inspect_reader(
+                    reader,
+                    **resolved_inspection_request.model_dump(mode="python"),
+                )
+            except Exception as exc:
+                raise AssetReadError(
+                    f"failed to inspect asset {asset.file_path}: {exc}"
+                ) from exc
+            draft_result = build_draft_conversion_spec(
+                inspection,
+                request=resolved_draft_request,
+                reader=reader if resolved_draft_request.include_preview else None,
+            )
+
+        preview_request_payload: dict[str, Any] | None = None
+        if draft_result.preview is not None:
+            preview_request_payload = self._build_preview_request_payload(
+                sample_n=resolved_draft_request.preview_rows,
+                topic_type_hints=self._default_preview_topic_type_hints(draft_result.spec),
+            )
+
+        timestamp = _utc_now()
+        with self._transaction() as connection:
+            draft = self._create_conversion_draft(
+                connection,
+                source_asset_id=asset.id,
+                status="draft",
+                saved_config_id=None,
+                timestamp=timestamp,
+            )
+            revision = self._append_conversion_draft_revision(
+                connection,
+                draft_id=draft.id,
+                spec_document=draft_result.spec,
+                label=label,
+                saved_config_id=None,
+                source_asset_id=asset.id,
+                status="draft",
+                inspection_request=resolved_inspection_request.model_dump(mode="python"),
+                inspection=inspection.model_dump(mode="python"),
+                draft_request=resolved_draft_request.model_dump(mode="python"),
+                draft_result=_build_draft_result_payload(draft_result),
+                preview_request=preview_request_payload,
+                preview=draft_result.preview,
+                timestamp=timestamp,
+            )
+            self._set_conversion_draft_current_revision(
+                draft.id,
+                revision.id,
+                connection=connection,
+                timestamp=timestamp,
+            )
+
+        return self.resolve_conversion_draft(draft.id)
+
+    def update_conversion_draft(
+        self,
+        draft_selector: str,
+        *,
+        spec_document: ConversionSpecDocument | ConversionSpec | dict | str | Path,
+        label: str | None = None,
+    ) -> ConversionDraft:
+        draft = self.resolve_conversion_draft(draft_selector)
+        self._ensure_draft_is_mutable(draft, operation="update")
+        current_revision = self._require_draft_current_revision(draft, operation="update")
+        timestamp = _utc_now()
+
+        with self._transaction() as connection:
+            revision = self._append_conversion_draft_revision(
+                connection,
+                draft_id=draft.id,
+                spec_document=spec_document,
+                label=label,
+                saved_config_id=draft.saved_config_id,
+                source_asset_id=draft.source_asset_id or current_revision.source_asset_id,
+                status="draft",
+                inspection_request=current_revision.inspection_request_json,
+                inspection=current_revision.inspection_json,
+                draft_request=current_revision.draft_request_json,
+                draft_result=current_revision.draft_result_json,
+                preview_request=None,
+                preview=None,
+                timestamp=timestamp,
+            )
+            self._set_conversion_draft_current_revision(
+                draft.id,
+                revision.id,
+                connection=connection,
+                timestamp=timestamp,
+            )
+            if draft.confirmed_revision_id is not None:
+                self._set_conversion_draft_confirmed_revision(
+                    draft.id,
+                    None,
+                    connection=connection,
+                    timestamp=timestamp,
+                )
+            self._set_conversion_draft_status(
+                draft.id,
+                "draft",
+                connection=connection,
+                timestamp=timestamp,
+            )
+
+        return self.resolve_conversion_draft(draft.id)
+
+    def preview_conversion_draft(
+        self,
+        draft_selector: str,
+        *,
+        sample_n: int = 5,
+        topic_type_hints: dict[str, str] | None = None,
+        revision_selector: str | None = None,
+    ) -> ConversionDraft:
+        draft = self.resolve_conversion_draft(draft_selector)
+        self._ensure_draft_is_mutable(draft, operation="preview")
+        target_revision = self._resolve_draft_revision_for_draft(
+            draft,
+            revision_selector=revision_selector,
+            operation="preview",
+        )
+        asset_id = draft.source_asset_id or target_revision.source_asset_id
+        if asset_id is None:
+            raise ConversionDraftStateError(
+                f"draft {draft.id} does not have a source asset for preview"
+            )
+
+        effective_topic_type_hints = (
+            dict(topic_type_hints)
+            if topic_type_hints is not None
+            else self._default_preview_topic_type_hints(target_revision.document.spec)
+        )
+        preview_request_payload = self._build_preview_request_payload(
+            sample_n=sample_n,
+            topic_type_hints=effective_topic_type_hints,
+        )
+        with self._open_asset_reader(asset_id, operation="preview") as (_asset, reader):
+            preview = preview_conversion_spec(
+                reader,
+                target_revision.document.spec,
+                sample_n=sample_n,
+                topic_type_hints=effective_topic_type_hints or None,
+            )
+
+        self._update_conversion_draft_revision_preview(
+            target_revision.id,
+            preview_request=preview_request_payload,
+            preview=preview,
+        )
+        return self.resolve_conversion_draft(draft.id)
+
+    def confirm_conversion_draft(
+        self,
+        draft_selector: str,
+        *,
+        revision_selector: str | None = None,
+    ) -> ConversionDraft:
+        draft = self.resolve_conversion_draft(draft_selector)
+        self._ensure_draft_is_mutable(draft, operation="confirm")
+        current_revision = self._require_draft_current_revision(draft, operation="confirm")
+        target_revision = self._resolve_draft_revision_for_draft(
+            draft,
+            revision_selector=revision_selector,
+            operation="confirm",
+        )
+        if target_revision.id != current_revision.id:
+            raise ConversionDraftConfirmationError(
+                f"only the current revision of draft {draft.id} can be confirmed"
+            )
+        if target_revision.preview_json is None:
+            raise ConversionDraftConfirmationError(
+                f"draft {draft.id} revision {target_revision.id} must be previewed before confirmation"
+            )
+
+        preview = PreviewResult.model_validate(target_revision.preview_json)
+        if not preview.preflight_ok:
+            raise ConversionDraftConfirmationError(
+                "draft "
+                f"{draft.id} revision {target_revision.id} cannot be confirmed because preview "
+                f"reported {preview.bad_records} bad record(s)"
+            )
+
+        timestamp = _utc_now()
+        with self._transaction() as connection:
+            self._set_conversion_draft_confirmed_revision(
+                draft.id,
+                target_revision.id,
+                connection=connection,
+                timestamp=timestamp,
+            )
+            self._set_conversion_draft_status(
+                draft.id,
+                "confirmed",
+                connection=connection,
+                timestamp=timestamp,
+            )
+
+        return self.resolve_conversion_draft(draft.id)
+
+    def discard_conversion_draft(
+        self,
+        draft_selector: str,
+    ) -> ConversionDraft:
+        draft = self.resolve_conversion_draft(draft_selector)
+        self._ensure_draft_is_mutable(draft, operation="discard")
+        self._set_conversion_draft_status(draft.id, "discarded")
+        return self.resolve_conversion_draft(draft.id)
+
+    @contextmanager
+    def _open_asset_reader(
+        self,
+        asset_selector: str | Path,
+        *,
+        operation: str,
+    ) -> Iterator[tuple[Any, Any]]:
+        asset = self.resolve_asset(asset_selector)
+        try:
+            reader = RosReader.open(asset.file_path)
+        except Exception as exc:
+            raise AssetReadError(
+                f"failed to open source asset for {operation}: {asset.file_path}: {exc}"
+            ) from exc
+        try:
+            yield asset, reader
+        finally:
+            try:
+                reader.close()
+            except Exception:
+                pass
+
+    def _ensure_draft_is_mutable(
+        self,
+        draft: ConversionDraft,
+        *,
+        operation: str,
+    ) -> None:
+        if draft.status == "saved":
+            raise ConversionDraftStateError(
+                f"cannot {operation} draft {draft.id} after it has been saved"
+            )
+        if draft.status == "discarded":
+            raise ConversionDraftStateError(
+                f"cannot {operation} draft {draft.id} after it has been discarded"
+            )
+
+    def _require_draft_current_revision(
+        self,
+        draft: ConversionDraft,
+        *,
+        operation: str,
+    ) -> ConversionDraftRevision:
+        if draft.current_revision is None:
+            raise ConversionDraftStateError(
+                f"cannot {operation} draft {draft.id} because it has no current revision"
+            )
+        return draft.current_revision
+
+    def _resolve_draft_revision_for_draft(
+        self,
+        draft: ConversionDraft,
+        *,
+        revision_selector: str | None,
+        operation: str,
+    ) -> ConversionDraftRevision:
+        if revision_selector is None:
+            return self._require_draft_current_revision(draft, operation=operation)
+        revision = self.get_conversion_draft_revision(revision_selector)
+        if revision is None:
+            raise ConversionDraftRevisionNotFoundError(
+                f"conversion draft revision not found: {revision_selector}"
+            )
+        if revision.draft_id != draft.id:
+            raise ConversionDraftStateError(
+                f"revision {revision_selector} does not belong to draft {draft.id}"
+            )
+        return revision
+
+    def _default_preview_topic_type_hints(
+        self,
+        spec: ConversionSpec,
+    ) -> dict[str, str]:
+        if spec.decoding is None:
+            return {}
+        return {
+            topic: topic_spec.type_hint
+            for topic, topic_spec in spec.decoding.topics.items()
+            if topic_spec.type_hint is not None
+        }
+
+    def _build_preview_request_payload(
+        self,
+        *,
+        sample_n: int,
+        topic_type_hints: dict[str, str] | None,
+    ) -> dict[str, Any]:
+        return {
+            "sample_n": sample_n,
+            "topic_type_hints": dict(topic_type_hints or {}),
+        }
 
     def _resolve_conversion_draft(
         self,
@@ -674,6 +1039,47 @@ class WorkspaceDraftMixin:
         return row_to_conversion_draft_revision_summary(
             row,
             document_path=str(self.paths.specs_dir / row["spec_document_path"]),
+        )
+
+    def _update_conversion_draft_revision_preview(
+        self,
+        revision_id: str,
+        *,
+        preview_request: dict[str, Any] | Any | None,
+        preview: dict[str, Any] | Any | None,
+        connection: sqlite3.Connection | None = None,
+        timestamp=None,
+    ) -> None:
+        timestamp = timestamp or _utc_now()
+        if connection is None:
+            with self._transaction() as connection:
+                self._update_conversion_draft_revision_preview(
+                    revision_id,
+                    preview_request=preview_request,
+                    preview=preview,
+                    connection=connection,
+                    timestamp=timestamp,
+                )
+            return
+
+        self._get_conversion_draft_revision_summary_or_raise(
+            revision_id,
+            connection=connection,
+        )
+        preview_payload = _json_safe_optional_payload(preview)
+        connection.execute(
+            """
+            UPDATE conversion_draft_revisions
+            SET preview_request_json = ?, preview_json = ?, invalid_reason = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (
+                json.dumps(_json_safe_payload(preview_request)),
+                json.dumps(preview_payload) if preview_payload is not None else None,
+                None,
+                to_db_timestamp(timestamp),
+                revision_id,
+            ),
         )
 
     def _update_conversion_draft_revision_invalid_reason(

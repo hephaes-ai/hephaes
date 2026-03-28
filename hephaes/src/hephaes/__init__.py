@@ -93,6 +93,7 @@ from .reader import ROS1Reader, ROS2Reader, RosReader
 from .workspace import (
     AssetAlreadyRegisteredError,
     AssetNotFoundError,
+    AssetReadError,
     ConversionConfigAlreadyExistsError,
     ConversionConfigInvalidError,
     ConversionConfigNotFoundError,
@@ -201,6 +202,7 @@ __all__ = [
     "ROS2Reader",
     "RosReader",
     "AssetNotFoundError",
+    "AssetReadError",
     "SavedConversionConfig",
     "SavedConversionConfigRevision",
     "SavedConversionConfigRevisionSummary",

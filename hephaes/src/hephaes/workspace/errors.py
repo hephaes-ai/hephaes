@@ -25,6 +25,10 @@ class AssetNotFoundError(WorkspaceError):
     """Raised when a requested asset cannot be found in the workspace."""
 
 
+class AssetReadError(WorkspaceError):
+    """Raised when a workspace asset cannot be opened or read for authoring."""
+
+
 class TagAlreadyExistsError(WorkspaceError):
     """Raised when a tag with the requested name already exists."""
 

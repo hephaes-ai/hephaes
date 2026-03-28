@@ -88,6 +88,7 @@ class TestPublicExports:
 
     def test_workspace_summary_models_exported(self):
         from hephaes import (
+            AssetReadError,
             ConversionConfigAlreadyExistsError,
             ConversionConfigInvalidError,
             ConversionConfigNotFoundError,
@@ -116,6 +117,7 @@ class TestPublicExports:
             WorkspaceJob,
             WorkspaceTag,
         )
+        assert AssetReadError is not None
         assert ConversionConfigAlreadyExistsError is not None
         assert ConversionConfigInvalidError is not None
         assert ConversionConfigNotFoundError is not None
@@ -216,6 +218,7 @@ class TestPublicExports:
             "ConversionConfigAlreadyExistsError",
             "ConversionConfigInvalidError",
             "ConversionConfigNotFoundError",
+            "AssetReadError",
             "ConversionDraft",
             "ConversionDraftConfirmationError",
             "ConversionDraftNotFoundError",
