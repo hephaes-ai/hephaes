@@ -22,10 +22,6 @@ class InvalidAssetPathError(AssetServiceError):
     """Raised when a requested asset path is invalid or unusable."""
 
 
-class AssetAlreadyRegisteredError(AssetServiceError):
-    """Raised when a file path is already present in the asset registry."""
-
-
 class AssetDialogUnavailableError(AssetServiceError):
     """Raised when the local environment cannot open a native file picker."""
 
@@ -38,22 +34,8 @@ class InvalidAssetUploadError(AssetServiceError):
     """Raised when an uploaded file is invalid or unsupported."""
 
 
-class InvalidAssetDirectoryError(AssetServiceError):
-    """Raised when a directory-scan request points at an invalid location."""
-
-
 class EpisodeDiscoveryUnavailableError(AssetServiceError):
     """Raised when episode summaries are not available for an asset."""
-
-
-@dataclass(frozen=True)
-class InspectedAssetPath:
-    """Normalized local file details used during registration."""
-
-    file_path: str
-    file_name: str
-    file_type: str
-    file_size: int
 
 
 @dataclass(frozen=True)
@@ -134,23 +116,6 @@ def normalize_asset_path(file_path: str) -> Path:
     else:
         path = path.resolve(strict=False)
     return path
-
-
-def inspect_asset_path(file_path: str) -> InspectedAssetPath:
-    path = normalize_asset_path(file_path)
-
-    if not path.exists():
-        raise InvalidAssetPathError(f"asset path does not exist: {path}")
-    if not path.is_file():
-        raise InvalidAssetPathError(f"asset path is not a file: {path}")
-
-    stat_result = path.stat()
-    return InspectedAssetPath(
-        file_path=str(path),
-        file_name=path.name,
-        file_type=infer_file_type(path),
-        file_size=stat_result.st_size,
-    )
 
 
 def infer_file_type(path: Path) -> str:
