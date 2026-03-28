@@ -36,25 +36,9 @@ import {
   useAppRouter,
   useAppSearchParams,
 } from "@/lib/app-routing";
-import {
-  resolveBackendUrl,
-  type SavedConversionConfigSummaryResponse,
-} from "@/lib/api";
-import {
-  buildConversionCreateHref,
-  buildConversionUseHref,
-} from "@/lib/navigation";
-
-function parseAssetIds(rawAssetIds: string | null | undefined) {
-  return Array.from(
-    new Set(
-      (rawAssetIds ?? "")
-        .split(",")
-        .map((assetId) => assetId.trim())
-        .filter(Boolean),
-    ),
-  );
-}
+import { ConversionEntryErrorState } from "@/components/conversion-entry-state";
+import { resolveConversionEntry } from "@/lib/conversion-entry";
+import { resolveReturnHref } from "@/lib/navigation";
 
 function HomeRedirectRoute() {
   const searchParams = useAppSearchParams();
@@ -115,65 +99,32 @@ function OutputDetailRoute() {
   );
 }
 
-async function loadSavedConfigs() {
-  try {
-    const response = await fetch(resolveBackendUrl("/conversion-configs"), {
-      cache: "no-store",
-    });
-
-    if (!response.ok) {
-      return null;
-    }
-
-    const payload =
-      (await response.json()) as SavedConversionConfigSummaryResponse[];
-
-    return Array.isArray(payload) ? payload : null;
-  } catch {
-    return null;
-  }
-}
-
 function ConversionBootstrapRoute() {
   const router = useAppRouter();
   const searchParams = useAppSearchParams();
   const queryString = searchParams.toString();
+  const [errorMessage, setErrorMessage] = React.useState<string | null>(null);
+  const returnHref = resolveReturnHref(searchParams.get("from"), "/inventory");
 
   React.useEffect(() => {
     let cancelled = false;
 
     async function bootstrap() {
-      const nextParams = new URLSearchParams(queryString);
-      const assetIds = parseAssetIds(nextParams.get("asset_ids"));
-      const from = nextParams.get("from");
-      const conversionId = nextParams.get("conversion_id")?.trim() || null;
-      const sourceAssetId = nextParams.get("source_asset_id")?.trim() || null;
-      const savedConfigId = nextParams.get("saved_config_id")?.trim() || null;
-      const savedConfigs = await loadSavedConfigs();
+      setErrorMessage(null);
+      const resolution = await resolveConversionEntry(
+        new URLSearchParams(queryString)
+      );
 
       if (cancelled) {
         return;
       }
 
-      const nextHref =
-        savedConfigs && savedConfigs.length > 0
-          ? buildConversionUseHref({
-              assetIds,
-              conversionId,
-              from,
-              savedConfigId:
-                savedConfigs.find((config) => config.id === savedConfigId)?.id ??
-                savedConfigs[0]?.id ??
-                null,
-              sourceAssetId,
-            })
-          : buildConversionCreateHref({
-              assetIds,
-              from,
-              sourceAssetId,
-            });
+      if (resolution.status === "error") {
+        setErrorMessage(resolution.error);
+        return;
+      }
 
-      router.replace(nextHref, { scroll: false });
+      router.replace(resolution.href, { scroll: false });
     }
 
     void bootstrap();
@@ -182,6 +133,15 @@ function ConversionBootstrapRoute() {
       cancelled = true;
     };
   }, [queryString, router]);
+
+  if (errorMessage) {
+    return (
+      <ConversionEntryErrorState
+        description={errorMessage}
+        returnHref={returnHref}
+      />
+    );
+  }
 
   return <ConversionAuthoringWorkspaceFallback />;
 }

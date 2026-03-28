@@ -66,4 +66,21 @@ describe("BootstrapApp", () => {
     ).toBeInTheDocument()
     expect(screen.getByText(/backend-logs/i)).toBeInTheDocument()
   })
+
+  it("still renders the app when no desktop runtime is required", async () => {
+    const loadRuntime = vi
+      .fn<() => Promise<DesktopBackendRuntime | undefined>>()
+      .mockResolvedValue(undefined)
+
+    render(
+      <BootstrapApp
+        loadRuntime={loadRuntime}
+        readyFallback={<div>ready app</div>}
+      />
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText("ready app")).toBeInTheDocument()
+    })
+  })
 })

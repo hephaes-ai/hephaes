@@ -21,6 +21,19 @@ function normalizeBaseUrl(baseUrl: string | undefined | null) {
   return baseUrl?.trim().replace(/\/+$/, "") || ""
 }
 
+async function isTauriDesktopRuntimeAvailable() {
+  try {
+    const { isTauri } = await import("@tauri-apps/api/core")
+    return isTauri()
+  } catch {
+    return false
+  }
+}
+
+function buildDesktopRuntimeLoadError() {
+  return "The desktop frontend could not communicate with the Tauri host runtime."
+}
+
 function notifyDesktopBackendRuntimeChanged() {
   if (typeof window === "undefined") {
     return
@@ -110,9 +123,26 @@ export async function loadDesktopBackendRuntime() {
     const { invoke } = await import("@tauri-apps/api/core")
     const runtime = await invoke<DesktopBackendRuntime>("get_backend_runtime")
     setDesktopBackendRuntime(runtime)
-    await ensureDesktopBackendRuntimeSync()
+
+    try {
+      await ensureDesktopBackendRuntimeSync()
+    } catch {
+      // Keep the initial runtime snapshot even if live updates are unavailable.
+    }
+
     return runtime
   } catch {
+    if (await isTauriDesktopRuntimeAvailable()) {
+      const runtime: DesktopBackendRuntime = {
+        baseUrl: "",
+        error: buildDesktopRuntimeLoadError(),
+        mode: "sidecar",
+        status: "failed",
+      }
+      setDesktopBackendRuntime(runtime)
+      return runtime
+    }
+
     return undefined
   }
 }
