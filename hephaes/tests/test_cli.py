@@ -876,6 +876,48 @@ def test_cli_drafts_wizard_rejects_confirm_and_save_before_preview(
     assert final_draft["status"] == "draft"
 
 
+def test_cli_drafts_wizard_can_exit_after_confirmation_before_save(
+    tmp_path: Path,
+    tmp_mcap_file: Path,
+    capsys,
+    monkeypatch,
+) -> None:
+    main(["init", str(tmp_path)])
+    capsys.readouterr()
+    main(["add", "--workspace", str(tmp_path), str(tmp_mcap_file)])
+    asset_id = capsys.readouterr().out.strip().split("\t", 1)[0]
+
+    monkeypatch.setattr(
+        "hephaes.workspace.drafts.RosReader.open",
+        lambda bag_path, ros_version=None, registry=None: FakeCLIAuthoringReader(
+            bag_path=bag_path,
+        ),
+    )
+    _mock_input_sequence(
+        monkeypatch,
+        [
+            "",
+            "/doom_image,/joy",
+            "/doom_image",
+            "1",
+            "buttons",
+            "",
+            "preview",
+            "1",
+            "confirm",
+            "exit",
+        ],
+    )
+
+    exit_code = main(["drafts", "wizard", "--workspace", str(tmp_path), asset_id])
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    final_draft = json.loads(captured.out.strip().splitlines()[-1])
+    assert final_draft["status"] == "confirmed"
+    assert final_draft["saved_config_id"] is None
+
+
 def test_cli_outputs_ls_and_show(tmp_path: Path, capsys) -> None:
     main(["init", str(tmp_path)])
     capsys.readouterr()
