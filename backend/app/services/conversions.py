@@ -260,12 +260,6 @@ def _resolve_output_config(
     if request.output.format == "parquet":
         return ParquetOutputConfig.model_validate(output_payload)
     return TFRecordOutputConfig.model_validate(output_payload)
-
-
-def _workspace() -> Workspace:
-    return Workspace.open(get_settings().workspace_root)
-
-
 class ConversionService:
     def __init__(self, workspace: Workspace, settings: Settings | None = None) -> None:
         self.workspace = workspace
