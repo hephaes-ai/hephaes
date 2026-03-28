@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -9,6 +10,9 @@ from hephaes import (
     AssetAlreadyRegisteredError,
     AssetNotFoundError,
     ConversionConfigAlreadyExistsError,
+    ConversionDraftNotFoundError,
+    ConversionDraftRevisionNotFoundError,
+    ConversionDraftStateError,
     InvalidAssetPathError,
     TagAlreadyExistsError,
     Workspace,
@@ -507,6 +511,280 @@ def test_record_and_list_conversion_draft_revisions(tmp_path: Path, tmp_mcap_fil
     assert draft_row["current_revision_id"] == draft.id
     assert draft_row["confirmed_revision_id"] == draft.id
     assert draft_row["saved_config_id"] == saved.id
+
+
+def test_list_and_resolve_conversion_drafts(
+    tmp_path: Path,
+    tmp_mcap_file: Path,
+    tmp_bag_file: Path,
+) -> None:
+    workspace = Workspace.init(tmp_path)
+    first_asset = workspace.register_asset(tmp_mcap_file)
+    second_asset = workspace.register_asset(tmp_bag_file)
+    spec = ConversionSpec(
+        schema=SchemaSpec(name="draft_listing_demo", version=1),
+        output=OutputSpec(format="parquet"),
+    )
+    saved = workspace.save_conversion_config(
+        name="Draft Listing Config",
+        spec_document=build_conversion_spec_document(spec),
+    )
+
+    saved_revision = workspace.record_conversion_draft_revision(
+        label="Saved Draft",
+        saved_config_selector=saved.id,
+        source_asset_selector=first_asset.id,
+        spec_document=build_conversion_spec_document(spec, metadata={"kind": "saved"}),
+    )
+    draft_revision = workspace.record_conversion_draft_revision(
+        label="Working Draft",
+        source_asset_selector=second_asset.id,
+        spec_document=build_conversion_spec_document(spec, metadata={"kind": "draft"}),
+    )
+
+    all_drafts = workspace.list_conversion_drafts()
+    saved_drafts = workspace.list_conversion_drafts(status="saved")
+    working_drafts = workspace.list_conversion_drafts(status="draft")
+    second_asset_drafts = workspace.list_conversion_drafts(
+        source_asset_selector=second_asset.id
+    )
+    config_drafts = workspace.list_conversion_drafts(saved_config_selector=saved.id)
+    resolved = workspace.resolve_conversion_draft(draft_revision.draft_id or "")
+
+    assert {draft.id for draft in all_drafts} == {
+        saved_revision.draft_id,
+        draft_revision.draft_id,
+    }
+    assert [draft.id for draft in saved_drafts] == [saved_revision.draft_id]
+    assert [draft.id for draft in working_drafts] == [draft_revision.draft_id]
+    assert [draft.id for draft in second_asset_drafts] == [draft_revision.draft_id]
+    assert [draft.id for draft in config_drafts] == [saved_revision.draft_id]
+    assert resolved.id == draft_revision.draft_id
+    assert resolved.source_asset_id == second_asset.id
+    assert resolved.status == "draft"
+    assert resolved.current_revision is not None
+    assert resolved.current_revision.id == draft_revision.id
+    assert resolved.current_revision.metadata == {"kind": "draft"}
+    assert resolved.confirmed_revision is None
+
+    with pytest.raises(ConversionDraftNotFoundError):
+        workspace.resolve_conversion_draft("missing-draft")
+
+
+def test_list_conversion_draft_revisions_filters_by_draft_selector(
+    tmp_path: Path,
+    tmp_mcap_file: Path,
+) -> None:
+    workspace = Workspace.init(tmp_path)
+    asset = workspace.register_asset(tmp_mcap_file)
+    spec_v1 = build_conversion_spec_document(
+        ConversionSpec(
+            schema=SchemaSpec(name="draft_revision_demo", version=1),
+            output=OutputSpec(format="parquet"),
+        ),
+        metadata={"revision": 1},
+    )
+    spec_v2 = build_conversion_spec_document(
+        ConversionSpec(
+            schema=SchemaSpec(name="draft_revision_demo_v2", version=2),
+            output=OutputSpec(format="parquet"),
+        ),
+        metadata={"revision": 2},
+    )
+    timestamp = datetime.now(timezone.utc)
+
+    with workspace._transaction() as connection:
+        draft = workspace._create_conversion_draft(
+            connection,
+            source_asset_id=asset.id,
+            status="draft",
+            saved_config_id=None,
+            timestamp=timestamp,
+        )
+        revision_one = workspace._append_conversion_draft_revision(
+            connection,
+            draft_id=draft.id,
+            spec_document=spec_v1,
+            label="Revision 1",
+            saved_config_id=None,
+            source_asset_id=asset.id,
+            status="draft",
+            inspection_request={"sample_n": 2},
+            inspection={"topics": {}},
+            draft_request={"strategy": "initial"},
+            draft_result={"warnings": []},
+            preview_request={},
+            preview=None,
+            timestamp=timestamp,
+        )
+        workspace._set_conversion_draft_current_revision(
+            draft.id,
+            revision_one.id,
+            connection=connection,
+            timestamp=timestamp,
+        )
+        revision_two = workspace._append_conversion_draft_revision(
+            connection,
+            draft_id=draft.id,
+            spec_document=spec_v2,
+            label="Revision 2",
+            saved_config_id=None,
+            source_asset_id=asset.id,
+            status="draft",
+            inspection_request={"sample_n": 4},
+            inspection={"topics": {"demo": {}}},
+            draft_request={"strategy": "refined"},
+            draft_result={"warnings": ["topic filtered"]},
+            preview_request={"limit": 5},
+            preview={"rows": [], "checked_records": 0, "bad_records": 0},
+            timestamp=timestamp,
+        )
+        workspace._set_conversion_draft_current_revision(
+            draft.id,
+            revision_two.id,
+            connection=connection,
+            timestamp=timestamp,
+        )
+
+        other_draft = workspace._create_conversion_draft(
+            connection,
+            source_asset_id=None,
+            status="draft",
+            saved_config_id=None,
+            timestamp=timestamp,
+        )
+        other_revision = workspace._append_conversion_draft_revision(
+            connection,
+            draft_id=other_draft.id,
+            spec_document=spec_v1,
+            label="Other Revision",
+            saved_config_id=None,
+            source_asset_id=None,
+            status="draft",
+            inspection_request={},
+            inspection={},
+            draft_request={},
+            draft_result={},
+            preview_request={},
+            preview=None,
+            timestamp=timestamp,
+        )
+        workspace._set_conversion_draft_current_revision(
+            other_draft.id,
+            other_revision.id,
+            connection=connection,
+            timestamp=timestamp,
+        )
+
+    revisions = workspace.list_conversion_draft_revisions(draft_selector=draft.id)
+    resolved = workspace.resolve_conversion_draft(draft.id)
+
+    assert [revision.id for revision in revisions] == [revision_two.id, revision_one.id]
+    assert [revision.revision_number for revision in revisions] == [2, 1]
+    assert all(revision.draft_id == draft.id for revision in revisions)
+    assert resolved.current_revision is not None
+    assert resolved.current_revision.id == revision_two.id
+    assert resolved.current_revision.preview_request_json == {"limit": 5}
+    assert resolved.current_revision.preview_json == {
+        "rows": [],
+        "checked_records": 0,
+        "bad_records": 0,
+    }
+    assert resolved.confirmed_revision is None
+
+
+def test_conversion_draft_primitives_validate_state_and_revision_membership(
+    tmp_path: Path,
+    tmp_mcap_file: Path,
+) -> None:
+    workspace = Workspace.init(tmp_path)
+    asset = workspace.register_asset(tmp_mcap_file)
+    spec = build_conversion_spec_document(
+        ConversionSpec(
+            schema=SchemaSpec(name="draft_state_demo", version=1),
+            output=OutputSpec(format="parquet"),
+        )
+    )
+    timestamp = datetime.now(timezone.utc)
+
+    with workspace._transaction() as connection:
+        first_draft = workspace._create_conversion_draft(
+            connection,
+            source_asset_id=asset.id,
+            status="draft",
+            saved_config_id=None,
+            timestamp=timestamp,
+        )
+        first_revision = workspace._append_conversion_draft_revision(
+            connection,
+            draft_id=first_draft.id,
+            spec_document=spec,
+            label="First Revision",
+            saved_config_id=None,
+            source_asset_id=asset.id,
+            status="draft",
+            inspection_request={},
+            inspection={},
+            draft_request={},
+            draft_result={},
+            preview_request={},
+            preview=None,
+            timestamp=timestamp,
+        )
+        workspace._set_conversion_draft_current_revision(
+            first_draft.id,
+            first_revision.id,
+            connection=connection,
+            timestamp=timestamp,
+        )
+
+        second_draft = workspace._create_conversion_draft(
+            connection,
+            source_asset_id=None,
+            status="draft",
+            saved_config_id=None,
+            timestamp=timestamp,
+        )
+        second_revision = workspace._append_conversion_draft_revision(
+            connection,
+            draft_id=second_draft.id,
+            spec_document=spec,
+            label="Second Revision",
+            saved_config_id=None,
+            source_asset_id=None,
+            status="draft",
+            inspection_request={},
+            inspection={},
+            draft_request={},
+            draft_result={},
+            preview_request={},
+            preview=None,
+            timestamp=timestamp,
+        )
+        workspace._set_conversion_draft_current_revision(
+            second_draft.id,
+            second_revision.id,
+            connection=connection,
+            timestamp=timestamp,
+        )
+
+    with pytest.raises(ConversionDraftRevisionNotFoundError):
+        workspace._get_conversion_draft_revision_summary_or_raise("missing-revision")
+
+    with pytest.raises(ConversionDraftStateError):
+        workspace._set_conversion_draft_current_revision(first_draft.id, second_revision.id)
+
+    with pytest.raises(ConversionDraftStateError):
+        workspace._set_conversion_draft_confirmed_revision(first_draft.id, second_revision.id)
+
+    workspace._set_conversion_draft_status(first_draft.id, "discarded")
+    discarded = workspace.resolve_conversion_draft(first_draft.id)
+
+    assert discarded.status == "discarded"
+    assert discarded.discarded_at is not None
+
+    with pytest.raises(ConversionDraftStateError):
+        workspace._set_conversion_draft_status(first_draft.id, "draft")
 
 
 def test_migrate_workspace_schema_creates_draft_heads_for_legacy_draft_revisions(

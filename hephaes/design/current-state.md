@@ -19,7 +19,7 @@ As of `2026-03-28`, `hephaes` already contains:
 
 - pure conversion authoring helpers for inspect, draft generation, and preview
 - a `Workspace` package API with durable local SQLite state
-- asset registration, indexing, tags, saved configs, config revisions, draft heads, draft revision persistence, jobs, conversion runs, and outputs
+- asset registration, indexing, tags, saved configs, config revisions, draft heads, public draft lookup/state primitives, draft revision persistence, jobs, conversion runs, and outputs
 - CLI commands for workspace init, asset add/index/list, inspect, convert, configs, jobs, runs, and outputs
 
 What it does **not** yet contain is a package-owned end-to-end authoring workflow through `Workspace` and the CLI.
@@ -52,8 +52,9 @@ Implemented through `Workspace` mixins:
 - tag creation and assignment
 - saved config create/list/get/update/duplicate
 - saved config revision history
-- draft head persistence at the schema level
+- draft head create/list/get/resolve primitives
 - draft revision record/list/get
+- low-level draft state transition helpers
 - job lifecycle
 - conversion run lifecycle
 - output artifact registration/list/get
@@ -129,7 +130,8 @@ Implemented today:
 
 - `build_draft_conversion_spec(...)` exists
 - draft revisions can be persisted with `record_conversion_draft_revision(...)`
-- the current draft revision write path now also creates a linked draft head row in `conversion_drafts`
+- the current draft revision write path now creates a linked draft head row in `conversion_drafts`
+- public `Workspace` draft lookups now resolve draft heads plus current/confirmed revisions
 
 Missing today:
 
@@ -138,7 +140,7 @@ Missing today:
 
 Important current limitation:
 
-- public draft lifecycle is still revision-row based even though the package now has a draft-head table
+- draft storage is now head-based, but the authoring workflow itself is still not package-owned
 
 Relevant files:
 
@@ -148,17 +150,19 @@ Relevant files:
 
 ### 4. Revise draft
 
-Status: not implemented as a first-class workflow
+Status: partially implemented at the persistence layer
 
 Implemented today:
 
-- a spec document can be stored as a draft revision
+- one draft can own multiple immutable revision rows
+- draft heads track `current_revision_id`
+- internal workspace helpers exist to append revisions and move the current revision pointer
 
 Missing today:
 
-- no draft update API
-- no multi-revision draft lifecycle around one draft id
-- no current/confirmed revision concept
+- no public `Workspace.update_conversion_draft(...)`
+- no package-owned validation around what edits are allowed
+- no high-level workflow method that appends a new revision and manages confirmation state
 
 ### 5. Preview draft
 
@@ -182,13 +186,19 @@ Relevant files:
 
 ### 6. Confirm draft
 
-Status: not implemented
+Status: partially implemented at the persistence layer
+
+Implemented today:
+
+- draft heads track `confirmed_revision_id`
+- draft status values include `confirmed`
+- internal state-transition helpers and draft lifecycle errors now exist
 
 Missing today:
 
-- no confirmed draft state
-- no confirmation API
+- no public confirmation API
 - no lifecycle rule requiring preview before confirmation
+- no package-owned confirmation workflow
 
 ### 7. Save confirmed draft as reusable config
 
@@ -259,13 +269,15 @@ Current behavior:
 
 - legacy draft revisions migrate forward into one draft head per legacy row
 - new calls to `record_conversion_draft_revision(...)` create one draft head plus one revision row
+- public draft listings now support filters by status, source asset, and saved config
+- draft lookups now resolve current and confirmed revisions through `ConversionDraft`
 
 Current limitation:
 
-- the package does not yet expose first-class draft-head queries or lifecycle APIs
-- it still effectively treats each recorded revision as a standalone draft in public behavior
+- the package still does not expose high-level authoring workflow methods
+- inspect, draft generation, preview, confirmation, and config promotion are not yet orchestrated through public `Workspace` methods
 
-So the structural gap has narrowed from "no draft head exists" to "draft head exists, but the public workflow still does not operate on it."
+So the structural gap has narrowed from "no draft head exists" to "draft heads and low-level lifecycle primitives exist, but the public workflow still does not operate on them end-to-end."
 
 ## Current CLI State
 
@@ -370,6 +382,7 @@ Relevant package tests already exist for:
 - workspace persistence
 - saved config lifecycle
 - draft-head schema/migration compatibility
+- draft-head lookup and state primitive behavior
 - draft revision persistence
 - conversion authoring helpers
 - conversion execution
@@ -379,13 +392,14 @@ Relevant test files:
 - `tests/test_workspace.py`
 - `tests/test_conversion_authoring.py`
 
-Observed during review on `2026-03-28`:
+Observed during implementation on `2026-03-28`:
 
-- `pytest hephaes/tests/test_workspace.py hephaes/tests/test_conversion_authoring.py` passed
+- `pytest hephaes/tests/test_workspace.py hephaes/tests/test_package_init.py` passed
+- `pytest hephaes/tests` passed
 
 What is not covered yet:
 
-- draft head lifecycle
+- package-owned inspect/draft/preview workflow methods
 - draft confirmation rules
 - draft promotion to saved config
 - wizard behavior
@@ -410,4 +424,5 @@ Current shorthand:
 
 - authoring primitives exist
 - durable workspace exists
+- draft-head persistence primitives now exist
 - full package-owned authoring workflow does not yet exist

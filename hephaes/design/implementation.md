@@ -24,7 +24,7 @@ This implementation plan is intentionally package-first:
 | Phase | Status | Notes |
 | --- | --- | --- |
 | 1 | completed | Added draft-head models, `conversion_drafts` schema, legacy migration, and compatible draft-head writes from the existing draft revision path. |
-| 2 | not started | Pending refactor of workspace draft persistence into proper draft-head primitives. |
+| 2 | completed | Refactored `workspace/drafts.py` around draft heads plus revisions, added public draft lookup APIs and draft lifecycle errors, and expanded workspace/package export coverage. |
 | 3 | not started | Pending package-owned inspect/draft/preview/confirm workflow methods on `Workspace`. |
 | 4 | not started | Pending scriptable `drafts` CLI surface. |
 | 5 | not started | Pending required interactive wizard. |
@@ -107,6 +107,10 @@ Completed on `2026-03-28`.
 ### Goal
 
 Add the low-level query and mutation primitives needed to manage drafts and draft revisions cleanly.
+
+### Status
+
+Completed on `2026-03-28`.
 
 ### Tasks
 
