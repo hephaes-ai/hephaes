@@ -8,7 +8,7 @@ from pathlib import Path
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.db.models import ASSET_INDEXING_STATUSES, JOB_STATUSES, Job, utc_now
+from app.db.models import Job, utc_now
 from app.schemas.dashboard import (
     DashboardBlockersResponse,
     DashboardConversionsSummary,
@@ -26,6 +26,8 @@ from hephaes import Workspace, WorkspaceJob
 from hephaes._workspace_models import ConversionRun, OutputArtifact as WorkspaceOutputArtifact, RegisteredAsset
 
 OUTPUT_AVAILABILITY_STATUSES = ("ready", "missing", "invalid")
+ASSET_INDEXING_STATUSES = ("pending", "indexing", "indexed", "failed")
+JOB_STATUSES = ("queued", "running", "succeeded", "failed")
 
 
 def _normalize_utc(value: datetime) -> datetime:

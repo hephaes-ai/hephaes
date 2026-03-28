@@ -9,10 +9,6 @@ from uuid import uuid4
 from sqlalchemy import JSON, CheckConstraint, DateTime, String, Text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
-ASSET_INDEXING_STATUSES = ("pending", "indexing", "indexed", "failed")
-JOB_TYPES = ("index", "convert", "prepare_visualization")
-JOB_STATUSES = ("queued", "running", "succeeded", "failed")
-
 
 def utc_now() -> datetime:
     return datetime.now(timezone.utc)
