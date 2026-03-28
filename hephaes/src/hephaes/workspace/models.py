@@ -169,7 +169,21 @@ class SavedConversionConfigRevision:
 
 
 @dataclass(frozen=True)
+class ConversionDraftSummary:
+    id: str
+    source_asset_id: str | None
+    status: Literal["draft", "confirmed", "saved", "discarded"]
+    current_revision_id: str | None
+    confirmed_revision_id: str | None
+    saved_config_id: str | None
+    created_at: datetime
+    updated_at: datetime
+    discarded_at: datetime | None
+
+
+@dataclass(frozen=True)
 class ConversionDraftRevisionSummary:
+    draft_id: str | None
     id: str
     revision_number: int
     label: str | None
@@ -181,6 +195,7 @@ class ConversionDraftRevisionSummary:
     inspection_json: dict[str, Any]
     draft_request_json: dict[str, Any]
     draft_result_json: dict[str, Any]
+    preview_request_json: dict[str, Any]
     preview_json: dict[str, Any] | None
     spec_document_version: int
     document_path: str
@@ -191,6 +206,7 @@ class ConversionDraftRevisionSummary:
 
 @dataclass(frozen=True)
 class ConversionDraftRevision:
+    draft_id: str | None
     id: str
     revision_number: int
     label: str | None
@@ -202,6 +218,7 @@ class ConversionDraftRevision:
     inspection_json: dict[str, Any]
     draft_request_json: dict[str, Any]
     draft_result_json: dict[str, Any]
+    preview_request_json: dict[str, Any]
     preview_json: dict[str, Any] | None
     document: ConversionSpecDocument
     spec_document_version: int
@@ -209,6 +226,21 @@ class ConversionDraftRevision:
     created_at: datetime
     updated_at: datetime
     invalid_reason: str | None
+
+
+@dataclass(frozen=True)
+class ConversionDraft:
+    id: str
+    source_asset_id: str | None
+    status: Literal["draft", "confirmed", "saved", "discarded"]
+    current_revision_id: str | None
+    confirmed_revision_id: str | None
+    saved_config_id: str | None
+    current_revision: ConversionDraftRevision | None
+    confirmed_revision: ConversionDraftRevision | None
+    created_at: datetime
+    updated_at: datetime
+    discarded_at: datetime | None
 
 
 @dataclass(frozen=True)

@@ -91,7 +91,9 @@ class TestPublicExports:
             ConversionConfigAlreadyExistsError,
             ConversionConfigInvalidError,
             ConversionConfigNotFoundError,
+            ConversionDraft,
             ConversionRun,
+            ConversionDraftSummary,
             ConversionDraftRevision,
             ConversionDraftRevisionSummary,
             DefaultEpisodeSummary,
@@ -113,6 +115,8 @@ class TestPublicExports:
         assert ConversionConfigAlreadyExistsError is not None
         assert ConversionConfigInvalidError is not None
         assert ConversionConfigNotFoundError is not None
+        assert ConversionDraft is not None
+        assert ConversionDraftSummary is not None
         assert ConversionRun is not None
         assert ConversionDraftRevision is not None
         assert ConversionDraftRevisionSummary is not None
@@ -204,6 +208,8 @@ class TestPublicExports:
             "ConversionConfigAlreadyExistsError",
             "ConversionConfigInvalidError",
             "ConversionConfigNotFoundError",
+            "ConversionDraft",
+            "ConversionDraftSummary",
             "ConversionRun",
             "ConversionDraftRevision",
             "ConversionDraftRevisionSummary",

@@ -18,7 +18,9 @@ from .errors import (
 )
 from .indexing import build_index_metadata_payload, profile_asset_file
 from .models import (
+    ConversionDraft,
     ConversionRun,
+    ConversionDraftSummary,
     ConversionDraftRevision,
     ConversionDraftRevisionSummary,
     DefaultEpisodeSummary,
@@ -47,6 +49,8 @@ __all__ = [
     "ConversionConfigInvalidError",
     "ConversionConfigNotFoundError",
     "Converter",
+    "ConversionDraft",
+    "ConversionDraftSummary",
     "ConversionRun",
     "ConversionDraftRevision",
     "ConversionDraftRevisionSummary",

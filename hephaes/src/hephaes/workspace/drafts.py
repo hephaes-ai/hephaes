@@ -77,8 +77,9 @@ class WorkspaceDraftMixin:
             raise TypeError("draft revision payloads must be dicts or model-like objects")
 
         document = _load_conversion_document_input(spec_document)
-        draft_id = str(uuid4())
-        relative_document_path = _build_draft_revision_relative_path(draft_id)
+        draft_head_id = str(uuid4())
+        revision_id = str(uuid4())
+        relative_document_path = _build_draft_revision_relative_path(revision_id)
         document_path = self.paths.specs_dir / relative_document_path
         timestamp = _utc_now()
         saved_config = (
@@ -107,8 +108,35 @@ class WorkspaceDraftMixin:
             )
             connection.execute(
                 """
+                INSERT INTO conversion_drafts(
+                    id,
+                    source_asset_id,
+                    status,
+                    current_revision_id,
+                    confirmed_revision_id,
+                    saved_config_id,
+                    created_at,
+                    updated_at,
+                    discarded_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    draft_head_id,
+                    source_asset_id,
+                    status,
+                    revision_id,
+                    revision_id if status == "saved" else None,
+                    saved_config_id,
+                    to_db_timestamp(timestamp),
+                    to_db_timestamp(timestamp),
+                    None,
+                ),
+            )
+            connection.execute(
+                """
                 INSERT INTO conversion_draft_revisions(
                     id,
+                    draft_id,
                     revision_number,
                     label,
                     saved_config_id,
@@ -119,16 +147,18 @@ class WorkspaceDraftMixin:
                     inspection_json,
                     draft_request_json,
                     draft_result_json,
+                    preview_request_json,
                     preview_json,
                     spec_document_path,
                     spec_document_version,
                     invalid_reason,
                     created_at,
                     updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    draft_id,
+                    revision_id,
+                    draft_head_id,
                     revision_number,
                     _normalize_optional_text(label),
                     saved_config_id,
@@ -139,6 +169,7 @@ class WorkspaceDraftMixin:
                     json.dumps(_json_safe_payload(inspection)),
                     json.dumps(_json_safe_payload(draft_request)),
                     json.dumps(_json_safe_payload(draft_result)),
+                    json.dumps({}),
                     json.dumps(preview_payload) if preview_payload is not None else None,
                     relative_document_path,
                     document.spec_version,
@@ -149,7 +180,7 @@ class WorkspaceDraftMixin:
             )
             row = connection.execute(
                 "SELECT * FROM conversion_draft_revisions WHERE id = ?",
-                (draft_id,),
+                (revision_id,),
             ).fetchone()
 
         summary = row_to_conversion_draft_revision_summary(

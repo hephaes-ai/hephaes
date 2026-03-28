@@ -6,8 +6,10 @@ from dataclasses import asdict
 from datetime import datetime
 
 from .models import (
+    ConversionDraft,
     ConversionDraftRevision,
     ConversionDraftRevisionSummary,
+    ConversionDraftSummary,
     DefaultEpisodeSummary,
     IndexedAssetMetadata,
     IndexedTopicSummary,
@@ -285,12 +287,52 @@ def build_saved_conversion_config_revision(
     )
 
 
+def row_to_conversion_draft_summary(row: sqlite3.Row) -> ConversionDraftSummary:
+    return ConversionDraftSummary(
+        id=row["id"],
+        source_asset_id=row["source_asset_id"],
+        status=row["status"],
+        current_revision_id=row["current_revision_id"],
+        confirmed_revision_id=row["confirmed_revision_id"],
+        saved_config_id=row["saved_config_id"],
+        created_at=from_db_timestamp(row["created_at"]),
+        updated_at=from_db_timestamp(row["updated_at"]),
+        discarded_at=(
+            from_db_timestamp(row["discarded_at"])
+            if row["discarded_at"] is not None
+            else None
+        ),
+    )
+
+
+def build_conversion_draft(
+    summary: ConversionDraftSummary,
+    *,
+    current_revision: ConversionDraftRevision | None,
+    confirmed_revision: ConversionDraftRevision | None,
+) -> ConversionDraft:
+    return ConversionDraft(
+        id=summary.id,
+        source_asset_id=summary.source_asset_id,
+        status=summary.status,
+        current_revision_id=summary.current_revision_id,
+        confirmed_revision_id=summary.confirmed_revision_id,
+        saved_config_id=summary.saved_config_id,
+        current_revision=current_revision,
+        confirmed_revision=confirmed_revision,
+        created_at=summary.created_at,
+        updated_at=summary.updated_at,
+        discarded_at=summary.discarded_at,
+    )
+
+
 def row_to_conversion_draft_revision_summary(
     row: sqlite3.Row,
     *,
     document_path: str,
 ) -> ConversionDraftRevisionSummary:
     return ConversionDraftRevisionSummary(
+        draft_id=row["draft_id"],
         id=row["id"],
         revision_number=int(row["revision_number"]),
         label=row["label"],
@@ -302,6 +344,7 @@ def row_to_conversion_draft_revision_summary(
         inspection_json=dict(json.loads(row["inspection_json"])),
         draft_request_json=dict(json.loads(row["draft_request_json"])),
         draft_result_json=dict(json.loads(row["draft_result_json"])),
+        preview_request_json=dict(json.loads(row["preview_request_json"])),
         preview_json=(
             dict(json.loads(row["preview_json"]))
             if row["preview_json"] is not None
@@ -321,6 +364,7 @@ def build_conversion_draft_revision(
     document: ConversionSpecDocument,
 ) -> ConversionDraftRevision:
     return ConversionDraftRevision(
+        draft_id=summary.draft_id,
         id=summary.id,
         revision_number=summary.revision_number,
         label=summary.label,
@@ -332,6 +376,7 @@ def build_conversion_draft_revision(
         inspection_json=summary.inspection_json,
         draft_request_json=summary.draft_request_json,
         draft_result_json=summary.draft_result_json,
+        preview_request_json=summary.preview_request_json,
         preview_json=summary.preview_json,
         document=document,
         spec_document_version=summary.spec_document_version,

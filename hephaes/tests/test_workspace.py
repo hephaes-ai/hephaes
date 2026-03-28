@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -15,6 +16,7 @@ from hephaes import (
     WorkspaceNotFoundError,
 )
 from hephaes.conversion.spec_io import build_conversion_spec_document, dump_conversion_spec_document
+from hephaes.workspace.schema import migrate_workspace_schema, WORKSPACE_SCHEMA_VERSION
 from hephaes.models import BagMetadata, Topic
 from hephaes.models import ConversionSpec, OutputSpec, SchemaSpec
 
@@ -477,16 +479,154 @@ def test_record_and_list_conversion_draft_revisions(tmp_path: Path, tmp_mcap_fil
     assert len(drafts) == 1
     assert drafts[0].id == draft.id
     assert drafts[0].revision_number == 1
+    assert drafts[0].draft_id is not None
     assert drafts[0].saved_config_id == saved.id
     assert drafts[0].source_asset_id == asset.id
     assert drafts[0].status == "saved"
     assert drafts[0].inspection_request_json == {"asset_id": asset.id, "sample_n": 2}
+    assert drafts[0].preview_request_json == {}
     assert resolved is not None
+    assert resolved.draft_id == drafts[0].draft_id
     assert resolved.label == "Draft 1"
     assert resolved.revision_number == 1
     assert resolved.status == "saved"
     assert resolved.metadata == {"draft": True}
+    assert resolved.preview_request_json == {}
     assert resolved.preview_json == {"rows": [], "checked_records": 0, "bad_records": 0}
+
+    with sqlite3.connect(workspace.database_path) as connection:
+        connection.row_factory = sqlite3.Row
+        draft_row = connection.execute(
+            "SELECT * FROM conversion_drafts WHERE id = ?",
+            (drafts[0].draft_id,),
+        ).fetchone()
+
+    assert draft_row is not None
+    assert draft_row["source_asset_id"] == asset.id
+    assert draft_row["status"] == "saved"
+    assert draft_row["current_revision_id"] == draft.id
+    assert draft_row["confirmed_revision_id"] == draft.id
+    assert draft_row["saved_config_id"] == saved.id
+
+
+def test_migrate_workspace_schema_creates_draft_heads_for_legacy_draft_revisions(
+    tmp_path: Path,
+) -> None:
+    database_path = tmp_path / "legacy.sqlite3"
+    connection = sqlite3.connect(database_path)
+    connection.row_factory = sqlite3.Row
+    try:
+        connection.executescript(
+            """
+            PRAGMA foreign_keys=ON;
+
+            CREATE TABLE workspace_meta (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );
+
+            CREATE TABLE assets (
+                id TEXT PRIMARY KEY
+            );
+
+            CREATE TABLE conversion_configs (
+                id TEXT PRIMARY KEY
+            );
+
+            CREATE TABLE conversion_draft_revisions (
+                id TEXT PRIMARY KEY,
+                revision_number INTEGER NOT NULL DEFAULT 1,
+                label TEXT NULL,
+                saved_config_id TEXT NULL,
+                source_asset_id TEXT NULL,
+                status TEXT NOT NULL DEFAULT 'draft',
+                metadata_json TEXT NOT NULL DEFAULT '{}',
+                inspection_request_json TEXT NOT NULL DEFAULT '{}',
+                inspection_json TEXT NOT NULL DEFAULT '{}',
+                draft_request_json TEXT NOT NULL DEFAULT '{}',
+                draft_result_json TEXT NOT NULL DEFAULT '{}',
+                preview_json TEXT NULL,
+                spec_document_path TEXT NOT NULL,
+                spec_document_version INTEGER NOT NULL,
+                invalid_reason TEXT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            """
+        )
+        connection.execute(
+            "INSERT INTO workspace_meta(key, value) VALUES ('schema_version', '9')"
+        )
+        connection.execute("INSERT INTO assets(id) VALUES ('asset-1')")
+        connection.execute("INSERT INTO conversion_configs(id) VALUES ('config-1')")
+        connection.execute(
+            """
+            INSERT INTO conversion_draft_revisions(
+                id,
+                revision_number,
+                label,
+                saved_config_id,
+                source_asset_id,
+                status,
+                metadata_json,
+                inspection_request_json,
+                inspection_json,
+                draft_request_json,
+                draft_result_json,
+                preview_json,
+                spec_document_path,
+                spec_document_version,
+                invalid_reason,
+                created_at,
+                updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "revision-1",
+                1,
+                "Legacy Draft",
+                "config-1",
+                "asset-1",
+                "saved",
+                "{}",
+                "{}",
+                "{}",
+                "{}",
+                "{}",
+                '{"rows":[],"checked_records":0,"bad_records":0}',
+                "drafts/revision-1.json",
+                2,
+                None,
+                "2026-03-28T10:00:00+00:00",
+                "2026-03-28T10:05:00+00:00",
+            ),
+        )
+
+        migrate_workspace_schema(connection, 9)
+
+        meta = connection.execute(
+            "SELECT value FROM workspace_meta WHERE key = 'schema_version'"
+        ).fetchone()
+        revision_row = connection.execute(
+            "SELECT * FROM conversion_draft_revisions WHERE id = 'revision-1'"
+        ).fetchone()
+        draft_row = connection.execute(
+            "SELECT * FROM conversion_drafts WHERE id = 'revision-1'"
+        ).fetchone()
+    finally:
+        connection.close()
+
+    assert meta is not None
+    assert meta["value"] == str(WORKSPACE_SCHEMA_VERSION)
+    assert revision_row is not None
+    assert revision_row["draft_id"] == "revision-1"
+    assert revision_row["preview_request_json"] == "{}"
+    assert draft_row is not None
+    assert draft_row["status"] == "saved"
+    assert draft_row["source_asset_id"] == "asset-1"
+    assert draft_row["saved_config_id"] == "config-1"
+    assert draft_row["current_revision_id"] == "revision-1"
+    assert draft_row["confirmed_revision_id"] == "revision-1"
 
 
 def test_register_and_list_output_artifacts(tmp_path: Path) -> None:
