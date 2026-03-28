@@ -5,9 +5,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi.testclient import TestClient
-from sqlalchemy import delete
 
-from app.db.models import OutputArtifact
 from app.services import conversions as conversion_service
 from app.services import indexing as indexing_service
 from hephaes.models import BagMetadata, Topic
@@ -281,36 +279,38 @@ def test_outputs_refresh_missing_file_status_and_content_returns_404(
     }
 
 
-def test_outputs_lazy_backfill_recreates_deleted_artifact_rows(
+def test_outputs_routes_use_workspace_artifacts_only(
     client: TestClient,
     monkeypatch,
     sample_asset_file: Path,
 ):
-    _asset_id, _conversion = create_conversion(client, monkeypatch, sample_asset_file)
-    original_outputs = client.get("/outputs").json()
-    assert len(original_outputs) == 2
+    _asset_id, conversion = create_conversion(client, monkeypatch, sample_asset_file)
 
-    session = client.app.state.session_factory()
-    try:
-        session.execute(delete(OutputArtifact))
-        session.commit()
-    finally:
-        session.close()
+    outputs_response = client.get("/outputs")
+    assert outputs_response.status_code == 200
+    outputs = outputs_response.json()
+    assert len(outputs) == 2
+    dataset = next(item for item in outputs if item["role"] == "dataset")
+    assert dataset["conversion_id"] == conversion["id"]
+    assert dataset["job_id"] == conversion["job_id"]
+    assert dataset["file_name"] == "episode_0001.parquet"
+    assert dataset["size_bytes"] == len(b"parquet-data")
 
-    restored_response = client.get("/outputs")
-    assert restored_response.status_code == 200
-    restored_outputs = restored_response.json()
-    assert len(restored_outputs) == 2
-    assert {item["file_name"] for item in restored_outputs} == {
-        "episode_0001.parquet",
-        "episode_0001.manifest.json",
-    }
+    detail_response = client.get(f"/outputs/{dataset['id']}")
+    assert detail_response.status_code == 200
+    detail = detail_response.json()
+    assert detail["file_path"] == str(Path(conversion["output_path"]) / "episode_0001.parquet")
+
+    content_response = client.get(detail["content_url"])
+    assert content_response.status_code == 200
+    assert content_response.content == b"parquet-data"
 
 
 def test_output_actions_refresh_metadata_updates_latest_action_and_detail(
     client: TestClient,
     monkeypatch,
     sample_asset_file: Path,
+    backend_outputs_dir: Path,
 ):
     _asset_id, conversion = create_conversion(client, monkeypatch, sample_asset_file)
     dataset_output = client.get("/outputs", params={"format": "parquet"}).json()[0]
@@ -330,7 +330,7 @@ def test_output_actions_refresh_metadata_updates_latest_action_and_detail(
     assert action["config"] == {"reason": "test"}
     assert action["result"]["availability_status"] == "ready"
     assert action["result"]["size_bytes"] == len(b"parquet-data-updated")
-    assert action["output_path"] == str(Path(conversion["output_path"]).parents[1] / "actions" / action["id"])
+    assert action["output_path"] == str(backend_outputs_dir / "actions" / action["id"])
     assert action["output_file_path"] == str(dataset_path)
 
     result_file = Path(action["output_path"]) / "result.json"

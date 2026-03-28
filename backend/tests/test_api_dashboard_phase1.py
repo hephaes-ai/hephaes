@@ -184,10 +184,10 @@ def test_phase1_dashboard_routes_support_mixed_operational_states(
     assert asset_statuses.count("failed") == 1
 
     job_statuses = [job["status"] for job in jobs_response.json()]
-    assert "queued" in job_statuses
-    assert "running" in job_statuses
     assert "succeeded" in job_statuses
     assert "failed" in job_statuses
+    assert "queued" not in job_statuses
+    assert "running" not in job_statuses
 
     conversion_statuses = [conversion["status"] for conversion in conversions_response.json()]
     assert conversion_statuses.count("succeeded") == 1
@@ -201,4 +201,3 @@ def test_phase1_dashboard_routes_support_mixed_operational_states(
     assert output_formats.count("json") == 1
     assert output_availability.count("missing") == 1
     assert output_availability.count("ready") == 1
-

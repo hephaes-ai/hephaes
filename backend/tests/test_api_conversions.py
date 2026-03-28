@@ -78,7 +78,6 @@ def test_create_conversion_success(
     client: TestClient,
     monkeypatch,
     sample_asset_file: Path,
-    backend_outputs_dir: Path,
 ):
     asset_id = index_registered_asset(client, monkeypatch, sample_asset_file)
     captured: dict[str, object] = {}
@@ -130,7 +129,9 @@ def test_create_conversion_success(
         "compatibility_markers": [],
         "warnings": [],
     }
-    assert body["output_path"] == str(backend_outputs_dir / "conversions" / body["id"])
+    output_path = Path(body["output_path"])
+    assert output_path.name == body["id"]
+    assert ".hephaes/outputs/" in body["output_path"]
     assert body["output_files"] == [str(Path(body["output_path"]) / "episode_0001.parquet")]
     assert body["error_message"] is None
     assert body["job"]["type"] == "convert"
@@ -139,8 +140,10 @@ def test_create_conversion_success(
     assert body["job"]["output_path"] == body["output_path"]
     assert body["job"]["error_message"] is None
     assert body["job"]["representation_policy"]["output_format"] == "parquet"
-    assert captured["file_paths"] == [str(sample_asset_file)]
-    assert Path(captured["output_dir"]) == backend_outputs_dir / "conversions" / body["id"]
+    assert len(captured["file_paths"]) == 1
+    assert Path(captured["file_paths"][0]).name == sample_asset_file.name
+    assert ".hephaes/imports/" in captured["file_paths"][0]
+    assert Path(captured["output_dir"]) == output_path
     assert captured["spec"].schema.name == "legacy_mapping"
     assert captured["spec"].output.compression == "snappy"
 

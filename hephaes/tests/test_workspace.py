@@ -465,17 +465,28 @@ def test_record_and_list_conversion_draft_revisions(tmp_path: Path, tmp_mcap_fil
         saved_config_selector=saved.id,
         source_asset_selector=asset.id,
         spec_document=build_conversion_spec_document(spec, metadata={"draft": True}),
+        inspection_request={"asset_id": asset.id, "sample_n": 2},
+        inspection={"bag_path": str(tmp_mcap_file), "sample_n": 2, "topics": {}, "warnings": []},
+        draft_request={"include_preview": True},
+        draft_result={"selected_topics": [], "warnings": [], "assumptions": [], "unresolved_fields": []},
+        preview={"rows": [], "checked_records": 0, "bad_records": 0},
     )
     drafts = workspace.list_conversion_draft_revisions(saved_config_selector=saved.id)
     resolved = workspace.get_conversion_draft_revision(draft.id)
 
     assert len(drafts) == 1
     assert drafts[0].id == draft.id
+    assert drafts[0].revision_number == 1
     assert drafts[0].saved_config_id == saved.id
     assert drafts[0].source_asset_id == asset.id
+    assert drafts[0].status == "saved"
+    assert drafts[0].inspection_request_json == {"asset_id": asset.id, "sample_n": 2}
     assert resolved is not None
     assert resolved.label == "Draft 1"
+    assert resolved.revision_number == 1
+    assert resolved.status == "saved"
     assert resolved.metadata == {"draft": True}
+    assert resolved.preview_json == {"rows": [], "checked_records": 0, "bad_records": 0}
 
 
 def test_register_and_list_output_artifacts(tmp_path: Path) -> None:
@@ -523,6 +534,57 @@ def test_register_output_artifacts_can_limit_to_specific_paths(tmp_path: Path) -
 
     assert len(registered) == 2
     assert all(output.output_path != str(unrelated_path.resolve()) for output in registered)
+
+
+def test_register_output_artifacts_marks_missing_files_on_refresh(
+    tmp_path: Path,
+    tmp_mcap_file: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = Workspace.init(tmp_path)
+    asset = workspace.register_asset(tmp_mcap_file)
+    spec = ConversionSpec(
+        schema=SchemaSpec(name="demo", version=1),
+        output=OutputSpec(format="parquet"),
+    )
+    saved_config = workspace.save_conversion_config(
+        name="Demo Config",
+        spec_document=build_conversion_spec_document(spec),
+    )
+
+    class FakeConverter:
+        def __init__(self, _file_paths, _mapping, output_dir, **kwargs) -> None:
+            self.output_dir = Path(output_dir)
+
+        def convert(self) -> list[Path]:
+            dataset_path = self.output_dir / "episode_0001.parquet"
+            dataset_path.parent.mkdir(parents=True, exist_ok=True)
+            dataset_path.write_bytes(b"parquet")
+            dataset_path.with_suffix(".manifest.json").write_text(
+                '{"episode_id":"episode_0001"}',
+                encoding="utf-8",
+            )
+            return [dataset_path]
+
+    monkeypatch.setattr("hephaes.workspace.Converter", FakeConverter)
+
+    registered = workspace.run_conversion(asset.id, saved_config_selector=saved_config.id)
+    dataset = next(output for output in registered if output.role == "dataset")
+    run = workspace.list_conversion_runs()[0]
+
+    Path(dataset.output_path).unlink()
+
+    workspace.register_output_artifacts(
+        output_root=run.output_dir,
+        conversion_run_id=run.id,
+        source_asset_id=asset.id,
+        source_asset_path=str(tmp_mcap_file.resolve()),
+        saved_config_id=saved_config.id,
+    )
+
+    refreshed_dataset = workspace.get_output_artifact_or_raise(dataset.id)
+    assert refreshed_dataset.availability_status == "missing"
+    assert refreshed_dataset.size_bytes == 0
 
 
 def test_run_conversion_registers_emitted_outputs(

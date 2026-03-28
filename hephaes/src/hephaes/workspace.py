@@ -7,7 +7,7 @@ import sqlite3
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Iterator
+from typing import Any, Iterator
 from uuid import uuid4
 
 from ._workspace_indexing import build_index_metadata_payload, profile_asset_file
@@ -57,6 +57,7 @@ from ._workspace_serialization import (
     to_db_timestamp,
     upsert_asset_metadata,
 )
+from ._converter_helpers import _normalize_payload
 from .conversion.spec_io import (
     CONVERSION_SPEC_DOCUMENT_VERSION,
     ConversionSpecDocument,
@@ -605,6 +606,13 @@ class Workspace:
             ).fetchone()
         return row_to_workspace_tag(row)
 
+    def delete_tag(self, tag_selector: str) -> WorkspaceTag:
+        tag = self.resolve_tag(tag_selector)
+        with self._transaction() as connection:
+            connection.execute("DELETE FROM asset_tags WHERE tag_id = ?", (tag.id,))
+            connection.execute("DELETE FROM tags WHERE id = ?", (tag.id,))
+        return tag
+
     def get_tag(self, tag_id: str) -> WorkspaceTag | None:
         with self._connect() as connection:
             row = connection.execute(
@@ -935,22 +943,65 @@ class Workspace:
         label: str | None = None,
         saved_config_selector: str | None = None,
         source_asset_selector: str | Path | None = None,
+        inspection_request: dict[str, Any] | Any | None = None,
+        inspection: dict[str, Any] | Any | None = None,
+        draft_request: dict[str, Any] | Any | None = None,
+        draft_result: dict[str, Any] | Any | None = None,
+        preview: dict[str, Any] | Any | None = None,
     ) -> ConversionDraftRevision:
+        def _json_safe_payload(value: dict[str, Any] | Any | None) -> dict[str, Any]:
+            if value is None:
+                return {}
+            if isinstance(value, dict):
+                normalized = _normalize_payload(value)
+                if not isinstance(normalized, dict):
+                    raise TypeError("draft revision payloads must normalize to dictionaries")
+                return dict(normalized)
+            if hasattr(value, "model_dump"):
+                normalized = _normalize_payload(value.model_dump(mode="python", by_alias=True))
+                if not isinstance(normalized, dict):
+                    raise TypeError("draft revision payloads must normalize to dictionaries")
+                return dict(normalized)
+            raise TypeError("draft revision payloads must be dicts or model-like objects")
+
+        def _json_safe_optional_payload(value: dict[str, Any] | Any | None) -> dict[str, Any] | None:
+            if value is None:
+                return None
+            if isinstance(value, dict):
+                normalized = _normalize_payload(value)
+                if not isinstance(normalized, dict):
+                    raise TypeError("draft revision payloads must normalize to dictionaries")
+                return dict(normalized)
+            if hasattr(value, "model_dump"):
+                normalized = _normalize_payload(value.model_dump(mode="python", by_alias=True))
+                if not isinstance(normalized, dict):
+                    raise TypeError("draft revision payloads must normalize to dictionaries")
+                return dict(normalized)
+            raise TypeError("draft revision payloads must be dicts or model-like objects")
+
         document = _load_conversion_document_input(spec_document)
         draft_id = str(uuid4())
         relative_document_path = _build_draft_revision_relative_path(draft_id)
         document_path = self.paths.specs_dir / relative_document_path
         timestamp = _utc_now()
-        saved_config_id = (
-            self.resolve_saved_conversion_config(saved_config_selector).id
+        saved_config = (
+            self.resolve_saved_conversion_config(saved_config_selector)
             if saved_config_selector is not None
             else None
         )
+        saved_config_id = saved_config.id if saved_config is not None else None
         source_asset_id = (
             self.resolve_asset(source_asset_selector).id
             if source_asset_selector is not None
             else None
         )
+        revision_number = (
+            len(self.list_conversion_draft_revisions(saved_config_selector=saved_config_id)) + 1
+            if saved_config_id is not None
+            else 1
+        )
+        status = "saved" if saved_config_id is not None else "draft"
+        preview_payload = _json_safe_optional_payload(preview)
 
         with self._transaction() as connection:
             _write_text_atomically(
@@ -961,25 +1012,41 @@ class Workspace:
                 """
                 INSERT INTO conversion_draft_revisions(
                     id,
+                    revision_number,
                     label,
                     saved_config_id,
                     source_asset_id,
+                    status,
                     metadata_json,
+                    inspection_request_json,
+                    inspection_json,
+                    draft_request_json,
+                    draft_result_json,
+                    preview_json,
                     spec_document_path,
                     spec_document_version,
                     invalid_reason,
-                    created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    created_at,
+                    updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     draft_id,
+                    revision_number,
                     _normalize_optional_text(label),
                     saved_config_id,
                     source_asset_id,
+                    status,
                     json.dumps(document.metadata),
+                    json.dumps(_json_safe_payload(inspection_request)),
+                    json.dumps(_json_safe_payload(inspection)),
+                    json.dumps(_json_safe_payload(draft_request)),
+                    json.dumps(_json_safe_payload(draft_result)),
+                    json.dumps(preview_payload) if preview_payload is not None else None,
                     relative_document_path,
                     document.spec_version,
                     None,
+                    to_db_timestamp(timestamp),
                     to_db_timestamp(timestamp),
                 ),
             )
@@ -1000,9 +1067,10 @@ class Workspace:
         kind: str,
         target_asset_ids: list[str] | None = None,
         config: dict | None = None,
+        job_id: str | None = None,
     ) -> WorkspaceJob:
         timestamp = _utc_now()
-        job_id = str(uuid4())
+        job_id = job_id or str(uuid4())
         with self._transaction() as connection:
             connection.execute(
                 """
@@ -1132,9 +1200,10 @@ class Workspace:
         saved_config_revision_id: str | None = None,
         config: dict | None = None,
         job_id: str | None = None,
+        run_id: str | None = None,
     ) -> ConversionRun:
         timestamp = _utc_now()
-        run_id = str(uuid4())
+        run_id = run_id or str(uuid4())
         with self._transaction() as connection:
             connection.execute(
                 """
@@ -1442,6 +1511,33 @@ class Workspace:
                 )
                 registered_paths.append(output_path)
 
+            if conversion_run_id is not None and paths is None:
+                registered_path_set = set(registered_paths)
+                missing_rows = connection.execute(
+                    """
+                    SELECT id
+                    FROM output_artifacts
+                    WHERE conversion_run_id = ? AND output_path NOT IN (
+                        SELECT value FROM json_each(?)
+                    )
+                    """,
+                    (conversion_run_id, json.dumps(sorted(registered_path_set))),
+                ).fetchall()
+                for row in missing_rows:
+                    connection.execute(
+                        """
+                        UPDATE output_artifacts
+                        SET availability_status = ?, size_bytes = ?, updated_at = ?
+                        WHERE id = ?
+                        """,
+                        (
+                            "missing",
+                            0,
+                            to_db_timestamp(timestamp),
+                            row["id"],
+                        ),
+                    )
+
         return [self.get_output_artifact_or_raise_by_path(path) for path in registered_paths]
 
     def run_conversion(
@@ -1602,12 +1698,20 @@ class Workspace:
             raise OutputArtifactNotFoundError(f"output artifact not found: {output_path}")
         return row_to_output_artifact(row)
 
-    def index_asset(self, asset_id: str, *, max_workers: int = 1) -> RegisteredAsset:
+    def index_asset(
+        self,
+        asset_id: str,
+        *,
+        max_workers: int = 1,
+        job_config: dict | None = None,
+        profile_path: str | Path | None = None,
+        profile_fn: Any | None = None,
+    ) -> RegisteredAsset:
         self.get_asset_or_raise(asset_id)
         job = self.create_job(
             kind="index_asset",
             target_asset_ids=[asset_id],
-            config={"max_workers": max_workers},
+            config={"max_workers": max_workers, **(job_config or {})},
         )
         self.mark_job_running(job.id)
         started_at = _utc_now()
@@ -1625,7 +1729,15 @@ class Workspace:
         asset = self.get_asset_or_raise(asset_id)
 
         try:
-            profile = profile_asset_file(asset.file_path, max_workers=max_workers)
+            resolved_profile_path = (
+                str(Path(profile_path).expanduser())
+                if profile_path is not None
+                else asset.file_path
+            )
+            if profile_fn is None:
+                profile = profile_asset_file(resolved_profile_path, max_workers=max_workers)
+            else:
+                profile = profile_fn(resolved_profile_path)
             payload = build_index_metadata_payload(asset, profile)
         except Exception as exc:
             failed_at = _utc_now()
@@ -1691,12 +1803,39 @@ class Workspace:
         if needs_migration and persist_migration:
             migrated_document = migrate_conversion_spec_document(document)
             _write_text_atomically(document_path, dump_conversion_spec_document(migrated_document, format="json"))
-            self._update_saved_conversion_config_metadata(
-                summary.id,
-                spec_document_version=migrated_document.spec_version,
-                invalid_reason=None,
-                mark_opened=True,
+            previous_version = summary.spec_document_version
+            migration_note = (
+                f"migrated saved config from spec document version {previous_version} "
+                f"to {migrated_document.spec_version}"
             )
+            timestamp = _utc_now()
+            with self._transaction() as connection:
+                self._ensure_saved_conversion_config_has_revision_history(
+                    summary.id,
+                    connection=connection,
+                )
+                connection.execute(
+                    """
+                    UPDATE conversion_configs
+                    SET spec_document_version = ?, invalid_reason = ?, updated_at = ?, last_opened_at = ?
+                    WHERE id = ?
+                    """,
+                    (
+                        migrated_document.spec_version,
+                        None,
+                        to_db_timestamp(timestamp),
+                        to_db_timestamp(timestamp),
+                        summary.id,
+                    ),
+                )
+                self._insert_conversion_config_revision(
+                    connection,
+                    config_id=summary.id,
+                    revision_number=self._next_conversion_config_revision_number(connection, summary.id),
+                    description=migration_note,
+                    document=migrated_document,
+                    timestamp=timestamp,
+                )
             refreshed_summary = self._get_saved_conversion_config_summary_or_raise(summary.id)
             return build_saved_conversion_config(refreshed_summary, document=migrated_document)
 

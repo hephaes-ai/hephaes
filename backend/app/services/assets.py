@@ -11,13 +11,6 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
-from sqlalchemy import func, select
-from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session, selectinload
-
-from app.config import get_settings
-from app.db.models import Asset, AssetMetadata, Conversion, Job, Tag
-
 SUPPORTED_ASSET_FILE_TYPES = {"bag", "mcap"}
 
 
@@ -27,10 +20,6 @@ class AssetServiceError(Exception):
 
 class InvalidAssetPathError(AssetServiceError):
     """Raised when a requested asset path is invalid or unusable."""
-
-
-class AssetAlreadyRegisteredError(AssetServiceError):
-    """Raised when a file path is already present in the asset registry."""
 
 
 class AssetDialogUnavailableError(AssetServiceError):
@@ -45,22 +34,8 @@ class InvalidAssetUploadError(AssetServiceError):
     """Raised when an uploaded file is invalid or unsupported."""
 
 
-class InvalidAssetDirectoryError(AssetServiceError):
-    """Raised when a directory-scan request points at an invalid location."""
-
-
 class EpisodeDiscoveryUnavailableError(AssetServiceError):
     """Raised when episode summaries are not available for an asset."""
-
-
-@dataclass(frozen=True)
-class InspectedAssetPath:
-    """Normalized local file details used during registration."""
-
-    file_path: str
-    file_name: str
-    file_type: str
-    file_size: int
 
 
 @dataclass(frozen=True)
@@ -70,26 +45,6 @@ class AssetRegistrationSkip:
     detail: str
     file_path: str
     reason: str
-
-
-@dataclass(frozen=True)
-class DialogAssetRegistrationResult:
-    """Result of opening a native picker and registering selected files."""
-
-    canceled: bool
-    registered_assets: list[Asset]
-    skipped: list[AssetRegistrationSkip]
-
-
-@dataclass(frozen=True)
-class DirectoryScanResult:
-    """Result of scanning a directory and attempting asset registration."""
-
-    discovered_file_count: int
-    recursive: bool
-    registered_assets: list[Asset]
-    scanned_directory: str
-    skipped: list[AssetRegistrationSkip]
 
 
 @dataclass(frozen=True)
@@ -103,36 +58,6 @@ class AssetEpisodeSummary:
     has_visualizable_streams: bool
     label: str
     start_time: datetime | None
-
-
-@dataclass(frozen=True)
-class AssetListFilters:
-    """Normalized filters for listing registered assets."""
-
-    search: str | None = None
-    tag: str | None = None
-    file_type: str | None = None
-    status: str | None = None
-    min_duration: float | None = None
-    max_duration: float | None = None
-    start_after: datetime | None = None
-    start_before: datetime | None = None
-
-    @property
-    def requires_metadata_join(self) -> bool:
-        return any(
-            value is not None
-            for value in (
-                self.min_duration,
-                self.max_duration,
-                self.start_after,
-                self.start_before,
-            )
-        )
-
-    @property
-    def requires_tag_join(self) -> bool:
-        return self.tag is not None
 
 
 TK_FILE_DIALOG_SCRIPT = """
@@ -191,23 +116,6 @@ def normalize_asset_path(file_path: str) -> Path:
     else:
         path = path.resolve(strict=False)
     return path
-
-
-def inspect_asset_path(file_path: str) -> InspectedAssetPath:
-    path = normalize_asset_path(file_path)
-
-    if not path.exists():
-        raise InvalidAssetPathError(f"asset path does not exist: {path}")
-    if not path.is_file():
-        raise InvalidAssetPathError(f"asset path is not a file: {path}")
-
-    stat_result = path.stat()
-    return InspectedAssetPath(
-        file_path=str(path),
-        file_name=path.name,
-        file_type=infer_file_type(path),
-        file_size=stat_result.st_size,
-    )
 
 
 def infer_file_type(path: Path) -> str:
@@ -320,246 +228,3 @@ def open_asset_file_dialog() -> list[str]:
     raise last_error or AssetDialogUnavailableError(
         "native file picker is unavailable in this environment"
     )
-
-
-def register_asset(session: Session, *, file_path: str) -> Asset:
-    inspected = inspect_asset_path(file_path)
-
-    existing_asset = session.scalar(
-        select(Asset).where(Asset.file_path == inspected.file_path),
-    )
-    if existing_asset is not None:
-        raise AssetAlreadyRegisteredError(f"asset already registered: {inspected.file_path}")
-
-    asset = Asset(
-        file_path=inspected.file_path,
-        file_name=inspected.file_name,
-        file_type=inspected.file_type,
-        file_size=inspected.file_size,
-        indexing_status="pending",
-    )
-    session.add(asset)
-
-    try:
-        session.commit()
-    except IntegrityError as exc:
-        session.rollback()
-        raise AssetAlreadyRegisteredError(f"asset already registered: {inspected.file_path}") from exc
-
-    session.refresh(asset)
-    return asset
-
-
-def register_assets_from_dialog(session: Session) -> DialogAssetRegistrationResult:
-    selected_paths = open_asset_file_dialog()
-    if not selected_paths:
-        return DialogAssetRegistrationResult(
-            canceled=True,
-            registered_assets=[],
-            skipped=[],
-        )
-
-    registered_assets: list[Asset] = []
-    skipped: list[AssetRegistrationSkip] = []
-
-    for file_path in selected_paths:
-        try:
-            asset = register_asset(session, file_path=file_path)
-        except InvalidAssetPathError as exc:
-            skipped.append(
-                AssetRegistrationSkip(
-                    detail=str(exc),
-                    file_path=file_path,
-                    reason="invalid_path",
-                )
-            )
-        except AssetAlreadyRegisteredError as exc:
-            skipped.append(
-                AssetRegistrationSkip(
-                    detail=str(exc),
-                    file_path=file_path,
-                    reason="duplicate",
-                )
-            )
-        else:
-            registered_assets.append(asset)
-
-    return DialogAssetRegistrationResult(
-        canceled=False,
-        registered_assets=registered_assets,
-        skipped=skipped,
-    )
-
-
-def upload_asset(
-    session: Session,
-    *,
-    content: bytes,
-    file_name: str,
-) -> Asset:
-    normalized_file_name = normalize_uploaded_file_name(file_name)
-
-    if not content:
-        raise InvalidAssetUploadError("uploaded file is empty")
-
-    settings = get_settings()
-    settings.raw_data_dir.mkdir(parents=True, exist_ok=True)
-
-    target_path = settings.raw_data_dir / normalized_file_name
-    if target_path.exists():
-        raise AssetAlreadyRegisteredError(f"asset already registered: {target_path}")
-
-    target_path.write_bytes(content)
-
-    try:
-        return register_asset(session, file_path=str(target_path))
-    except Exception:
-        target_path.unlink(missing_ok=True)
-        raise
-
-
-def scan_directory_for_assets(
-    session: Session,
-    *,
-    directory_path: str,
-    recursive: bool = True,
-) -> DirectoryScanResult:
-    normalized_directory = normalize_asset_path(directory_path)
-    if not normalized_directory.exists():
-        raise InvalidAssetDirectoryError(f"asset directory does not exist: {normalized_directory}")
-    if not normalized_directory.is_dir():
-        raise InvalidAssetDirectoryError(f"asset directory is not a directory: {normalized_directory}")
-
-    discovered_paths = list(_iter_supported_asset_files(normalized_directory, recursive=recursive))
-    registered_assets: list[Asset] = []
-    skipped: list[AssetRegistrationSkip] = []
-
-    for discovered_path in discovered_paths:
-        try:
-            asset = register_asset(session, file_path=str(discovered_path))
-        except InvalidAssetPathError as exc:
-            skipped.append(
-                AssetRegistrationSkip(
-                    detail=str(exc),
-                    file_path=str(discovered_path),
-                    reason="invalid_path",
-                )
-            )
-        except AssetAlreadyRegisteredError as exc:
-            skipped.append(
-                AssetRegistrationSkip(
-                    detail=str(exc),
-                    file_path=str(discovered_path),
-                    reason="duplicate",
-                )
-            )
-        else:
-            registered_assets.append(asset)
-
-    return DirectoryScanResult(
-        discovered_file_count=len(discovered_paths),
-        recursive=recursive,
-        registered_assets=registered_assets,
-        scanned_directory=str(normalized_directory),
-        skipped=skipped,
-    )
-
-
-def list_assets(session: Session, *, filters: AssetListFilters | None = None) -> list[Asset]:
-    filters = filters or AssetListFilters()
-    statement = select(Asset).options(selectinload(Asset.tags))
-
-    if filters.requires_metadata_join:
-        statement = statement.outerjoin(AssetMetadata, AssetMetadata.asset_id == Asset.id)
-    if filters.requires_tag_join:
-        statement = statement.join(Asset.tags)
-
-    if filters.search is not None:
-        statement = statement.where(func.lower(Asset.file_name).contains(filters.search.lower()))
-    if filters.tag is not None:
-        statement = statement.where(Tag.normalized_name == filters.tag.lower())
-    if filters.file_type is not None:
-        statement = statement.where(func.lower(Asset.file_type) == filters.file_type.lower())
-    if filters.status is not None:
-        statement = statement.where(Asset.indexing_status == filters.status)
-    if filters.min_duration is not None:
-        statement = statement.where(AssetMetadata.duration >= filters.min_duration)
-    if filters.max_duration is not None:
-        statement = statement.where(AssetMetadata.duration <= filters.max_duration)
-    if filters.start_after is not None:
-        statement = statement.where(AssetMetadata.start_time >= filters.start_after)
-    if filters.start_before is not None:
-        statement = statement.where(AssetMetadata.start_time <= filters.start_before)
-
-    statement = statement.order_by(Asset.registered_time.desc(), Asset.id.desc())
-    return list(session.scalars(statement).unique().all())
-
-
-def get_asset(session: Session, asset_id: str) -> Asset | None:
-    statement = (
-        select(Asset)
-        .options(
-            selectinload(Asset.metadata_record),
-            selectinload(Asset.tags),
-        )
-        .where(Asset.id == asset_id)
-    )
-    return session.scalar(statement)
-
-
-def get_asset_or_raise(session: Session, asset_id: str) -> Asset:
-    asset = get_asset(session, asset_id)
-    if asset is None:
-        raise AssetNotFoundError(f"asset not found: {asset_id}")
-    return asset
-
-
-def list_asset_episodes(asset: Asset) -> list[AssetEpisodeSummary]:
-    metadata_record = asset.metadata_record
-    if metadata_record is None or metadata_record.default_episode_json is None:
-        raise EpisodeDiscoveryUnavailableError(
-            f"asset must be indexed before episodes are available: {asset.file_name}"
-        )
-
-    default_episode = metadata_record.default_episode_json
-    visualization_summary = metadata_record.visualization_summary_json or {}
-
-    return [
-        AssetEpisodeSummary(
-            default_lane_count=int(visualization_summary.get("default_lane_count", 0)),
-            duration=float(default_episode["duration"]),
-            end_time=metadata_record.end_time,
-            episode_id=str(default_episode["episode_id"]),
-            has_visualizable_streams=bool(
-                visualization_summary.get("has_visualizable_streams", False)
-            ),
-            label=str(default_episode["label"]),
-            start_time=metadata_record.start_time,
-        )
-    ]
-
-
-def list_related_jobs_for_asset(
-    session: Session,
-    *,
-    asset_id: str,
-    limit: int = 10,
-) -> list[Job]:
-    statement = select(Job).order_by(Job.created_at.desc(), Job.id.desc())
-    jobs = [job for job in session.scalars(statement).all() if asset_id in job.target_asset_ids_json]
-    return jobs[:limit]
-
-
-def list_related_conversions_for_asset(
-    session: Session,
-    *,
-    asset_id: str,
-    limit: int = 10,
-) -> list[Conversion]:
-    statement = select(Conversion).order_by(Conversion.created_at.desc(), Conversion.id.desc())
-    conversions = [
-        conversion
-        for conversion in session.scalars(statement).all()
-        if asset_id in conversion.source_asset_ids_json
-    ]
-    return conversions[:limit]

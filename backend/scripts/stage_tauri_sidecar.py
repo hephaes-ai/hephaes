@@ -86,6 +86,24 @@ def resolve_target_triple() -> str:
     raise RuntimeError("could not determine rust host target triple from `rustc -vV`")
 
 
+def resolve_python_executable(backend_dir: Path) -> str:
+    virtual_env = os.environ.get("VIRTUAL_ENV")
+    if virtual_env:
+        candidate = Path(virtual_env) / "bin" / "python"
+        if candidate.exists():
+            return str(candidate)
+
+    repo_root = backend_dir.parent
+    for candidate in (
+        repo_root / "venv" / "bin" / "python",
+        repo_root / ".venv" / "bin" / "python",
+    ):
+        if candidate.exists():
+            return str(candidate)
+
+    return sys.executable
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
     backend_dir, frontend_tauri_dir = resolve_paths()
@@ -110,7 +128,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if needs_rebuild:
         build_command = [
-            sys.executable,
+            resolve_python_executable(backend_dir),
             str(backend_dir / "scripts" / "build_sidecar.py"),
             "--mode",
             "onefile",

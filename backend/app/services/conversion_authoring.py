@@ -4,18 +4,14 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 
-from sqlalchemy.orm import Session
-
 from app.schemas.conversion_authoring import (
     ConversionAuthoringCapabilitiesResponse,
     ConversionDraftRequest,
     ConversionInspectionRequest,
     ConversionPreviewRequest,
 )
-from app.services.conversion_configs import ConversionConfigService
-from app.services.assets import AssetNotFoundError, get_asset_or_raise
 from app.services.episodes import open_asset_reader
-from hephaes import build_conversion_capabilities
+from hephaes import AssetNotFoundError, Workspace, build_conversion_capabilities
 from hephaes.conversion import (
     build_draft_conversion_spec,
     inspect_reader,
@@ -47,8 +43,8 @@ class ConversionAuthoringPreviewError(ConversionAuthoringServiceError):
 
 
 class ConversionAuthoringService:
-    def __init__(self, session: Session) -> None:
-        self.session = session
+    def __init__(self, workspace: Workspace) -> None:
+        self.workspace = workspace
 
     def get_capabilities(self) -> ConversionAuthoringCapabilitiesResponse:
         # Keep the response shape backend-owned while reusing hephaes semantics.
@@ -56,7 +52,7 @@ class ConversionAuthoringService:
 
     def _get_asset_or_raise(self, asset_id: str):
         try:
-            return get_asset_or_raise(self.session, asset_id)
+            return self.workspace.get_asset_or_raise(asset_id)
         except AssetNotFoundError as exc:
             raise ConversionAuthoringNotFoundError(str(exc)) from exc
 
@@ -107,9 +103,11 @@ class ConversionAuthoringService:
                     request=request.draft_request,
                     reader=reader,
                 )
-                draft_revision = ConversionConfigService(self.session).record_draft_revision(
-                    saved_config_id=None,
-                    source_asset_id=request.asset_id,
+                draft_revision = self.workspace.record_conversion_draft_revision(
+                    label=None,
+                    saved_config_selector=None,
+                    source_asset_selector=request.asset_id,
+                    spec_document=draft.spec,
                     inspection_request=ConversionInspectionRequest(
                         asset_id=request.asset_id,
                         topics=list(request.topics),
@@ -120,7 +118,7 @@ class ConversionAuthoringService:
                         topic_type_hints=dict(request.topic_type_hints),
                     ),
                     inspection=inspection,
-                    draft_request=request,
+                    draft_request=request.draft_request,
                     draft_result=draft,
                     preview=draft.preview,
                 )

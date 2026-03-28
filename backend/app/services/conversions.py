@@ -6,12 +6,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from uuid import uuid4
 
-from sqlalchemy import select
-from sqlalchemy.orm import Session, selectinload
-from sqlalchemy.orm.session import sessionmaker
-
 from hephaes import (
+    AssetNotFoundError,
     Converter,
+    ConversionConfigNotFoundError as WorkspaceConversionConfigNotFoundError,
+    ConversionRun,
+    Workspace,
     build_legacy_conversion_spec,
     build_mapping_template,
     build_mapping_template_from_json,
@@ -25,17 +25,8 @@ from hephaes.models import (
     Topic,
 )
 
-from app.config import get_settings
-from app.db.models import Asset, Conversion, utc_now
+from app.config import Settings, get_settings
 from app.schemas.conversions import ConversionCreateRequest
-from app.services.assets import AssetNotFoundError, get_asset_or_raise
-from app.services.conversion_configs import (
-    ConversionConfigInvalidError,
-    ConversionConfigNotFoundError,
-    ConversionConfigService,
-)
-from app.services.jobs import JobService
-from app.services.outputs import sync_output_artifacts_for_conversion
 
 _REPRESENTATION_POLICY_VERSION = 1
 
@@ -60,101 +51,66 @@ class ConversionExecutionError(ConversionServiceError):
 class PendingConversionExecution:
     conversion_id: str
     job_id: str
+    asset_ids: list[str]
     asset_file_paths: list[str]
+    source_asset_paths: list[str]
     mapping: MappingTemplate
     conversion_spec: ConversionSpec
     output_dir: Path
+    saved_config_id: str | None
 
 
-def list_conversions(session: Session) -> list[Conversion]:
-    statement = (
-        select(Conversion)
-        .options(selectinload(Conversion.job))
-        .order_by(Conversion.created_at.desc(), Conversion.id.desc())
-    )
-    return list(session.scalars(statement).all())
+def _resolve_workspace(source: Workspace | None = None) -> Workspace:
+    if source is not None:
+        return source
+    return Workspace.open(get_settings().workspace_root)
 
 
-def list_conversions_filtered(
-    session: Session,
-    *,
-    image_payload_contract: str | None = None,
-    legacy_compatible: bool | None = None,
-) -> list[Conversion]:
-    conversions = list_conversions(session)
-    if image_payload_contract is None and legacy_compatible is None:
-        return conversions
-
-    filtered: list[Conversion] = []
-    for conversion in conversions:
-        policy = conversion.config_json.get("representation_policy")
-        if not isinstance(policy, dict):
-            continue
-
-        effective_contract = policy.get("effective_image_payload_contract")
-        markers = policy.get("compatibility_markers")
-        is_legacy_compatible = isinstance(markers, list) and "legacy_list_image_payload" in markers
-
-        if image_payload_contract is not None and effective_contract != image_payload_contract:
-            continue
-        if legacy_compatible is not None and is_legacy_compatible != legacy_compatible:
-            continue
-
-        filtered.append(conversion)
-
-    return filtered
+def list_conversions(workspace: Workspace | None = None) -> list[ConversionRun]:
+    return _resolve_workspace(workspace).list_conversion_runs()
 
 
-def get_conversion(session: Session, conversion_id: str) -> Conversion | None:
-    statement = (
-        select(Conversion)
-        .options(selectinload(Conversion.job))
-        .where(Conversion.id == conversion_id)
-    )
-    return session.scalar(statement)
+def get_conversion(workspace: Workspace | None, conversion_id: str) -> ConversionRun | None:
+    return _resolve_workspace(workspace).get_conversion_run(conversion_id)
 
 
-def get_conversion_or_raise(session: Session, conversion_id: str) -> Conversion:
-    conversion = get_conversion(session, conversion_id)
+def get_conversion_or_raise(workspace: Workspace | None, conversion_id: str) -> ConversionRun:
+    conversion = get_conversion(workspace, conversion_id)
     if conversion is None:
         raise ConversionNotFoundError(f"conversion not found: {conversion_id}")
     return conversion
 
 
-def _topics_from_asset(asset: Asset) -> list[Topic]:
-    metadata_record = asset.metadata_record
-    if metadata_record is None:
+def _topics_from_asset(workspace: Workspace, asset_id: str) -> list[Topic]:
+    asset = workspace.get_asset_or_raise(asset_id)
+    metadata = workspace.get_asset_metadata(asset_id)
+    if metadata is None:
         raise ConversionValidationError(
             f"asset must be indexed before conversion: {asset.file_name}"
         )
 
-    try:
-        topics = [
-            Topic.model_validate(
-                {
-                    "name": topic_payload["name"],
-                    "message_type": topic_payload["message_type"],
-                    "message_count": topic_payload["message_count"],
-                    "rate_hz": topic_payload["rate_hz"],
-                }
-            )
-            for topic_payload in metadata_record.topics_json
-        ]
-    except Exception as exc:  # pragma: no cover - defensive guard around persisted data
-        raise ConversionValidationError(
-            f"asset metadata topics are invalid for conversion: {asset.file_name}"
-        ) from exc
-
+    topics = [
+        Topic(
+            name=topic.name,
+            message_type=topic.message_type,
+            message_count=topic.message_count,
+            rate_hz=topic.rate_hz,
+        )
+        for topic in metadata.topics
+    ]
     if not topics:
         raise ConversionValidationError(
             f"asset has no indexed topics available for conversion: {asset.file_name}"
         )
-
     return topics
 
 
-def _resolve_mapping(assets: list[Asset], request: ConversionCreateRequest) -> MappingTemplate:
-    first_asset_topics = _topics_from_asset(assets[0])
+def _resolve_mapping(
+    workspace: Workspace,
+    asset_ids: list[str],
+    request: ConversionCreateRequest,
+) -> MappingTemplate:
+    first_asset_topics = _topics_from_asset(workspace, asset_ids[0])
 
     if request.mapping is None:
         if request.spec is not None and request.spec.mapping is not None:
@@ -169,11 +125,11 @@ def _resolve_mapping(assets: list[Asset], request: ConversionCreateRequest) -> M
     )
 
 
-def _resolve_assets(session: Session, asset_ids: list[str]) -> list[Asset]:
-    assets: list[Asset] = []
+def _resolve_assets(workspace: Workspace, asset_ids: list[str]):
+    assets = []
     for asset_id in asset_ids:
         try:
-            assets.append(get_asset_or_raise(session, asset_id))
+            assets.append(workspace.get_asset_or_raise(asset_id))
         except AssetNotFoundError as exc:
             raise ConversionValidationError(str(exc)) from exc
     return assets
@@ -280,59 +236,43 @@ def _resolve_output_config(
     if request.output.format == "parquet":
         return ParquetOutputConfig.model_validate(output_payload)
     return TFRecordOutputConfig.model_validate(output_payload)
-
-
-def _update_conversion_status(
-    session: Session,
-    *,
-    conversion: Conversion,
-    status: str,
-    output_files: list[str] | None = None,
-    error_message: str | None = None,
-) -> Conversion:
-    conversion.status = status
-    conversion.output_files_json = list(output_files or [])
-    conversion.error_message = error_message
-    conversion.updated_at = utc_now()
-    session.commit()
-    return get_conversion_or_raise(session, conversion.id)
-
-
 class ConversionService:
-    def __init__(self, session: Session) -> None:
-        self.session = session
-        self.job_service = JobService(session)
-        self.settings = get_settings()
+    def __init__(self, workspace: Workspace, settings: Settings | None = None) -> None:
+        self.workspace = workspace
+        self.settings = settings or get_settings()
 
     def create_conversion(
         self,
         request: ConversionCreateRequest,
-    ) -> tuple[Conversion, PendingConversionExecution]:
-        assets = _resolve_assets(self.session, request.asset_ids)
+    ) -> tuple[ConversionRun, PendingConversionExecution]:
+        assets = _resolve_assets(self.workspace, request.asset_ids)
         conversion_spec: ConversionSpec
         mapping_mode: str
+        saved_config_revision_id: str | None = None
 
         if request.saved_config_id is not None:
-            config_service = ConversionConfigService(self.session)
             try:
-                saved_config_document = config_service.resolve_saved_config_spec_document(
-                    request.saved_config_id,
-                    persist_migration=True,
-                    mark_opened=True,
-                )
-            except ConversionConfigNotFoundError as exc:
+                saved_config = self.workspace.resolve_saved_conversion_config(request.saved_config_id)
+            except WorkspaceConversionConfigNotFoundError as exc:
                 raise ConversionValidationError(str(exc)) from exc
-            except ConversionConfigInvalidError as exc:
-                raise ConversionValidationError(str(exc)) from exc
+
+            revisions = self.workspace.list_saved_conversion_config_revisions(saved_config.id)
+            saved_config_revision_number = revisions[0].revision_number if revisions else 1
+            saved_config_revision_id = revisions[0].id if revisions else None
+            saved_config_document = saved_config.document
 
             conversion_spec = saved_config_document.spec
             if request.write_manifest is not None:
-                conversion_spec = conversion_spec.model_copy(update={"write_manifest": request.write_manifest})
+                conversion_spec = conversion_spec.model_copy(
+                    update={"write_manifest": request.write_manifest}
+                )
             representation_policy = _resolve_representation_policy(
                 request=request,
                 spec=conversion_spec,
             )
-            mapping = conversion_spec.mapping or build_mapping_template(_topics_from_asset(assets[0]))
+            mapping = conversion_spec.mapping or build_mapping_template(
+                _topics_from_asset(self.workspace, assets[0].id)
+            )
             mapping_mode = "saved-config"
             conversion_config = _build_conversion_config(
                 mapping=mapping,
@@ -341,18 +281,20 @@ class ConversionService:
                 representation_policy=representation_policy,
             )
             conversion_config["saved_config_id"] = request.saved_config_id
-            conversion_config["saved_config_revision_number"] = config_service._get_config_or_raise(
-                request.saved_config_id
-            ).current_revision_number
+            conversion_config["saved_config_revision_number"] = saved_config_revision_number
             conversion_config["saved_config_spec_document_version"] = saved_config_document.spec_version
         else:
-            mapping = _resolve_mapping(assets, request)
+            mapping = _resolve_mapping(self.workspace, [asset.id for asset in assets], request)
             conversion_spec = _resolve_conversion_spec(request, mapping=mapping)
             representation_policy = _resolve_representation_policy(
                 request=request,
                 spec=conversion_spec,
             )
-            mapping_mode = "spec" if request.spec is not None else ("custom" if request.mapping is not None else "auto")
+            mapping_mode = (
+                "spec"
+                if request.spec is not None
+                else ("custom" if request.mapping is not None else "auto")
+            )
             conversion_config = _build_conversion_config(
                 mapping=mapping,
                 mapping_mode=mapping_mode,
@@ -361,45 +303,52 @@ class ConversionService:
             )
 
         conversion_id = str(uuid4())
-        output_dir = self.settings.outputs_dir / "conversions" / conversion_id
+        output_dir = self.workspace.paths.outputs_dir / conversion_id
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        job = self.job_service.create_job(
-            job_type="convert",
-            target_asset_ids=[asset.id for asset in assets],
-            config={"execution": self.settings.job_execution_mode, **conversion_config},
-            output_path=str(output_dir),
-        )
+        asset_ids = [asset.id for asset in assets]
+        asset_file_paths = [asset.file_path for asset in assets]
+        source_asset_paths = [asset.source_path or asset.file_path for asset in assets]
 
-        conversion = Conversion(
-            id=conversion_id,
+        job = self.workspace.create_job(
+            kind="conversion",
+            target_asset_ids=asset_ids,
+            config={
+                "execution": self.settings.job_execution_mode,
+                **conversion_config,
+                "output_path": str(output_dir),
+            },
+        )
+        self.workspace.create_conversion_run(
+            run_id=conversion_id,
             job_id=job.id,
-            status="queued",
-            source_asset_ids_json=[asset.id for asset in assets],
-            config_json=conversion_config,
-            output_path=str(output_dir),
-            output_files_json=[],
-            error_message=None,
+            source_asset_ids=asset_ids,
+            source_asset_paths=source_asset_paths,
+            output_dir=output_dir,
+            saved_config_id=request.saved_config_id,
+            saved_config_revision_id=saved_config_revision_id,
+            config=dict(conversion_config),
         )
-        self.session.add(conversion)
-        self.session.commit()
 
+        run = self.workspace.get_conversion_run_or_raise(conversion_id)
         return (
-            get_conversion_or_raise(self.session, conversion.id),
+            run,
             PendingConversionExecution(
                 conversion_id=conversion_id,
                 job_id=job.id,
-                asset_file_paths=[asset.file_path for asset in assets],
+                asset_ids=asset_ids,
+                asset_file_paths=asset_file_paths,
+                source_asset_paths=source_asset_paths,
                 mapping=mapping,
                 conversion_spec=conversion_spec,
                 output_dir=output_dir,
+                saved_config_id=request.saved_config_id,
             ),
         )
 
-    def execute_conversion(self, execution: PendingConversionExecution) -> Conversion:
-        conversion = get_conversion_or_raise(self.session, execution.conversion_id)
-        self.job_service.mark_job_running(execution.job_id)
-        conversion = _update_conversion_status(self.session, conversion=conversion, status="running")
+    def execute_conversion(self, execution: PendingConversionExecution) -> ConversionRun:
+        self.workspace.mark_job_running(execution.job_id)
+        self.workspace.mark_conversion_run_running(execution.conversion_id)
 
         try:
             converter = Converter(
@@ -412,42 +361,51 @@ class ConversionService:
                 write_manifest=execution.conversion_spec.write_manifest,
             )
             output_files = [str(path) for path in converter.convert()]
-            self.job_service.mark_job_succeeded(execution.job_id, output_path=str(execution.output_dir))
-            completed_conversion = _update_conversion_status(
-                self.session,
-                conversion=conversion,
-                status="succeeded",
-                output_files=output_files,
-                error_message=None,
+            artifact_paths = [
+                str(path)
+                for path in sorted(execution.output_dir.glob("*"))
+                if path.is_file()
+            ]
+            outputs = self.workspace.register_output_artifacts(
+                output_root=execution.output_dir,
+                paths=artifact_paths,
+                conversion_run_id=execution.conversion_id,
+                source_asset_id=(
+                    execution.asset_ids[0] if len(execution.asset_ids) == 1 else None
+                ),
+                source_asset_path=(
+                    execution.source_asset_paths[0]
+                    if len(execution.source_asset_paths) == 1
+                    else None
+                ),
+                saved_config_id=execution.saved_config_id,
             )
-            sync_output_artifacts_for_conversion(self.session, completed_conversion, commit=True)
-            return get_conversion_or_raise(self.session, completed_conversion.id)
+            self.workspace.mark_conversion_run_succeeded(
+                execution.conversion_id,
+                output_paths=[output.output_path for output in outputs] or output_files,
+            )
+            self.workspace.mark_job_succeeded(
+                execution.job_id,
+                conversion_run_id=execution.conversion_id,
+            )
+            return self.workspace.get_conversion_run_or_raise(execution.conversion_id)
         except Exception as exc:
-            self.session.rollback()
-            self.job_service.mark_job_failed(execution.job_id, error_message=str(exc))
-            failed_conversion = get_conversion_or_raise(self.session, execution.conversion_id)
-            _update_conversion_status(
-                self.session,
-                conversion=failed_conversion,
-                status="failed",
-                output_files=failed_conversion.output_files_json,
+            self.workspace.mark_job_failed(execution.job_id, error_message=str(exc))
+            self.workspace.mark_conversion_run_failed(
+                execution.conversion_id,
                 error_message=str(exc),
             )
             raise ConversionExecutionError(str(exc)) from exc
 
-    def run_conversion(self, request: ConversionCreateRequest) -> Conversion:
+    def run_conversion(self, request: ConversionCreateRequest) -> ConversionRun:
         conversion, execution = self.create_conversion(request)
+        del conversion
         return self.execute_conversion(execution)
 
 
-
 def run_conversion_job_in_background(
-    session_factory: sessionmaker[Session],
+    workspace: Workspace,
     *,
     execution: PendingConversionExecution,
 ) -> None:
-    session = session_factory()
-    try:
-        ConversionService(session).execute_conversion(execution)
-    finally:
-        session.close()
+    ConversionService(workspace).execute_conversion(execution)

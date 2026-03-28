@@ -52,6 +52,7 @@ def client(
     monkeypatch.setenv("HEPHAES_BACKEND_OUTPUTS_DIR", str(backend_outputs_dir))
     monkeypatch.setenv("HEPHAES_BACKEND_RAW_DATA_DIR", str(backend_raw_data_dir))
     monkeypatch.setenv("HEPHAES_BACKEND_LOG_DIR", str(tmp_path / "logs"))
+    monkeypatch.setenv("HEPHAES_WORKSPACE_ROOT", str(tmp_path / "workspace"))
 
     import app.config as app_config
     from app.config import get_settings

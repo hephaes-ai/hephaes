@@ -1,5 +1,5 @@
 use std::{
-    io::{Read, Write},
+    io::{BufRead, BufReader, Write},
     net::{TcpListener, TcpStream},
     path::PathBuf,
     sync::Mutex,
@@ -21,7 +21,10 @@ const BACKEND_RUNTIME_EVENT: &str = "hephaes://backend-runtime";
 const BACKEND_HOST: &str = "127.0.0.1";
 const BACKEND_SHUTDOWN_GRACE_PERIOD: Duration = Duration::from_secs(3);
 const BACKEND_SHUTDOWN_POLL_INTERVAL: Duration = Duration::from_millis(100);
-const BACKEND_STARTUP_TIMEOUT: Duration = Duration::from_secs(20);
+// The packaged Python sidecar can take a noticeable amount of time to
+// unpack and reach the point where Uvicorn is actually listening,
+// especially in release/onefile builds on macOS.
+const BACKEND_STARTUP_TIMEOUT: Duration = Duration::from_secs(45);
 const BACKEND_HEALTHCHECK_INTERVAL: Duration = Duration::from_millis(250);
 
 #[derive(Clone, serde::Serialize)]
@@ -260,11 +263,15 @@ fn wait_for_backend_health(runtime: &BackendRuntime) -> Result<()> {
                 stream.set_read_timeout(Some(Duration::from_secs(1)))?;
                 stream.set_write_timeout(Some(Duration::from_secs(1)))?;
                 stream.write_all(healthcheck_request.as_bytes())?;
+                stream.flush()?;
 
-                let mut response = String::new();
-                stream.read_to_string(&mut response)?;
+                let mut reader = BufReader::new(stream);
+                let mut status_line = String::new();
+                reader.read_line(&mut status_line)?;
 
-                if response.starts_with("HTTP/1.1 200") || response.starts_with("HTTP/1.0 200") {
+                if status_line.starts_with("HTTP/1.1 200")
+                    || status_line.starts_with("HTTP/1.0 200")
+                {
                     log::info!("backend is healthy at {}", runtime.base_url);
                     return Ok(());
                 }

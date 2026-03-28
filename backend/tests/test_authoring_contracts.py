@@ -192,10 +192,11 @@ def test_authoring_requests_and_responses_normalize_and_serialize():
     assert draft_revision_response.model_dump(mode="json")["preview"]["rows"][0]["timestamp_ns"] == 1
 
 
-def test_authoring_tables_are_created_with_the_backend_database(client):
+def test_backend_database_only_keeps_runtime_tables(client):
     table_names = set(sa_inspect(client.app.state.engine).get_table_names())
 
-    assert "conversion_configs" in table_names
-    assert "conversion_config_revisions" in table_names
-    assert "conversion_draft_revisions" in table_names
-
+    assert "jobs" in table_names
+    assert "output_actions" in table_names
+    assert "conversion_configs" not in table_names
+    assert "conversion_config_revisions" not in table_names
+    assert "conversion_draft_revisions" not in table_names

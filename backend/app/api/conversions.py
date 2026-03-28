@@ -5,11 +5,10 @@ from __future__ import annotations
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from sqlalchemy.orm import Session
 
 from app.api._status import HTTP_422_UNPROCESSABLE_CONTENT
-from app.db.models import Conversion
-from app.db.session import get_db_session
+from app.dependencies import get_workspace
+from app.mappers.workspace import map_conversion_detail, map_conversion_summary
 from app.schemas.conversion_authoring import (
     ConversionAuthoringCapabilitiesResponse,
     ConversionDraftRequest,
@@ -25,7 +24,6 @@ from app.schemas.conversions import (
     ConversionDetailResponse,
     ConversionSummaryResponse,
 )
-from app.schemas.jobs import JobResponse
 from app.services.conversion_authoring import (
     ConversionAuthoringInspectionError,
     ConversionAuthoringNotFoundError,
@@ -36,20 +34,18 @@ from app.services.conversion_authoring import (
 )
 from app.services.conversions import (
     ConversionExecutionError,
-    ConversionNotFoundError,
     ConversionService,
     ConversionValidationError,
-    get_conversion_or_raise,
-    list_conversions_filtered,
     run_conversion_job_in_background,
 )
+from hephaes import Workspace
 from hephaes._converter_helpers import _normalize_payload
 from hephaes.models import ConversionSpec
 from hephaes.conversion.draft_spec import DraftSpecResult
 from hephaes.conversion.preview import PreviewResult
 
 router = APIRouter(prefix="/conversions", tags=["conversions"])
-DbSession = Annotated[Session, Depends(get_db_session)]
+WorkspaceDep = Annotated[Workspace, Depends(get_workspace)]
 
 
 def _build_representation_policy(config: dict[str, object]) -> ConversionRepresentationPolicy | None:
@@ -140,38 +136,25 @@ def _json_safe_preview(preview: PreviewResult | None) -> PreviewResult | None:
 def _json_safe_draft_result(draft: DraftSpecResult) -> DraftSpecResult:
     safe_preview = _json_safe_preview(draft.preview)
     return draft.model_copy(update={"preview": safe_preview})
+def _matches_conversion_filters(
+    config: dict[str, object],
+    *,
+    image_payload_contract: str | None,
+    legacy_compatible: bool | None,
+) -> bool:
+    if image_payload_contract is None and legacy_compatible is None:
+        return True
 
-
-def build_conversion_summary_response(conversion: Conversion) -> ConversionSummaryResponse:
-    config_payload = dict(conversion.config_json)
-    return ConversionSummaryResponse(
-        id=conversion.id,
-        job_id=conversion.job_id,
-        status=conversion.status,
-        asset_ids=list(conversion.source_asset_ids_json),
-        config=config_payload,
-        output_path=conversion.output_path,
-        error_message=conversion.error_message,
-        representation_policy=_build_representation_policy(config_payload),
-        created_at=conversion.created_at,
-        updated_at=conversion.updated_at,
-    )
-
-
-def build_conversion_detail_response(conversion: Conversion) -> ConversionDetailResponse:
-    if conversion.job is None:  # pragma: no cover - defensive integrity guard
-        raise ValueError(f"conversion is missing linked job: {conversion.id}")
-
-    job_payload = JobResponse.model_validate(conversion.job).model_dump()
-    config_payload = job_payload.get("config_json")
-    if isinstance(config_payload, dict):
-        job_payload["representation_policy"] = config_payload.get("representation_policy")
-
-    return ConversionDetailResponse(
-        **build_conversion_summary_response(conversion).model_dump(),
-        output_files=list(conversion.output_files_json),
-        job=JobResponse.model_validate(job_payload),
-    )
+    policy = _build_representation_policy(config)
+    if policy is None:
+        return False
+    if image_payload_contract is not None and policy.image_payload_contract != image_payload_contract:
+        return False
+    if legacy_compatible is not None:
+        is_legacy_compatible = "legacy_list_image_payload" in policy.compatibility_markers
+        if is_legacy_compatible != legacy_compatible:
+            return False
+    return True
 
 
 def build_inspection_response(
@@ -224,9 +207,9 @@ def build_preview_response(
 def create_conversion_route(
     payload: ConversionCreateRequest,
     request: Request,
-    session: DbSession,
+    workspace: WorkspaceDep,
 ) -> ConversionDetailResponse:
-    service = ConversionService(session)
+    service = ConversionService(workspace)
 
     try:
         conversion, execution = service.create_conversion(payload)
@@ -237,29 +220,38 @@ def create_conversion_route(
         request.app.state.job_runner.submit(
             f"convert assets for conversion {conversion.id}",
             run_conversion_job_in_background,
-            request.app.state.session_factory,
+            workspace,
             execution=execution,
         )
     except ConversionExecutionError as exc:
         raise HTTPException(status_code=HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
 
-    session.expire_all()
-    conversion = get_conversion_or_raise(session, conversion.id)
-    return build_conversion_detail_response(conversion)
+    run = workspace.get_conversion_run(conversion.id)
+    if run is None:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"conversion run not found after execution: {conversion.id}",
+        )
+    return map_conversion_detail(
+        run,
+        job=workspace.get_job(run.job_id) if run.job_id is not None else None,
+    )
 
 
 @router.get("/capabilities", response_model=ConversionAuthoringCapabilitiesResponse)
-def get_conversion_authoring_capabilities_route(session: DbSession) -> ConversionAuthoringCapabilitiesResponse:
-    service = ConversionAuthoringService(session)
+def get_conversion_authoring_capabilities_route(
+    workspace: WorkspaceDep,
+) -> ConversionAuthoringCapabilitiesResponse:
+    service = ConversionAuthoringService(workspace)
     return service.get_capabilities()
 
 
 @router.post("/inspect", response_model=ConversionInspectionResponse)
 def inspect_conversion_route(
     payload: ConversionInspectionRequest,
-    session: DbSession,
+    workspace: WorkspaceDep,
 ) -> ConversionInspectionResponse:
-    service = ConversionAuthoringService(session)
+    service = ConversionAuthoringService(workspace)
 
     try:
         inspection = service.inspect_asset(payload)
@@ -274,9 +266,9 @@ def inspect_conversion_route(
 @router.post("/draft", response_model=ConversionDraftResponse)
 def draft_conversion_route(
     payload: ConversionDraftRequest,
-    session: DbSession,
+    workspace: WorkspaceDep,
 ) -> ConversionDraftResponse:
-    service = ConversionAuthoringService(session)
+    service = ConversionAuthoringService(workspace)
 
     try:
         inspection, draft, draft_revision_id = service.draft_asset(payload)
@@ -296,9 +288,9 @@ def draft_conversion_route(
 @router.post("/preview", response_model=ConversionPreviewResponse)
 def preview_conversion_route(
     payload: ConversionPreviewRequest,
-    session: DbSession,
+    workspace: WorkspaceDep,
 ) -> ConversionPreviewResponse:
-    service = ConversionAuthoringService(session)
+    service = ConversionAuthoringService(workspace)
 
     try:
         preview = service.preview_asset(payload)
@@ -312,14 +304,15 @@ def preview_conversion_route(
 
 @router.get("", response_model=list[ConversionSummaryResponse])
 def list_conversions_route(
-    session: DbSession,
+    workspace: WorkspaceDep,
     image_payload_contract: Annotated[str | None, Query()] = None,
     legacy_compatible: Annotated[bool | None, Query()] = None,
 ) -> list[ConversionSummaryResponse]:
     return [
-        build_conversion_summary_response(conversion)
-        for conversion in list_conversions_filtered(
-            session,
+        map_conversion_summary(run)
+        for run in workspace.list_conversion_runs()
+        if _matches_conversion_filters(
+            dict(run.config),
             image_payload_contract=image_payload_contract,
             legacy_compatible=legacy_compatible,
         )
@@ -327,10 +320,17 @@ def list_conversions_route(
 
 
 @router.get("/{conversion_id}", response_model=ConversionDetailResponse)
-def get_conversion_route(conversion_id: str, session: DbSession) -> ConversionDetailResponse:
-    try:
-        conversion = get_conversion_or_raise(session, conversion_id)
-    except ConversionNotFoundError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-
-    return build_conversion_detail_response(conversion)
+def get_conversion_route(
+    conversion_id: str,
+    workspace: WorkspaceDep,
+) -> ConversionDetailResponse:
+    run = workspace.get_conversion_run(conversion_id)
+    if run is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"conversion not found: {conversion_id}",
+        )
+    return map_conversion_detail(
+        run,
+        job=workspace.get_job(run.job_id) if run.job_id is not None else None,
+    )

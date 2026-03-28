@@ -1,12 +1,12 @@
 from __future__ import annotations
 
+import json
+import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi.testclient import TestClient
-from sqlalchemy import select
 
-from app.db.models import ConversionConfig, ConversionDraftRevision
 from app.services import conversion_authoring as authoring_service
 from app.services import conversions as conversion_service
 from app.services import indexing as indexing_service
@@ -248,17 +248,26 @@ def test_saved_config_migrates_on_load_and_persists_revision(
     assert create_response.status_code == 201
     config_id = create_response.json()["id"]
 
-    session = client.app.state.session_factory()
-    try:
-        config = session.scalar(select(ConversionConfig).where(ConversionConfig.id == config_id))
-        assert config is not None
-        config.spec_document_json = {**config.spec_document_json, "spec_version": 1}
-        config.spec_document_version = 1
-        config.migration_notes_json = []
-        config.invalid_reason = None
-        session.commit()
-    finally:
-        session.close()
+    workspace = client.app.state.workspace
+    saved_config = workspace.resolve_saved_conversion_config(config_id)
+    document_path = Path(saved_config.document_path)
+    payload = json.loads(document_path.read_text(encoding="utf-8"))
+    payload["spec_version"] = 1
+    document_path.write_text(json.dumps(payload), encoding="utf-8")
+    with sqlite3.connect(workspace.database_path) as connection:
+        connection.execute(
+            """
+            UPDATE conversion_configs
+            SET spec_document_version = 1, invalid_reason = NULL
+            WHERE id = ?
+            """,
+            (config_id,),
+        )
+        connection.execute(
+            "DELETE FROM conversion_config_revisions WHERE config_id = ? AND revision_number > 1",
+            (config_id,),
+        )
+        connection.commit()
 
     detail_response = client.get(f"/conversion-configs/{config_id}")
     assert detail_response.status_code == 200
@@ -268,15 +277,9 @@ def test_saved_config_migrates_on_load_and_persists_revision(
     assert any("migrate" in note for note in detail["migration_notes"])
     assert detail["revision_count"] == 2
 
-    session = client.app.state.session_factory()
-    try:
-        config = session.scalar(select(ConversionConfig).where(ConversionConfig.id == config_id))
-        assert config is not None
-        assert config.spec_document_version == 2
-        assert config.current_revision_number == 2
-        assert len(config.revisions) == 2
-    finally:
-        session.close()
+    migrated = workspace.resolve_saved_conversion_config(config_id)
+    assert migrated.spec_document_version == 2
+    assert len(workspace.list_saved_conversion_config_revisions(config_id)) == 2
 
 
 def test_conversion_draft_route_persists_draft_revision(
@@ -322,16 +325,10 @@ def test_conversion_draft_route_persists_draft_revision(
     assert body["draft_revision_id"] is not None
     assert body["draft"]["spec"]["schema"]["name"] == "doom_ros_train_py_compatible"
 
-    session = client.app.state.session_factory()
-    try:
-        draft_rows = session.scalars(select(ConversionDraftRevision)).all()
-        assert len(draft_rows) == 1
-        draft_row = draft_rows[0]
-        assert draft_row.id == body["draft_revision_id"]
-        assert draft_row.status == "draft"
-        assert draft_row.saved_config_id is None
-        assert draft_row.source_asset_id == asset_id
-        assert draft_row.preview_json is not None
-    finally:
-        session.close()
-
+    draft_row = client.app.state.workspace.get_conversion_draft_revision(body["draft_revision_id"])
+    assert draft_row is not None
+    assert draft_row.id == body["draft_revision_id"]
+    assert draft_row.status == "draft"
+    assert draft_row.saved_config_id is None
+    assert draft_row.source_asset_id == asset_id
+    assert draft_row.preview_json is not None
