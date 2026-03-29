@@ -13,6 +13,10 @@ class WorkspaceAlreadyExistsError(WorkspaceError):
     """Raised when attempting to initialize an existing workspace."""
 
 
+class UnsupportedWorkspaceSchemaError(WorkspaceError):
+    """Raised when a workspace database uses an unsupported schema version."""
+
+
 class InvalidAssetPathError(WorkspaceError):
     """Raised when a requested asset path does not point to a supported local file."""
 

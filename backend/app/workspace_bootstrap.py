@@ -1,0 +1,58 @@
+"""Workspace bootstrap helpers for backend startup."""
+
+from __future__ import annotations
+
+import logging
+import shutil
+from datetime import datetime, timezone
+from pathlib import Path
+
+from hephaes import (
+    UnsupportedWorkspaceSchemaError,
+    Workspace,
+    WorkspaceNotFoundError,
+)
+from hephaes.workspace.schema import WORKSPACE_DIRNAME
+
+from app.config import Settings
+
+logger = logging.getLogger(__name__)
+
+
+def resolve_backend_workspace(settings: Settings) -> Workspace:
+    try:
+        return Workspace.open(settings.workspace_root)
+    except WorkspaceNotFoundError:
+        return Workspace.init(settings.workspace_root, exist_ok=True)
+    except UnsupportedWorkspaceSchemaError as exc:
+        if not settings.desktop_mode:
+            raise
+
+        archived_workspace_dir = archive_workspace_dir(
+            settings.workspace_root / WORKSPACE_DIRNAME,
+            archive_root=settings.data_dir / "workspace-archives",
+        )
+        logger.warning(
+            "reset incompatible desktop workspace at %s; archived previous "
+            "workspace to %s; reason: %s",
+            settings.workspace_root,
+            archived_workspace_dir,
+            exc,
+        )
+        return Workspace.init(settings.workspace_root, exist_ok=True)
+
+
+def archive_workspace_dir(workspace_dir: Path, *, archive_root: Path) -> Path:
+    if not workspace_dir.exists():
+        raise FileNotFoundError(f"workspace directory does not exist: {workspace_dir}")
+
+    archive_root.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    archive_dir = archive_root / f"workspace-{timestamp}"
+    suffix = 1
+    while archive_dir.exists():
+        archive_dir = archive_root / f"workspace-{timestamp}-{suffix}"
+        suffix += 1
+
+    shutil.move(str(workspace_dir), str(archive_dir))
+    return archive_dir
