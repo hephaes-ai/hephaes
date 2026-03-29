@@ -308,7 +308,7 @@ class ConversionService:
 
         asset_ids = [asset.id for asset in assets]
         asset_file_paths = [asset.file_path for asset in assets]
-        source_asset_paths = [asset.source_path or asset.file_path for asset in assets]
+        source_asset_paths = [asset.file_path for asset in assets]
 
         job = self.workspace.create_job(
             kind="conversion",

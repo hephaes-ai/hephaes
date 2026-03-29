@@ -47,13 +47,6 @@ from app.services.output_actions import (
     get_output_action_or_raise,
     list_output_actions_for_output,
 )
-from app.services.visualization import (
-    VisualizationError,
-    VisualizationGenerationError,
-    VisualizationNotFoundError,
-    VisualizationService,
-)
-
 __all__ = [
     "ConversionExecutionError",
     "ConversionNotFoundError",
@@ -76,10 +69,6 @@ __all__ = [
     "OutputActionService",
     "OutputActionServiceError",
     "OutputActionValidationError",
-    "VisualizationError",
-    "VisualizationGenerationError",
-    "VisualizationNotFoundError",
-    "VisualizationService",
     "get_conversion",
     "get_conversion_or_raise",
     "get_episode_detail",

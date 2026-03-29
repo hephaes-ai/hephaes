@@ -16,7 +16,6 @@ from app.mappers.workspace import (
     map_asset_metadata,
     map_asset_summary,
     map_conversion_summary,
-    map_episode_summary,
     map_job_response,
     map_tag_response,
 )
@@ -32,7 +31,6 @@ from app.schemas.assets import (
     DialogAssetRegistrationResponse,
     DirectoryScanRequest,
     DirectoryScanResponse,
-    EpisodeSummaryResponse,
     ReindexAllResponse,
 )
 from app.schemas.conversions import ConversionSummaryResponse
@@ -92,16 +90,10 @@ def _index_workspace_asset(
     job_config: dict,
 ):
     asset = workspace.get_asset_or_raise(asset_id)
-    source_path = Path(asset.source_path).expanduser() if asset.source_path is not None else None
-    profile_path = (
-        str(source_path)
-        if source_path is not None and source_path.exists()
-        else asset.file_path
-    )
     return workspace.index_asset(
         asset_id,
         job_config=job_config,
-        profile_path=profile_path,
+        profile_path=asset.file_path,
         profile_fn=indexing_service.profile_asset_file,
     )
 
@@ -153,7 +145,6 @@ def _build_asset_detail_response(
         asset=map_asset_summary(asset),
         metadata=map_asset_metadata(metadata) if metadata is not None else None,
         tags=[map_tag_response(tag) for tag in tags],
-        episodes=map_episode_summary(metadata) if metadata is not None else [],
         related_jobs=_related_jobs(workspace, asset_id=asset_id),
         conversions=_related_conversions(workspace, asset_id=asset_id),
     )
@@ -203,7 +194,7 @@ def _import_asset_or_skip(
     file_path: str,
 ) -> tuple[AssetRegistrationResponse | None, AssetRegistrationSkip | None]:
     try:
-        asset = workspace.import_asset(file_path)
+        asset = workspace.register_asset(file_path)
     except InvalidAssetPathError as exc:
         return None, AssetRegistrationSkip(
             detail=str(exc),
@@ -229,7 +220,7 @@ def register_asset_route(
     workspace: WorkspaceDep,
 ) -> AssetRegistrationResponse:
     try:
-        asset = workspace.import_asset(payload.file_path)
+        asset = workspace.register_asset(payload.file_path)
     except InvalidAssetPathError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except AssetAlreadyRegisteredError as exc:
@@ -273,7 +264,7 @@ async def upload_asset_route(
     raw_target_path.parent.mkdir(parents=True, exist_ok=True)
     raw_target_path.write_bytes(content)
     try:
-        asset = workspace.import_asset(str(raw_target_path))
+        asset = workspace.register_asset(str(raw_target_path))
     except AssetAlreadyRegisteredError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except Exception:
@@ -475,22 +466,6 @@ def list_assets_route(
         map_asset_list_item(asset, tags=workspace.get_asset_tags(asset.id))
         for asset in assets
     ]
-
-
-@router.get("/{asset_id}/episodes", response_model=list[EpisodeSummaryResponse])
-def get_asset_episodes_route(asset_id: str, workspace: WorkspaceDep):
-    try:
-        workspace.get_asset_or_raise(asset_id)
-    except AssetNotFoundError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-    metadata = workspace.get_asset_metadata(asset_id)
-    if metadata is None or metadata.default_episode is None:
-        asset = workspace.get_asset_or_raise(asset_id)
-        raise HTTPException(
-            status_code=HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=f"asset must be indexed before episodes are available: {asset.file_name}",
-        )
-    return map_episode_summary(metadata)
 
 
 @router.get("/{asset_id}", response_model=AssetDetailResponse)

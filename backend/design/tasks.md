@@ -11,19 +11,28 @@ Remove the visualization feature, the episodes/replay feature, and as a result, 
 
 ---
 
-## Phase 1 — Remove Visualization
+## Phase 1 — Remove Visualization ✅ COMPLETE
 
 Everything touching `rerun-sdk`, RRD file generation, and visualization job prep.
 
-- [ ] Delete `app/api/visualization.py`
-- [ ] Delete `app/services/visualization.py`
-- [ ] Delete `app/schemas/visualization.py`
-- [ ] `app/main.py` — remove `visualization_router` import and `app.include_router(visualization_router)`
-- [ ] `app/main.py` — remove `/visualizations` static mount and the `visualizations_dir.mkdir()` call
-- [ ] `app/config.py` — remove `rerun_sdk_version` and `rerun_recording_format_version` fields from `Settings`
-- [ ] `app/config.py` — remove `DEFAULT_RERUN_SDK_VERSION`, `DEFAULT_RERUN_RECORDING_FORMAT_VERSION`, `_resolve_rerun_sdk_version()`
-- [ ] `app/config.py` — remove `app\.rerun\.io` from `DEFAULT_CORS_ALLOW_ORIGIN_REGEX`
-- [ ] `pyproject.toml` — remove `rerun-sdk` dependency
+- [x] Delete `app/api/visualization.py`
+- [x] Delete `app/services/visualization.py`
+- [x] Delete `app/schemas/visualization.py`
+- [x] Delete `tests/test_api_visualization.py`
+- [x] `app/main.py` — remove `visualization_router` import and `app.include_router(visualization_router)`
+- [x] `app/main.py` — remove `/visualizations` static mount and the `visualizations_dir.mkdir()` call
+- [x] `app/config.py` — remove `rerun_sdk_version` and `rerun_recording_format_version` fields from `Settings`
+- [x] `app/config.py` — remove `DEFAULT_RERUN_SDK_VERSION`, `DEFAULT_RERUN_RECORDING_FORMAT_VERSION`, `_resolve_rerun_sdk_version()`
+- [x] `app/config.py` — remove `app\.rerun\.io` from `DEFAULT_CORS_ALLOW_ORIGIN_REGEX`
+- [x] `pyproject.toml` — remove `rerun-sdk` dependency
+- [x] `app/services/__init__.py` — remove visualization exports
+- [x] `app/schemas/assets.py` — remove `VisualizationSummary` class and `visualization_summary` field from `AssetMetadataResponse`
+- [x] `app/mappers/workspace.py` — remove `VisualizationSummary`/`EpisodeSummaryResponse` imports and `map_episode_summary`, `visualization_summary` mapper logic
+- [x] `app/api/assets.py` — remove `GET /assets/{asset_id}/episodes` endpoint (cascaded from removing `EpisodeSummaryResponse`), remove `episodes` field from `AssetDetailResponse`
+
+**Also fixed (pre-existing bugs uncovered):**
+- `workspace.import_asset()` → `workspace.register_asset()` (method was renamed in hephaes)
+- `asset.source_path` removed from `RegisteredAsset` — updated mapper, `_index_workspace_asset`, and `conversions.py` service to use `asset.file_path` directly
 
 **After Phase 1:** `app/services/jobs.py` is dead code (its only caller was visualization). `Job` model has no more writers. Leave both in place until Phase 4.
 
@@ -37,12 +46,12 @@ Everything touching episode playback, timeline scrubbing, and message sampling.
 - [ ] Delete `app/services/episodes.py`
 - [ ] Delete `app/schemas/episodes.py`
 - [ ] `app/main.py` — remove `episodes_router` import and `app.include_router(episodes_router)`
-- [ ] `app/api/assets.py` — remove `GET /assets/{asset_id}/episodes` endpoint
-- [ ] `app/api/assets.py` — remove `EpisodeSummaryResponse` import and usage
-- [ ] `app/schemas/assets.py` — remove `EpisodeSummaryResponse` class
-- [ ] `app/schemas/assets.py` — remove `has_visualizable_streams` and `default_lane_count` fields from `AssetDetailResponse` (and any other asset response that carries them)
-- [ ] `app/mappers/workspace.py` — remove `map_episode_summary` function
-- [ ] `app/mappers/workspace.py` — remove `visualization_summary` references from asset mappers
+- [x] `app/api/assets.py` — remove `GET /assets/{asset_id}/episodes` endpoint *(done in Phase 1 cascade)*
+- [x] `app/api/assets.py` — remove `EpisodeSummaryResponse` import and usage *(done in Phase 1 cascade)*
+- [x] `app/schemas/assets.py` — remove `EpisodeSummaryResponse` class *(done in Phase 1 cascade)*
+- [x] `app/schemas/assets.py` — remove `has_visualizable_streams` and `default_lane_count` from episode-related schemas *(done in Phase 1 cascade)*
+- [x] `app/mappers/workspace.py` — remove `map_episode_summary` function *(done in Phase 1 cascade)*
+- [x] `app/mappers/workspace.py` — remove `visualization_summary` references from asset mappers *(done in Phase 1 cascade)*
 - [ ] `app/services/assets.py` — remove `EpisodeDiscoveryUnavailableError` if it's no longer raised anywhere
 - [ ] `pyproject.toml` — remove `websockets` dependency (only used by the episodes replay WebSocket)
 

@@ -11,7 +11,6 @@ from app.schemas.assets import (
     IndexedTopicSummary,
     IndexingStatus,
     ReindexAllResponse,
-    VisualizationSummary,
 )
 from app.schemas.outputs import (
     OutputActionCreateRequest,
@@ -82,5 +81,4 @@ __all__ = [
     "SavedConversionDraftRevisionResponse",
     "SavedConversionDraftStatus",
     "ReindexAllResponse",
-    "VisualizationSummary",
 ]

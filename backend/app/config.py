@@ -5,32 +5,18 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from functools import lru_cache
-from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
-DEFAULT_RERUN_SDK_VERSION = "0.22"
-DEFAULT_RERUN_RECORDING_FORMAT_VERSION = "1"
 DEFAULT_JOB_EXECUTION_MODE = "background"
 DEFAULT_JOB_MAX_WORKERS = 4
 DEFAULT_APP_NAME = "Hephaes Backend"
-DEFAULT_CORS_ALLOW_ORIGIN_REGEX = r"https?://(localhost|127\.0\.0\.1|app\.rerun\.io)(:\d+)?"
+DEFAULT_CORS_ALLOW_ORIGIN_REGEX = r"https?://(localhost|127\.0\.0\.1)(:\d+)?"
 
 
 def _as_bool(value: str | None, *, default: bool = False) -> bool:
     if value is None:
         return default
     return value.strip().lower() in {"1", "true", "yes", "on"}
-
-
-def _resolve_rerun_sdk_version() -> str:
-    configured_version = os.environ.get("HEPHAES_RERUN_SDK_VERSION")
-    if configured_version and configured_version.strip():
-        return configured_version.strip()
-
-    try:
-        return version("rerun-sdk")
-    except PackageNotFoundError:
-        return DEFAULT_RERUN_SDK_VERSION
 
 
 @dataclass(frozen=True)
@@ -48,8 +34,6 @@ class Settings:
     cors_allow_origin_regex: str
     job_execution_mode: str
     job_max_workers: int
-    rerun_sdk_version: str
-    rerun_recording_format_version: str
 
 
 def _resolve_default_data_dir(*, desktop_mode: bool) -> Path:
@@ -107,9 +91,4 @@ def get_settings() -> Settings:
         cors_allow_origin_regex=cors_allow_origin_regex,
         job_execution_mode=DEFAULT_JOB_EXECUTION_MODE,
         job_max_workers=DEFAULT_JOB_MAX_WORKERS,
-        rerun_sdk_version=_resolve_rerun_sdk_version(),
-        rerun_recording_format_version=os.environ.get(
-            "HEPHAES_RERUN_RECORDING_FORMAT_VERSION",
-            DEFAULT_RERUN_RECORDING_FORMAT_VERSION,
-        ).strip(),
     )
