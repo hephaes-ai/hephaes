@@ -1,11 +1,11 @@
-import { Suspense } from "react";
+import { Suspense } from "react"
 
-import { JobsPage, JobsPageFallback } from "./jobs-page";
+import { JobsPage, JobsPageFallback } from "@/features/jobs/jobs-page"
 
 export default function JobsRoute() {
   return (
     <Suspense fallback={<JobsPageFallback />}>
       <JobsPage />
     </Suspense>
-  );
+  )
 }

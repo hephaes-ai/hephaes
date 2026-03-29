@@ -4,36 +4,36 @@ import { Navigate, Route, Routes, useParams } from "react-router-dom"
 import {
   AssetDetailPage,
   AssetDetailPageFallback,
-} from "../../app/assets/[assetId]/asset-detail-page"
+} from "@/features/assets/asset-detail-page"
 import {
   ConversionAuthoringWorkspace,
   ConversionAuthoringWorkspaceFallback,
-} from "../../app/convert/conversion-authoring-workspace"
+} from "@/features/convert/conversion-authoring-workspace"
 import {
   DashboardPage,
   DashboardPageFallback,
-} from "../../app/dashboard/dashboard-page"
+} from "@/features/dashboard/dashboard-page"
 import {
   InventoryPage,
   InventoryPageFallback,
-} from "../../app/inventory/inventory-page"
+} from "@/features/inventory/inventory-page"
 import {
   JobDetailPage,
   JobDetailPageFallback,
-} from "../../app/jobs/[jobId]/job-detail-page"
-import { JobsPage, JobsPageFallback } from "../../app/jobs/jobs-page"
+} from "@/features/jobs/job-detail-page"
+import { JobsPage, JobsPageFallback } from "@/features/jobs/jobs-page"
 import {
   OutputDetailPage,
   OutputDetailPageFallback,
-} from "../../app/outputs/[outputId]/output-detail-page"
+} from "@/features/outputs/output-detail-page"
 import {
   OutputsPage,
   OutputsPageFallback,
-} from "../../app/outputs/outputs-page"
+} from "@/features/outputs/outputs-page"
 import {
   VisualizationPage,
   VisualizationPageFallback,
-} from "../../app/replay/visualization-page"
+} from "@/features/replay/visualization-page"
 
 import { ConversionEntryErrorState } from "@/components/conversion-entry-state"
 import { resolveConversionEntry } from "@/lib/conversion-entry"

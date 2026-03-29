@@ -48,7 +48,7 @@ Current status:
 - Phase 1 completed on `2026-03-28`
 - Phase 2 completed on `2026-03-28`
 - Phase 3 completed on `2026-03-28`
-- Phase 4 pending
+- Phase 4 completed on `2026-03-28`
 - Phase 5 pending
 - Phase 6 pending
 - Phase 7 pending
@@ -220,6 +220,10 @@ Completed on `2026-03-28`.
 
 Move screen ownership out of the Next app tree and into Vite-owned modules.
 
+### Status
+
+Completed on `2026-03-28`.
+
 ### Tasks
 
 - Identify the route screens currently imported from `frontend/app`.
@@ -234,6 +238,17 @@ Move screen ownership out of the Next app tree and into Vite-owned modules.
   - replay
   - convert
 - Update imports so the Vite route tree uses only Vite-owned modules.
+
+### Implemented In This Phase
+
+- Moved the route-facing screen modules from `frontend/app` into
+  `frontend/src/features`.
+- Kept the Next page wrappers in place, but rewired them to import the moved
+  feature screens from `src/features`.
+- Updated the Vite route tree to depend only on feature modules under
+  `frontend/src`.
+- Preserved the current hybrid migration state by keeping the Next routes thin
+  while making Vite the owner of both route composition and screen imports.
 
 ### Likely Files
 

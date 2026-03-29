@@ -104,7 +104,10 @@ the old web model:
 
 ## 4. Feature ownership is not yet Vite-native
 
-Many major screens still live under `frontend/app`, including:
+Many route screens have now moved into `frontend/src/features`, but some
+supporting Next scaffolding still remains under `frontend/app`.
+
+Route-facing screens now owned from `frontend/src/features` include:
 
 - inventory
 - dashboard
@@ -113,7 +116,8 @@ Many major screens still live under `frontend/app`, including:
 - replay
 - convert
 
-That means the route screens are not yet cleanly owned from `frontend/src`.
+That means screen ownership is largely Vite-native now, even though the Next
+wrappers still exist.
 
 ## 5. Large screens remain hard to migrate
 
@@ -154,7 +158,8 @@ Current state:
 - React Router is active in the Vite app
 - Next App Router still exists
 - route ownership is now centered in `frontend/src/routes`
-- screen modules are still imported from `frontend/app`
+- route-facing screen modules are now centered in `frontend/src/features`
+- thin Next wrappers still exist for the app routes
 - feature code can now read runtime mode/capabilities from one normalized
   frontend runtime source
 
@@ -240,7 +245,7 @@ Current phase status:
 - Phase 1 completed: define and stabilize the runtime boundary
 - Phase 2 completed: make desktop startup non-blocking and explicit
 - Phase 3 completed: separate route ownership from the Next app tree
-- Phase 4 pending: migrate screens into Vite-owned route modules
+- Phase 4 completed: migrate screens into Vite-owned route modules
 - Phase 5 pending: remove legacy web assumptions from asset ingestion
 - Phase 6 pending: retire the Next app surface and clean up build/runtime drift
 - Phase 7 pending: validate, document, and close the migration
@@ -253,6 +258,8 @@ Current phase status:
 - route migration should not reintroduce blocking boot assumptions into screen
   composition
 - screen migration should not pull route ownership back into `frontend/app`
+- follow-up cleanup should avoid leaving stale duplicate wrappers or unused app
+  modules behind
 
 - route migration may stall if large screen modules are not split carefully
 - desktop startup fixes may be harder to validate if route/runtime cleanup is

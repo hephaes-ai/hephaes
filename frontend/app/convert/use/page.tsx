@@ -3,7 +3,7 @@ import { Suspense } from "react"
 import {
   ConversionAuthoringWorkspace,
   ConversionAuthoringWorkspaceFallback,
-} from "../conversion-authoring-workspace"
+} from "@/features/convert/conversion-authoring-workspace"
 
 export default function ConversionUseRoute() {
   return (
