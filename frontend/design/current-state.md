@@ -56,12 +56,7 @@ Current validation baseline:
 
 ## What Is Still Incomplete
 
-## 1. Final docs and closeout are still pending
-
-The code now reflects a single Vite runtime, but the final documentation sweep
-and closeout phase still remain.
-
-## 2. Some Next-oriented tooling dependencies still remain
+## 1. Some Next-oriented tooling dependencies still remain
 
 The active runtime no longer depends on Next, but some tooling/dependency
 footprints are still present in files such as:
@@ -73,7 +68,7 @@ footprints are still present in files such as:
 These are no longer part of the active runtime path, but they should be
 cleaned up deliberately rather than left ambiguous.
 
-## 3. The desktop bundle is still large
+## 2. The desktop bundle is still large
 
 `npm run build` and `npm run desktop:build` still emit the large-chunk warning
 for the main bundle. That is not blocking the migration, but it remains a
@@ -194,7 +189,7 @@ Current phase status:
 - Phase 4 completed: migrate screens into Vite-owned route modules
 - Phase 5 completed: remove legacy web assumptions from asset ingestion
 - Phase 6 completed: retire the Next app surface and clean up build/runtime drift
-- Phase 7 pending: validate, document, and close the migration
+- Phase 7 completed: validate, document, and close the migration
 
 ## Migration Risks To Watch
 

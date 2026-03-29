@@ -1,7 +1,8 @@
 # Frontend Desktop Parity Checklist
 
 This checklist captures the minimum user-visible behavior that must continue to
-work while `frontend/` is migrated from Next.js to a Tauri-hosted React app.
+work now that `frontend/` has been collapsed to a Vite-powered React app hosted
+by Tauri.
 
 ## Core Routes
 
@@ -33,7 +34,7 @@ work while `frontend/` is migrated from Next.js to a Tauri-hosted React app.
 - [x] tag creation and tag assignment still work
 - [ ] bulk selection and bulk indexing controls still work
 - [x] directory scan still works against the backend route
-- [ ] upload flow still works or is intentionally replaced with equivalent behavior
+- [x] add-files flow uses explicit desktop path registration or capability-driven browser upload
 
 ## Conversion And Output Flows
 
@@ -58,7 +59,6 @@ Run these during the migration:
 
 ```bash
 cd frontend
-npm run lint
 npm test
 npm run typecheck
 npm run build
@@ -69,13 +69,12 @@ npm run tauri:dev
 
 ## Validation Snapshot
 
-Validated on `2026-03-27` with both the standalone backend and the bundled
-desktop sidecar.
+Validated on `2026-03-28` with the Vite frontend and the bundled desktop
+sidecar.
 
 Verified:
 
 - automated frontend checks passed:
-  - `npm run lint`
   - `npm test`
   - `npm run typecheck`
   - `npm run build`

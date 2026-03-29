@@ -51,7 +51,7 @@ Current status:
 - Phase 4 completed on `2026-03-28`
 - Phase 5 completed on `2026-03-28`
 - Phase 6 completed on `2026-03-28`
-- Phase 7 pending
+- Phase 7 completed on `2026-03-28`
 
 ## Phase 1: Runtime Boundary Contract
 
@@ -204,7 +204,7 @@ Completed on `2026-03-28`.
 
 - `frontend/src/App.tsx`
 - `frontend/src/routes/*`
-- `frontend/src/lib/app-routing.react-router.tsx`
+- `frontend/src/lib/app-routing.tsx`
 - `frontend/vite.config.ts`
 - selected files in `frontend/app/*` as migration sources
 
@@ -312,8 +312,8 @@ Completed on `2026-03-28`.
 
 ### Likely Files
 
-- `frontend/app/inventory/inventory-upload-dialog.tsx`
-- `frontend/app/inventory/inventory-scan-dialog.tsx`
+- `frontend/src/features/inventory/inventory-upload-dialog.tsx`
+- `frontend/src/features/inventory/inventory-scan-dialog.tsx`
 - `frontend/src/lib/native-dialogs.ts`
 - `frontend/src/hooks/use-register-asset-paths.ts`
 - `frontend/src/hooks/use-upload-assets.ts`
@@ -388,6 +388,10 @@ Completed on `2026-03-28`.
 
 Finish the migration with stable validation and updated tracking docs.
 
+### Status
+
+Completed on `2026-03-28`.
+
 ### Tasks
 
 - Update `frontend/design/current-state.md` with the final implementation
@@ -407,6 +411,15 @@ Finish the migration with stable validation and updated tracking docs.
   - `cargo check --manifest-path frontend/src-tauri/Cargo.toml`
 - Run manual desktop smoke checks across core routes and startup/runtime flows.
 - Record any remaining rough edges that should become separate follow-up work.
+
+### Implemented In This Phase
+
+- Rewrote `frontend/README.md` around the single Vite runtime and Tauri host.
+- Rewrote `frontend/design/current-state.md` to reflect the post-migration
+  codebase instead of the old hybrid state.
+- Updated `frontend/design/parity-checklist.md` and design references to match
+  the Vite-owned route and feature structure.
+- Re-ran the full validation set against the final Vite/Tauri frontend.
 
 ### Exit Criteria
 

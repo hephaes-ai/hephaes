@@ -11,47 +11,55 @@ npm install
 
 ## Run
 
-For a frontend-only dev session against an already running backend, start the
-backend first from the repository root:
+For a frontend-only Vite dev session against an already running backend, start
+the backend first from the repository root:
 
 ```bash
 cd backend
 python -m uvicorn app.main:app --reload
 ```
 
-Then start the desktop frontend:
-
-```bash
-cd frontend
-npm run tauri:dev
-```
-
-The desktop frontend defaults to talking to:
-
-```text
-http://127.0.0.1:8000
-```
-
-If you need a different desktop backend URL, set:
-
-```bash
-VITE_BACKEND_BASE_URL=http://127.0.0.1:8000
-```
-
-If `VITE_BACKEND_BASE_URL` is unset, `npm run tauri:dev` will build and launch
-the bundled backend sidecar automatically.
-
-If you still need to run the legacy Next.js frontend during migration, use:
+Then start the frontend:
 
 ```bash
 cd frontend
 npm run dev
 ```
 
-and configure it with:
+The frontend defaults to talking to:
+
+```text
+http://127.0.0.1:8000
+```
+
+If you need a different backend URL, set:
 
 ```bash
-NEXT_PUBLIC_BACKEND_BASE_URL=http://127.0.0.1:8000
+VITE_BACKEND_BASE_URL=http://127.0.0.1:8000
+```
+
+For the desktop shell, run:
+
+```bash
+cd frontend
+npm run tauri:dev
+```
+
+If `VITE_BACKEND_BASE_URL` is unset, `npm run tauri:dev` will launch the
+bundled backend sidecar automatically.
+
+## Build
+
+From `frontend/`:
+
+```bash
+npm run build
+```
+
+To preview the built frontend locally:
+
+```bash
+npm run start
 ```
 
 ## Checks
@@ -63,6 +71,8 @@ npm run lint
 npm test
 npm run typecheck
 npm run build
+npm run desktop:build
+cargo check --manifest-path /Users/danielyoo/workspace/hephaes/frontend/src-tauri/Cargo.toml
 ```
 
 ## Package

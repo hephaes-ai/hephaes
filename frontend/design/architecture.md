@@ -313,13 +313,12 @@ Anchor today:
 - `frontend/src/lib/native-dialogs.ts`
 - `frontend/src/hooks/use-register-asset-paths.ts`
 - `frontend/src/hooks/use-upload-assets.ts`
-- `frontend/app/inventory/inventory-upload-dialog.tsx`
-- `frontend/app/inventory/inventory-scan-dialog.tsx`
+- `frontend/src/features/inventory/inventory-upload-dialog.tsx`
+- `frontend/src/features/inventory/inventory-scan-dialog.tsx`
 
 ## Migration Boundary
 
-During migration, the Next app may temporarily remain as a source of feature
-components, but the architecture is only complete when:
+This architecture is only complete when:
 
 - route ownership has moved fully into the Vite app
 - feature modules no longer depend on Next navigation APIs
