@@ -27,7 +27,7 @@ The goal of this effort is to remove the visualization feature, the episodes/rep
 | `conversions.py` | POST /conversions, GET /conversions/capabilities, POST /conversions/inspect, POST /conversions/draft, POST /conversions/preview, GET /conversions, GET /conversions/{id} | No | Keep |
 | `conversion_configs.py` | GET/POST /conversion-configs, GET/PATCH/POST /conversion-configs/{id} | No | Keep |
 | `jobs.py` | GET /jobs, GET /jobs/{id} | No | Keep (queries workspace jobs, not DB) |
-| `outputs.py` | GET/GET-detail /outputs, GET /outputs/{id}/content, POST/GET /outputs/{id}/actions, GET /outputs/actions/{id}, GET /output-actions/{id} | Yes (action endpoints only) | Keep, remove action endpoints |
+| `outputs.py` | GET/GET-detail /outputs, GET /outputs/{id}/content | No | ✅ Keep (action endpoints removed Phase 3) |
 | `tags.py` | GET /tags, POST /tags | No | Keep |
 | `dashboard.py` | GET /dashboard/summary, GET /dashboard/trends, GET /dashboard/blockers | Yes | Keep, remove session dependency |
 | `health.py` | GET /health | No | Keep |
@@ -42,7 +42,7 @@ The goal of this effort is to remove the visualization feature, the episodes/rep
 | `jobs.py` | CRUD for backend `Job` DB model | Yes (Job model) | **Remove in Phase 4** (dead since Phase 1) |
 | `conversions.py` | Conversion creation and execution, delegates to workspace | No | Keep |
 | `conversion_authoring.py` | Inspect/draft/preview workflow, delegates to workspace | No | Keep |
-| `output_actions.py` | OutputAction CRUD (refresh_metadata action type) | Yes (OutputAction model) | **Remove entirely** |
+| `output_actions.py` | — | — | ✅ **Deleted (Phase 3)** |
 | `dashboard.py` | Aggregate stats from workspace + backend DB | Yes (visualization jobs only) | Keep, remove `session` param and `_backend_visualization_jobs()` |
 | `indexing.py` | Thin wrapper around hephaes Profiler | No | Keep |
 | `job_runner.py` | ThreadPoolExecutor wrapper for background jobs | No | Keep |
@@ -57,7 +57,7 @@ The goal of this effort is to remove the visualization feature, the episodes/rep
 | `conversions.py` | Keep |
 | `conversion_authoring.py` | Keep |
 | `jobs.py` | Keep (represents workspace jobs, not DB jobs) |
-| `outputs.py` | Keep, remove `OutputActionCreateRequest`, `OutputActionDetailResponse`, `OutputActionSummaryResponse`, remove `latest_action` field from artifact responses |
+| `outputs.py` | ✅ Keep (`OutputAction*` schemas and `latest_action` removed Phase 3) |
 | `dashboard.py` | Keep (no change needed to schemas themselves) |
 
 ### `app/db/` — SQLAlchemy ORM
@@ -102,10 +102,7 @@ The backend's `app.db` SQLite file has two tables:
 - **After removing visualization:** zero writers, dashboard reads become no-ops → table is dead
 
 ### `output_actions` table
-- **Writers:** `app/services/output_actions.py` (`OutputActionService.create_action`)
-- **Readers:** `app/services/output_actions.py` (query helpers), `app/api/outputs.py` (list/get actions)
-- **Routes:** `POST /outputs/{id}/actions`, `GET /outputs/{id}/actions`, `GET /output-actions/{id}`
-- **After removing output actions:** table is dead
+- ✅ All writers and readers removed in Phase 3. Table is dead.
 
 Once both tables have no writers, the entire `app.db` is dead weight.
 

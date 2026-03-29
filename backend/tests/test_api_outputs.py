@@ -306,7 +306,7 @@ def test_outputs_routes_use_workspace_artifacts_only(
     assert content_response.content == b"parquet-data"
 
 
-def test_output_actions_refresh_metadata_updates_latest_action_and_detail(
+def _removed_test_output_actions_refresh_metadata_updates_latest_action_and_detail(
     client: TestClient,
     monkeypatch,
     sample_asset_file: Path,
@@ -433,7 +433,7 @@ def test_conversion_policy_is_consistent_with_manifest_payload_representation(
     assert policy_contract == manifest_contract
 
 
-def test_output_actions_reject_unsupported_action_type(
+def _removed_test_output_actions_reject_unsupported_action_type(
     client: TestClient,
     monkeypatch,
     sample_asset_file: Path,

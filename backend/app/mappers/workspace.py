@@ -407,7 +407,6 @@ def map_output_summary(
         size_bytes=0,
         availability_status="ready",
         metadata={},
-        latest_action=None,
         content_url=content_url,
         created_at=artifact.created_at,
         updated_at=artifact.created_at,

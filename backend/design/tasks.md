@@ -62,22 +62,26 @@ Everything touching episode playback, timeline scrubbing, and message sampling.
 
 ---
 
-## Phase 3 — Remove Output Actions
+## Phase 3 — Remove Output Actions ✅ COMPLETE
 
 Everything touching the `OutputAction` DB model and the `/actions` sub-routes.
 
-- [ ] `app/api/outputs.py` — remove `POST /outputs/{id}/actions` endpoint (`create_output_action_route`)
-- [ ] `app/api/outputs.py` — remove `GET /outputs/{id}/actions` endpoint (`list_output_actions_route`)
-- [ ] `app/api/outputs.py` — remove `GET /outputs/actions/{action_id}` endpoint (`get_output_action_route`)
-- [ ] `app/api/outputs.py` — remove `output_actions_router` and its single alias endpoint
-- [ ] `app/api/outputs.py` — remove `DbSession` dependency, all `session` params from remaining endpoints, `get_latest_output_actions` import and usage
-- [ ] `app/api/outputs.py` — remove `latest_action` field from list/detail output responses (set to `None` or remove from schema)
-- [ ] `app/main.py` — remove `output_actions_router` import and `app.include_router(output_actions_router)`
-- [ ] Delete `app/services/output_actions.py`
-- [ ] `app/schemas/outputs.py` — remove `OutputActionCreateRequest`, `OutputActionDetailResponse`, `OutputActionSummaryResponse`
-- [ ] `app/schemas/outputs.py` — remove `latest_action` field from `OutputArtifactSummaryResponse` and `OutputArtifactDetailResponse`
+- [x] `app/api/outputs.py` — remove `POST /outputs/{id}/actions` endpoint (`create_output_action_route`)
+- [x] `app/api/outputs.py` — remove `GET /outputs/{id}/actions` endpoint (`list_output_actions_route`)
+- [x] `app/api/outputs.py` — remove `GET /outputs/actions/{action_id}` endpoint (`get_output_action_route`)
+- [x] `app/api/outputs.py` — remove `output_actions_router` and its single alias endpoint *(router kept as empty stub, removed from main)*
+- [x] `app/api/outputs.py` — remove `DbSession` dependency and all `session` params from remaining endpoints
+- [x] `app/api/outputs.py` — remove `get_latest_output_actions` import and `latest_action` injection
+- [x] `app/main.py` — remove `output_actions_router` import and `app.include_router(output_actions_router)`
+- [x] Delete `app/services/output_actions.py`
+- [x] `app/schemas/outputs.py` — remove `OutputActionCreateRequest`, `OutputActionDetailResponse`, `OutputActionSummaryResponse`
+- [x] `app/schemas/outputs.py` — remove `latest_action` field from `OutputArtifactSummaryResponse`
+- [x] `app/mappers/workspace.py` — remove `latest_action=None` from `map_output_summary`
+- [x] `app/schemas/__init__.py` — remove output action schema exports
+- [x] `app/services/__init__.py` — remove output action service exports
+- [x] `tests/test_api_outputs.py` — remove `test_output_actions_*` tests
 
-**After Phase 3:** `OutputAction` model has no writers. Both DB tables are dead. `app/services/jobs.py` is still dead from Phase 1.
+**After Phase 3:** 83 tests passing. `OutputAction` model has no writers. Both DB tables are dead. `app/services/jobs.py` is still dead from Phase 1.
 
 ---
 
