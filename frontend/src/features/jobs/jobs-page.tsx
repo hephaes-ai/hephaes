@@ -37,7 +37,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
-const JOB_TYPE_OPTIONS: JobType[] = ["index", "convert", "prepare_visualization"];
+const JOB_TYPE_OPTIONS: JobType[] = ["index", "convert"];
 const JOB_STATUS_OPTIONS: JobStatus[] = ["queued", "running", "succeeded", "failed"];
 
 function JobsPageSkeleton() {
@@ -198,7 +198,7 @@ export function JobsPage() {
               </span>
             </div>
             <p className="max-w-3xl text-sm text-muted-foreground">
-              Monitor indexing, conversion, visualization jobs.
+              Monitor indexing and conversion jobs.
             </p>
           </div>
           <Button
@@ -216,7 +216,7 @@ export function JobsPage() {
 
       {jobs.length === 0 ? (
         <EmptyState
-          description="Indexing, conversion, and visualization-preparation runs will appear here once the backend starts creating durable jobs."
+          description="Indexing and conversion runs will appear here once the backend starts creating durable jobs."
           title="No jobs yet"
         />
       ) : (

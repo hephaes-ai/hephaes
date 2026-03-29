@@ -16,10 +16,6 @@ function buildJobSuccessMessage(job: JobSummary) {
     return "Conversion outputs are ready to browse.";
   }
 
-  if (job.type === "prepare_visualization") {
-    return "The viewer artifact is ready to open.";
-  }
-
   return "The job finished successfully.";
 }
 

@@ -3,8 +3,6 @@ import type {
   IndexingStatus,
   JobStatus,
   JobType,
-  OutputActionType,
-  OutputActionStatus,
   OutputAvailability,
   OutputFormat,
   OutputRole,
@@ -128,27 +126,15 @@ export function formatOutputAvailability(availability: OutputAvailability) {
   return formatSentenceCase(availability);
 }
 
-export function formatOutputActionType(actionType: OutputActionType) {
-  if (actionType === "refresh_metadata") {
-    return "Refresh metadata";
-  }
-
-  if (actionType === "vlm_tagging") {
-    return "VLM tagging";
-  }
-
-  return formatSentenceCase(actionType);
-}
-
-export function formatWorkflowStatus(status: JobStatus | ConversionStatus | OutputActionStatus) {
+export function formatWorkflowStatus(status: JobStatus | ConversionStatus) {
   return formatSentenceCase(status);
 }
 
-export function isWorkflowActiveStatus(status: JobStatus | ConversionStatus | OutputActionStatus) {
+export function isWorkflowActiveStatus(status: JobStatus | ConversionStatus) {
   return status === "queued" || status === "running";
 }
 
-export function getWorkflowStatusClasses(status: JobStatus | ConversionStatus | OutputActionStatus) {
+export function getWorkflowStatusClasses(status: JobStatus | ConversionStatus) {
   if (status === "succeeded") {
     return "border-emerald-500/30 bg-emerald-500/10 text-emerald-900 dark:text-emerald-200";
   }

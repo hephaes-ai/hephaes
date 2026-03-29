@@ -13,8 +13,6 @@ export type OutputFormat =
   | string
 export type OutputAvailability = "ready" | "missing" | "invalid" | string
 export type OutputRole = "dataset" | "manifest" | "sidecar" | string
-export type OutputActionType = "refresh_metadata" | "vlm_tagging" | string
-export type OutputActionStatus = "queued" | "running" | "succeeded" | "failed"
 export type ResampleMethod = "interpolate" | "downsample"
 export type DecodeFailurePolicy = "skip" | "warn" | "fail"
 export type TFRecordImagePayloadContract = "bytes_v2" | "legacy_list_v1"
@@ -176,198 +174,6 @@ export interface DefaultEpisodeSummary {
   label: string
 }
 
-export interface EpisodeSummary {
-  default_lane_count: number
-  duration: number
-  end_time: string | null
-  episode_id: string
-  has_visualizable_streams: boolean
-  label: string
-  start_time: string | null
-}
-
-export interface EpisodeDetailResponse {
-  default_lane_count: number
-  duration: number
-  end_time: string | null
-  episode_id: string
-  has_visualizable_streams: boolean
-  label: string
-  start_time: string | null
-  topic_count?: number | null
-}
-
-export type ViewerSourceStatus = "none" | "preparing" | "ready" | "failed"
-export type ViewerSourceKind = "rrd_url" | "grpc_url"
-
-export interface EpisodeViewerSourceResponse {
-  artifact_path: string | null
-  episode_id: string
-  error_message: string | null
-  job_id: string | null
-  recording_version: string | null
-  source_kind: ViewerSourceKind | null
-  source_url: string | null
-  status: ViewerSourceStatus
-  updated_at: string | null
-  viewer_version: string | null
-
-  // Backward-compatible optional fields from earlier frontend contract versions.
-  detail?: string | null
-  preparation_job_id?: string | null
-}
-
-export interface PrepareVisualizationResponse {
-  job: JobSummary
-}
-
-export interface EpisodeTimelineEvent {
-  count?: number
-  timestamp_ns: number
-}
-
-export interface EpisodeTimelineBucket {
-  bucket_index: number
-  end_offset_ns: number
-  event_count: number
-  start_offset_ns: number
-}
-
-export interface EpisodeTimelineLane {
-  buckets?: EpisodeTimelineBucket[]
-  events: EpisodeTimelineEvent[]
-  label: string
-  modality: TopicModality
-  source_topic?: string
-  stream_key?: string
-  stream_id: string
-}
-
-export interface EpisodeTimelineResponse {
-  duration_ns: number
-  end_timestamp_ns?: number | null
-  end_time_ns?: number
-  episode_id: string
-  lanes: EpisodeTimelineLane[]
-  start_timestamp_ns?: number | null
-  start_time_ns?: number
-}
-
-export interface EpisodeSamplesQuery {
-  stream_ids?: string[]
-  timestamp_ns: number
-  window_after_ns?: number
-  window_before_ns?: number
-}
-
-export interface EpisodeSample {
-  message_type?: string
-  metadata?: Record<string, unknown>
-  metadata_json?: Record<string, unknown>
-  modality: TopicModality
-  payload: Record<string, unknown> | null
-  selection_strategy?: "latest_at_or_before" | "window"
-  stream_id: string
-  timestamp_ns: number
-  topic_name?: string
-}
-
-export interface EpisodeStreamSamplesResponse {
-  modality: TopicModality
-  sample_count: number
-  samples: EpisodeSample[]
-  selection_strategy: "latest_at_or_before" | "window"
-  source_topic: string
-  stream_id: string
-  stream_key: string
-}
-
-export interface EpisodeSamplesResponse {
-  requested_timestamp_ns: number
-  window_after_ns?: number
-  window_before_ns?: number
-  window_end_ns?: number
-  window_start_ns?: number
-  streams?: EpisodeStreamSamplesResponse[]
-  episode_id: string
-  samples?: EpisodeSample[]
-  timestamp_ns?: number
-}
-
-export interface EpisodeReplayReadyMessage {
-  asset_id: string
-  episode_id: string
-  is_playing: boolean
-  revision: number
-  speed: number
-  stream_ids: string[]
-  type: "ready"
-  window_after_ns: number
-  window_before_ns: number
-}
-
-export interface EpisodeReplayCursorAckMessage {
-  cursor_ns: number
-  revision: number
-  type: "cursor_ack"
-}
-
-export interface EpisodeReplaySamplesMessage {
-  cursor_ns: number
-  data: EpisodeSamplesResponse
-  revision: number
-  type: "samples"
-}
-
-export interface EpisodeReplayPlaybackStateMessage {
-  is_playing: boolean
-  revision: number
-  speed: number
-  type: "playback_state"
-}
-
-export interface EpisodeReplayErrorMessage {
-  detail: string
-  revision: number | null
-  type: "error"
-}
-
-export type EpisodeReplayServerMessage =
-  | EpisodeReplayCursorAckMessage
-  | EpisodeReplayErrorMessage
-  | EpisodeReplayPlaybackStateMessage
-  | EpisodeReplayReadyMessage
-  | EpisodeReplaySamplesMessage
-
-export type ReplayConnectionStatus =
-  | "idle"
-  | "connecting"
-  | "connected"
-  | "closed"
-  | "error"
-
-export interface EpisodeReplayClientMessage {
-  cursor_ns?: number
-  is_playing?: boolean
-  speed?: number
-  stream_ids?: string[]
-  type:
-    | "hello"
-    | "pause"
-    | "play"
-    | "seek"
-    | "set_scalar_window"
-    | "set_speed"
-    | "set_streams"
-  window_after_ns?: number
-  window_before_ns?: number
-}
-
-export interface VisualizationSummary {
-  default_lane_count: number
-  has_visualizable_streams: boolean
-}
-
 export interface AssetMetadata {
   default_episode: DefaultEpisodeSummary | null
   duration: number | null
@@ -379,13 +185,11 @@ export interface AssetMetadata {
   start_time: string | null
   topic_count: number
   topics: IndexedTopicSummary[]
-  visualization_summary: VisualizationSummary | null
 }
 
 export interface AssetDetailResponse {
   asset: AssetSummary
   conversions: ConversionSummary[]
-  episodes: EpisodeSummary[]
   metadata: AssetMetadata | null
   related_jobs: JobSummary[]
   tags: AssetTag[]
@@ -778,7 +582,6 @@ export interface OutputSummary {
   format: OutputFormat
   id: string
   job_id: string
-  latest_action: OutputActionSummary | null
   media_type: string | null
   metadata: Record<string, unknown>
   relative_path: string
@@ -790,30 +593,6 @@ export interface OutputSummary {
 
 export interface OutputDetail extends OutputSummary {
   file_path?: string | null
-}
-
-export interface CreateOutputActionRequest {
-  action_type: OutputActionType
-  config: Record<string, unknown>
-}
-
-export interface OutputActionSummary {
-  action_type: OutputActionType
-  config: Record<string, unknown>
-  created_at: string
-  error_message: string | null
-  finished_at: string | null
-  id: string
-  output_id: string
-  output_path: string | null
-  result: Record<string, unknown>
-  started_at: string | null
-  status: OutputActionStatus
-  updated_at: string
-}
-
-export interface OutputActionDetail extends OutputActionSummary {
-  output_file_path?: string | null
 }
 
 export class BackendApiError extends Error {
@@ -1192,91 +971,10 @@ export function getOutput(outputId: string) {
   return request<OutputDetail>(`/outputs/${outputId}`)
 }
 
-export function listOutputActions(outputId: string) {
-  return request<OutputActionDetail[]>(`/outputs/${outputId}/actions`)
-}
-
-export function getOutputAction(actionId: string) {
-  return request<OutputActionDetail>(`/outputs/actions/${actionId}`)
-}
-
-export function createOutputAction(
-  outputId: string,
-  payload: CreateOutputActionRequest
-) {
-  return request<OutputActionDetail>(`/outputs/${outputId}/actions`, {
-    body: JSON.stringify(payload),
-    method: "POST",
-  })
-}
-
 export function listJobs() {
   return request<JobSummary[]>("/jobs")
 }
 
 export function getJob(jobId: string) {
   return request<JobSummary>(`/jobs/${jobId}`)
-}
-
-export function listAssetEpisodes(assetId: string) {
-  return request<EpisodeSummary[]>(`/assets/${assetId}/episodes`)
-}
-
-export function getAssetEpisode(assetId: string, episodeId: string) {
-  return request<EpisodeDetailResponse>(
-    `/assets/${assetId}/episodes/${episodeId}`
-  )
-}
-
-export function getEpisodeViewerSource(assetId: string, episodeId: string) {
-  return request<EpisodeViewerSourceResponse>(
-    `/assets/${assetId}/episodes/${episodeId}/viewer-source`
-  )
-}
-
-export function prepareEpisodeVisualization(
-  assetId: string,
-  episodeId: string
-) {
-  return request<PrepareVisualizationResponse>(
-    `/assets/${assetId}/episodes/${episodeId}/prepare-visualization`,
-    {
-      method: "POST",
-    }
-  )
-}
-
-export function getEpisodeTimeline(assetId: string, episodeId: string) {
-  return request<EpisodeTimelineResponse>(
-    `/assets/${assetId}/episodes/${episodeId}/timeline`
-  )
-}
-
-export function getEpisodeSamples(
-  assetId: string,
-  episodeId: string,
-  query: EpisodeSamplesQuery
-) {
-  const params = new URLSearchParams()
-  params.set("timestamp_ns", String(query.timestamp_ns))
-
-  if (query.window_before_ns !== undefined) {
-    params.set("window_before_ns", String(query.window_before_ns))
-  }
-
-  if (query.window_after_ns !== undefined) {
-    params.set("window_after_ns", String(query.window_after_ns))
-  }
-
-  for (const streamId of query.stream_ids ?? []) {
-    const normalized = streamId.trim()
-    if (normalized) {
-      params.append("stream_ids", normalized)
-    }
-  }
-
-  const queryString = params.toString()
-  return request<EpisodeSamplesResponse>(
-    `/assets/${assetId}/episodes/${episodeId}/samples?${queryString}`
-  )
 }

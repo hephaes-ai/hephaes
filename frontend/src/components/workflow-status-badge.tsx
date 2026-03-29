@@ -1,4 +1,4 @@
-import type { ConversionStatus, JobStatus, OutputActionStatus } from "@/lib/api";
+import type { ConversionStatus, JobStatus } from "@/lib/api";
 import { formatWorkflowStatus, getWorkflowStatusClasses } from "@/lib/format";
 
 import { Badge } from "@/components/ui/badge";
@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 export function WorkflowStatusBadge({
   status,
 }: {
-  status: JobStatus | ConversionStatus | OutputActionStatus;
+  status: JobStatus | ConversionStatus;
 }) {
   return (
     <Badge

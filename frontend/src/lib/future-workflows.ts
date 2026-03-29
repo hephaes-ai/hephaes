@@ -2,8 +2,7 @@ export type AssetSelectionScope =
   | "all-assets"
   | "filtered-assets"
   | "search-results"
-  | "selected-assets"
-  | "visualization-ready-assets";
+  | "selected-assets";
 
 export interface SavedSearchDraft {
   id: string;

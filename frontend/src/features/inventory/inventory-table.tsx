@@ -35,7 +35,7 @@ import {
   useAppRouter as useRouter,
 } from "@/lib/app-routing";
 import { formatDateTime, formatFileSize, getIndexActionLabel } from "@/lib/format";
-import { buildAssetDetailHref, buildInventoryReplayHref } from "@/lib/navigation";
+import { buildAssetDetailHref } from "@/lib/navigation";
 import { buildOutputsHref } from "@/lib/outputs";
 import { cn } from "@/lib/utils";
 
@@ -295,11 +295,6 @@ export function AssetsTable({
                           {isRunningAction ? <RefreshCw className="size-4 animate-spin" /> : null}
                           {getIndexActionLabel(asset.indexing_status, isRunningAction)}
                         </DropdownMenuItem>
-                        {asset.indexing_status === "indexed" ? (
-                          <DropdownMenuItem asChild>
-                            <Link href={buildInventoryReplayHref(asset.id, inventoryHref)}>Replay</Link>
-                          </DropdownMenuItem>
-                        ) : null}
                         {outputCount > 0 ? (
                           <DropdownMenuItem asChild>
                             <Link href={buildOutputsHref({ assetId: asset.id })}>Outputs</Link>
