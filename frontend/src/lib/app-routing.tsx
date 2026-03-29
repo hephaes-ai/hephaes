@@ -1,104 +1,110 @@
-"use client";
+"use client"
 
-import * as React from "react";
-import NextLink from "next/link";
+import * as React from "react"
 import {
-  usePathname,
-  useRouter,
+  Link as RouterLink,
+  useLocation,
+  useNavigate,
   useSearchParams,
-} from "next/navigation";
+} from "react-router-dom"
 
-export interface AppLinkProps
-  extends Omit<React.ComponentPropsWithoutRef<"a">, "href"> {
-  href: string;
-  replace?: boolean;
-  state?: unknown;
+export interface AppLinkProps extends Omit<
+  React.ComponentPropsWithoutRef<"a">,
+  "href"
+> {
+  href: string
+  replace?: boolean
+  state?: unknown
 }
 
 export interface AppNavigationOptions {
-  flushSync?: boolean;
-  scroll?: boolean;
+  flushSync?: boolean
+  scroll?: boolean
 }
 
 export interface AppRouter {
-  back(): void;
-  forward(): void;
-  push(href: string, options?: AppNavigationOptions): void;
-  refresh(): void;
-  replace(href: string, options?: AppNavigationOptions): void;
-}
-
-function normalizeNavigationOptions(
-  options?: AppNavigationOptions
-) {
-  if (!options) {
-    return undefined;
-  }
-
-  return {
-    scroll: options.scroll,
-  };
+  back(): void
+  forward(): void
+  push(href: string, options?: AppNavigationOptions): void
+  refresh(): void
+  replace(href: string, options?: AppNavigationOptions): void
 }
 
 export const AppLink = React.forwardRef<HTMLAnchorElement, AppLinkProps>(
-  function AppLink({ href, replace, ...props }, ref) {
-    return <NextLink ref={ref} href={href} replace={replace} {...props} />;
-  },
-);
+  function AppLink({ href, replace, state, ...props }, ref) {
+    return (
+      <RouterLink
+        ref={ref}
+        replace={replace}
+        state={state}
+        to={href}
+        {...props}
+      />
+    )
+  }
+)
 
 export function useAppPathname() {
-  return usePathname();
+  return useLocation().pathname
 }
 
 export function useAppRouter(): AppRouter {
-  const router = useRouter();
-  const isMountedRef = React.useRef(true);
+  const navigate = useNavigate()
+  const isMountedRef = React.useRef(true)
 
   React.useEffect(() => {
-    isMountedRef.current = true;
+    isMountedRef.current = true
 
     return () => {
-      isMountedRef.current = false;
-    };
-  }, []);
+      isMountedRef.current = false
+    }
+  }, [])
 
   return React.useMemo(
     () => ({
       back() {
         if (!isMountedRef.current) {
-          return;
+          return
         }
-        router.back();
+        navigate(-1)
       },
       forward() {
         if (!isMountedRef.current) {
-          return;
+          return
         }
-        router.forward();
+        navigate(1)
       },
-      push(href, options) {
+      push(href: string, options?: AppNavigationOptions) {
         if (!isMountedRef.current) {
-          return;
+          return
         }
-        router.push(href, normalizeNavigationOptions(options));
+        navigate(href, {
+          flushSync: options?.flushSync,
+          preventScrollReset: options?.scroll === false,
+        })
       },
       refresh() {
         if (!isMountedRef.current) {
-          return;
+          return
         }
-        router.refresh();
+        window.location.reload()
       },
-      replace(href, options) {
+      replace(href: string, options?: AppNavigationOptions) {
         if (!isMountedRef.current) {
-          return;
+          return
         }
-        router.replace(href, normalizeNavigationOptions(options));
+        navigate(href, {
+          flushSync: options?.flushSync,
+          preventScrollReset: options?.scroll === false,
+          replace: true,
+        })
       },
     }),
-    [router]
-  );
+    [navigate]
+  )
 }
 
 export function useAppSearchParams() {
-  return useSearchParams();
+  const [searchParams] = useSearchParams()
+  return searchParams
 }

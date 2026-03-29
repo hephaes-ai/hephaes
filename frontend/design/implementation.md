@@ -50,7 +50,7 @@ Current status:
 - Phase 3 completed on `2026-03-28`
 - Phase 4 completed on `2026-03-28`
 - Phase 5 completed on `2026-03-28`
-- Phase 6 pending
+- Phase 6 completed on `2026-03-28`
 - Phase 7 pending
 
 ## Phase 1: Runtime Boundary Contract
@@ -341,6 +341,10 @@ Completed on `2026-03-28`.
 
 Remove the Next app as an active runtime and clean up supporting drift.
 
+### Status
+
+Completed on `2026-03-28`.
+
 ### Tasks
 
 - Remove or archive `frontend/app` once screen migration is complete.
@@ -352,6 +356,17 @@ Remove the Next app as an active runtime and clean up supporting drift.
   - if yes, serve the Vite app for web too
   - if no, remove web-runtime-only scaffolding
 - Update README and design docs to describe the single-runtime model.
+
+### Implemented In This Phase
+
+- Deleted the old `frontend/app` Next App Router tree.
+- Removed the unused Next build config and moved the favicon into `public/`.
+- Collapsed `frontend/src/lib/app-routing.tsx` into the single React Router
+  implementation and removed the alias-based test/build shim.
+- Switched the active `dev`, `build`, `start`, and `typecheck` scripts to the
+  Vite/TypeScript toolchain.
+- Left some Next-oriented package/tooling dependencies in place temporarily,
+  but they are no longer part of the active runtime path.
 
 ### Likely Files
 

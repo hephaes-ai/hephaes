@@ -6,13 +6,6 @@ export default defineConfig({
   resolve: {
     alias: [
       {
-        find: "@/lib/app-routing",
-        replacement: path.resolve(
-          __dirname,
-          "src/lib/app-routing.react-router.tsx",
-        ),
-      },
-      {
         find: "@",
         replacement: path.resolve(__dirname, "src"),
       },
