@@ -9,12 +9,12 @@ function resolveTauriCommand() {
 function resolveMode(argv) {
   const explicitModeIndex = argv.indexOf("--mode")
   if (explicitModeIndex >= 0) {
-    return argv[explicitModeIndex + 1] === "sidecar" ? "sidecar" : "external"
+    return argv[explicitModeIndex + 1] === "external" ? "external" : "sidecar"
   }
 
-  return process.env.HEPHAES_TAURI_DEV_MODE?.trim().toLowerCase() === "sidecar"
-    ? "sidecar"
-    : "external"
+  return process.env.HEPHAES_TAURI_DEV_MODE?.trim().toLowerCase() === "external"
+    ? "external"
+    : "sidecar"
 }
 
 const mode = resolveMode(process.argv.slice(2))

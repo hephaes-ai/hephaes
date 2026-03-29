@@ -42,23 +42,27 @@ For the desktop shell, run:
 
 ```bash
 cd frontend
-npm run backend:dev
-```
-
-Then in another terminal:
-
-```bash
-cd frontend
 npm run tauri:dev
 ```
 
-`npm run backend:dev` uses a clean repo-local development data root at:
+`npm run tauri:dev` now defaults to the packaged backend sidecar in dev, so
+the desktop shell starts the backend automatically.
+
+If you want the backend by itself, `npm run backend:dev` still uses a clean
+repo-local development data root at:
 
 ```text
 <repo>/.dev/backend
 ```
 
-`npm run tauri:dev` now defaults to an external development backend at:
+If you want Tauri dev to connect to an already running external backend
+instead, use:
+
+```bash
+npm run tauri:dev:external
+```
+
+The default external backend URL is:
 
 ```text
 http://127.0.0.1:8000
@@ -67,13 +71,7 @@ http://127.0.0.1:8000
 If you want Tauri dev to use a different loopback backend URL, set:
 
 ```bash
-VITE_BACKEND_BASE_URL=http://127.0.0.1:9000 npm run tauri:dev
-```
-
-If you need the old bundled-backend workflow during development, use:
-
-```bash
-npm run tauri:dev:sidecar
+VITE_BACKEND_BASE_URL=http://127.0.0.1:9000 npm run tauri:dev:external
 ```
 
 ## Build

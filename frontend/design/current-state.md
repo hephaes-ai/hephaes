@@ -84,10 +84,10 @@ Current state:
 - Tauri startup is non-blocking
 - the startup screen stays mounted until runtime readiness or early failure
 - sidecar lifecycle updates flow into React through the runtime store
-- desktop development now defaults to an external backend at
-  `http://127.0.0.1:8000`
-- the recommended backend dev launcher is `frontend/package.json` ->
-  `npm run backend:dev`, which uses a clean repo-local `.dev/backend` data root
+- desktop development now defaults to the packaged backend sidecar
+- `frontend/package.json` still exposes `npm run backend:dev` for the
+  standalone external-backend workflow, using a clean repo-local `.dev/backend`
+  data root
 - packaged desktop builds still stage and launch the backend sidecar
 
 Primary files:

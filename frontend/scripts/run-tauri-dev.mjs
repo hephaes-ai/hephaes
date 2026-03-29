@@ -32,10 +32,15 @@ function runCommand(command, args, env) {
 }
 
 async function main() {
+  const explicitModeIndex = process.argv.indexOf("--mode")
   const mode =
-    process.env.HEPHAES_TAURI_DEV_MODE?.trim().toLowerCase() === "sidecar"
-      ? "sidecar"
-      : "external"
+    explicitModeIndex >= 0
+      ? process.argv[explicitModeIndex + 1] === "external"
+        ? "external"
+        : "sidecar"
+      : process.env.HEPHAES_TAURI_DEV_MODE?.trim().toLowerCase() === "external"
+        ? "external"
+        : "sidecar"
   const env = { ...process.env }
   const npmCommand = resolveNpmCommand()
 
@@ -56,7 +61,7 @@ async function main() {
   }
 
   console.log("[desktop:tauri-dev] staging the packaged backend sidecar for dev")
-  await runCommand(npmCommand, ["run", "tauri:prepare-backend"], env)
+  await runCommand(npmCommand, ["run", "tauri:prepare-backend:clean"], env)
   await runCommand(npmCommand, ["run", "dev"], env)
 }
 
