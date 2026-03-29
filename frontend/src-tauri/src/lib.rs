@@ -593,6 +593,12 @@ fn initialize_backend_runtime(app: &AppHandle) {
     }
 }
 
+fn initialize_backend_runtime_async(app: AppHandle) {
+    thread::spawn(move || {
+        initialize_backend_runtime(&app);
+    });
+}
+
 #[tauri::command]
 fn get_backend_runtime(state: tauri::State<'_, BackendProcessState>) -> BackendRuntimeSnapshot {
     state
@@ -625,7 +631,7 @@ pub fn run() {
 
     let app = builder
         .setup(|app| {
-            initialize_backend_runtime(app.handle());
+            initialize_backend_runtime_async(app.handle().clone());
             Ok(())
         })
         .build(tauri::generate_context!())

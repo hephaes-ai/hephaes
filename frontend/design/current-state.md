@@ -99,7 +99,6 @@ surface.
 Desktop-specific runtime behavior exists, but some assumptions still reflect
 the old web model:
 
-- startup is partly native-blocking and partly React-driven
 - desktop asset intake can still fall back to browser upload behavior
 
 ## 4. Feature ownership is not yet Vite-native
@@ -137,7 +136,9 @@ Current state:
 - runtime snapshot contract now includes explicit mode, status, and
   capabilities
 - frontend bootstrap exists
-- startup is still partially blocking from the Rust side
+- startup is now non-blocking from the Rust side
+- the startup screen stays mounted until the runtime reaches `ready` or an
+  early `failed` / `stopped` state
 
 Primary files:
 
@@ -235,7 +236,7 @@ This tracker follows `frontend/design/implementation.md`.
 Current phase status:
 
 - Phase 1 completed: define and stabilize the runtime boundary
-- Phase 2 pending: make desktop startup non-blocking and explicit
+- Phase 2 completed: make desktop startup non-blocking and explicit
 - Phase 3 pending: separate route ownership from the Next app tree
 - Phase 4 pending: migrate screens into Vite-owned route modules
 - Phase 5 pending: remove legacy web assumptions from asset ingestion
@@ -245,10 +246,10 @@ Current phase status:
 ## Migration Risks To Watch
 
 - route migration should not regress the newly normalized runtime contract
-- startup cleanup must preserve the runtime snapshot event contract introduced
-  in phase 1
 - asset-ingestion cleanup should consume runtime capabilities instead of adding
   new platform checks in feature components
+- route migration should not reintroduce blocking boot assumptions into screen
+  composition
 
 - route migration may stall if large screen modules are not split carefully
 - desktop startup fixes may be harder to validate if route/runtime cleanup is

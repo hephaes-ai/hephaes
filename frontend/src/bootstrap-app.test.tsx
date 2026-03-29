@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { render, screen, waitFor } from "@testing-library/react"
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react"
 
 import { BootstrapApp } from "@/bootstrap-app"
 import {
@@ -11,6 +11,7 @@ import {
 
 describe("BootstrapApp", () => {
   afterEach(() => {
+    cleanup()
     setFrontendRuntime(undefined)
   })
 
@@ -90,5 +91,107 @@ describe("BootstrapApp", () => {
     await waitFor(() => {
       expect(screen.getByText("ready app")).toBeInTheDocument()
     })
+  })
+
+  it("keeps the startup screen visible until a loading runtime becomes ready", async () => {
+    let resolveRuntime: (
+      value: FrontendRuntimeSnapshot | undefined
+    ) => void = () => undefined
+    const loadRuntime = vi
+      .fn<() => Promise<FrontendRuntimeSnapshot | undefined>>()
+      .mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            resolveRuntime = resolve
+          })
+      )
+
+    render(
+      <BootstrapApp
+        loadRuntime={loadRuntime}
+        readyFallback={<div>ready app</div>}
+      />
+    )
+
+    expect(screen.getByText("Launching Hephaes")).toBeInTheDocument()
+    expect(screen.queryByText("ready app")).not.toBeInTheDocument()
+
+    await act(async () => {
+      resolveRuntime(
+        normalizeFrontendRuntime({
+          baseUrl: "http://127.0.0.1:8123",
+          error: null,
+          mode: "desktop-sidecar",
+          status: "loading",
+        })
+      )
+    })
+
+    await act(async () => {
+      setFrontendRuntime(
+        normalizeFrontendRuntime({
+          baseUrl: "http://127.0.0.1:8123",
+          error: null,
+          mode: "desktop-sidecar",
+          status: "ready",
+        })
+      )
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText("ready app")).toBeInTheDocument()
+    })
+  })
+
+  it("renders the startup failure screen when the sidecar stops during startup", async () => {
+    let resolveRuntime: (
+      value: FrontendRuntimeSnapshot | undefined
+    ) => void = () => undefined
+    const loadRuntime = vi
+      .fn<() => Promise<FrontendRuntimeSnapshot | undefined>>()
+      .mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            resolveRuntime = resolve
+          })
+      )
+
+    render(
+      <BootstrapApp
+        loadRuntime={loadRuntime}
+        readyFallback={<div>ready app</div>}
+      />
+    )
+
+    await act(async () => {
+      resolveRuntime(
+        normalizeFrontendRuntime({
+          baseUrl: "http://127.0.0.1:8123",
+          error: null,
+          mode: "desktop-sidecar",
+          status: "loading",
+        })
+      )
+    })
+
+    await act(async () => {
+      setFrontendRuntime(
+        normalizeFrontendRuntime({
+          backendLogDir: "/tmp/hephaes/backend-logs",
+          baseUrl: "http://127.0.0.1:8123",
+          desktopLogDir: "/tmp/hephaes/desktop-logs",
+          error: "backend sidecar exited with status code 1",
+          mode: "desktop-sidecar",
+          status: "stopped",
+        })
+      )
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText("Backend startup failed")).toBeInTheDocument()
+    })
+    expect(
+      screen.getByText(/backend sidecar exited with status code 1/i)
+    ).toBeInTheDocument()
   })
 })

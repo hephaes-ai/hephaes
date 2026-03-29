@@ -3,6 +3,7 @@ import * as React from "react"
 import App from "@/App"
 import { AppProviders } from "@/components/app-providers"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { useFrontendRuntime } from "@/hooks/use-desktop-backend-runtime"
 import {
   loadFrontendRuntime,
   setFrontendRuntime,
@@ -70,6 +71,8 @@ export function BootstrapApp({
   const [state, setState] = React.useState<BootstrapState>({
     status: "loading",
   })
+  const [hasLoadedRuntime, setHasLoadedRuntime] = React.useState(false)
+  const [startupComplete, setStartupComplete] = React.useState(false)
 
   React.useEffect(() => {
     let cancelled = false
@@ -85,15 +88,7 @@ export function BootstrapApp({
         setFrontendRuntime(runtime)
       }
 
-      if (runtime?.status === "failed") {
-        setState({
-          runtime,
-          status: "failed",
-        })
-        return
-      }
-
-      setState({ status: "ready" })
+      setHasLoadedRuntime(true)
     }
 
     void bootstrap()
@@ -103,7 +98,37 @@ export function BootstrapApp({
     }
   }, [loadRuntime])
 
-  if (state.status === "loading") {
+  const runtime = useFrontendRuntime()
+
+  React.useEffect(() => {
+    if (!hasLoadedRuntime || !runtime) {
+      return
+    }
+
+    if (runtime.status === "ready") {
+      setStartupComplete(true)
+      setState({ status: "ready" })
+      return
+    }
+
+    if (!startupComplete && runtime.status === "loading") {
+      setState({ status: "loading" })
+      return
+    }
+
+    if (!startupComplete) {
+      setState({
+        runtime,
+        status: "failed",
+      })
+    }
+  }, [hasLoadedRuntime, runtime, startupComplete])
+
+  if (
+    !hasLoadedRuntime ||
+    state.status === "loading" ||
+    (!startupComplete && runtime?.status === "loading")
+  ) {
     return (
       <StartupScreen
         description="Starting the desktop runtime and preparing the backend connection."

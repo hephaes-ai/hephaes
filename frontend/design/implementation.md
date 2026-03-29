@@ -46,7 +46,7 @@ Out of scope:
 Current status:
 
 - Phase 1 completed on `2026-03-28`
-- Phase 2 pending
+- Phase 2 completed on `2026-03-28`
 - Phase 3 pending
 - Phase 4 pending
 - Phase 5 pending
@@ -121,6 +121,10 @@ Completed on `2026-03-28`.
 
 Make startup behavior match the intended desktop UX.
 
+### Status
+
+Completed on `2026-03-28`.
+
 ### Tasks
 
 - Move sidecar startup off the blocking Tauri setup path.
@@ -133,6 +137,19 @@ Make startup behavior match the intended desktop UX.
   - stopped-runtime state
 - Verify backend-status and runtime-monitor behavior against the new status
   model.
+
+### Implemented In This Phase
+
+- Moved backend runtime initialization off the blocking Tauri `.setup()` path
+  and into a background thread.
+- Kept the frontend startup screen mounted while the runtime snapshot remains
+  `loading`.
+- Made bootstrap state respond to live runtime updates so `loading -> ready`
+  and `loading -> failed/stopped` are observable in React.
+- Added bootstrap tests for:
+  - loading to ready
+  - loading to stopped before startup completes
+- Revalidated the desktop bundle after the startup lifecycle change.
 
 ### Likely Files
 
