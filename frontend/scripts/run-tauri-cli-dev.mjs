@@ -12,9 +12,9 @@ function resolveMode(argv) {
     return argv[explicitModeIndex + 1] === "external" ? "external" : "sidecar"
   }
 
-  return process.env.HEPHAES_TAURI_DEV_MODE?.trim().toLowerCase() === "external"
-    ? "external"
-    : "sidecar"
+  return process.env.HEPHAES_TAURI_DEV_MODE?.trim().toLowerCase() === "sidecar"
+    ? "sidecar"
+    : "external"
 }
 
 const mode = resolveMode(process.argv.slice(2))

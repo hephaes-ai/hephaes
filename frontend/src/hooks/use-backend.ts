@@ -169,6 +169,7 @@ export function useBackendCache() {
       undefined,
       {
         revalidate: true,
+        populateCache: false,
       }
     )
   }, [mutate])
