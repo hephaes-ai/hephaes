@@ -18,11 +18,6 @@ for import_path in (BACKEND_DIR, HEPHAES_SRC_DIR):
 
 
 @pytest.fixture()
-def backend_db_path(tmp_path: Path) -> Path:
-    return tmp_path / "backend_test.db"
-
-
-@pytest.fixture()
 def backend_outputs_dir(tmp_path: Path) -> Path:
     return tmp_path / "outputs"
 
@@ -42,13 +37,11 @@ def sample_asset_file(tmp_path: Path) -> Path:
 @pytest.fixture()
 def client(
     monkeypatch: pytest.MonkeyPatch,
-    backend_db_path: Path,
     backend_outputs_dir: Path,
     backend_raw_data_dir: Path,
     tmp_path: Path,
 ):
     monkeypatch.setenv("HEPHAES_BACKEND_DATA_DIR", str(tmp_path / "data"))
-    monkeypatch.setenv("HEPHAES_BACKEND_DB_PATH", str(backend_db_path))
     monkeypatch.setenv("HEPHAES_BACKEND_OUTPUTS_DIR", str(backend_outputs_dir))
     monkeypatch.setenv("HEPHAES_BACKEND_RAW_DATA_DIR", str(backend_raw_data_dir))
     monkeypatch.setenv("HEPHAES_BACKEND_LOG_DIR", str(tmp_path / "logs"))

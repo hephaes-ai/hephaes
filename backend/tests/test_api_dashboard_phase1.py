@@ -8,7 +8,6 @@ from fastapi.testclient import TestClient
 
 from app.services import conversions as conversion_service
 from app.services import indexing as indexing_service
-from app.services.jobs import JobService
 from hephaes.models import BagMetadata, Topic
 
 
@@ -107,7 +106,7 @@ def test_phase1_dashboard_routes_support_mixed_operational_states(
     failed_asset.write_bytes(b"failed")
 
     indexed_asset_id = register_asset(client, indexed_asset).json()["id"]
-    pending_asset_id = register_asset(client, pending_asset).json()["id"]
+    _pending_asset_id = register_asset(client, pending_asset).json()["id"]
     failed_asset_id = register_asset(client, failed_asset).json()["id"]
 
     def fake_profile(file_path: str) -> BagMetadata:
@@ -125,24 +124,6 @@ def test_phase1_dashboard_routes_support_mixed_operational_states(
 
     assert indexed_response.status_code == 200
     assert failed_response.status_code == 422
-
-    session = client.app.state.session_factory()
-    try:
-        job_service = JobService(session)
-        queued_job = job_service.create_job(
-            job_type="prepare_visualization",
-            target_asset_ids=[indexed_asset_id],
-            config={"execution": "manual", "trigger": "dashboard_test"},
-        )
-        running_job = job_service.create_job(
-            job_type="prepare_visualization",
-            target_asset_ids=[pending_asset_id],
-            config={"execution": "manual", "trigger": "dashboard_test"},
-        )
-        job_service.mark_job_running(running_job.id)
-        assert queued_job.status == "queued"
-    finally:
-        session.close()
 
     install_dashboard_converter(monkeypatch)
     successful_conversion = client.post(

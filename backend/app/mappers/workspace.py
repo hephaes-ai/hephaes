@@ -9,11 +9,9 @@ from app.schemas.assets import (
     AssetMetadataResponse,
     AssetSummary,
     DefaultEpisodeSummary,
-    EpisodeSummaryResponse,
     IndexedTopicSummary,
     TagCatalogResponse,
     TagResponse,
-    VisualizationSummary,
 )
 from app.schemas.conversion_authoring import (
     ConversionInspectionRequest,
@@ -50,7 +48,7 @@ from hephaes import (
 
 
 def asset_display_path(asset: RegisteredAsset) -> str:
-    return asset.source_path or asset.file_path
+    return asset.file_path
 
 
 def map_asset_summary(asset: RegisteredAsset) -> AssetSummary:
@@ -130,38 +128,7 @@ def map_asset_metadata(metadata: IndexedAssetMetadata) -> AssetMetadataResponse:
             )
             for topic in metadata.topics
         ],
-        visualization_summary=(
-            VisualizationSummary(
-                default_lane_count=metadata.visualization_summary.default_lane_count,
-                has_visualizable_streams=metadata.visualization_summary.has_visualizable_streams,
-            )
-            if metadata.visualization_summary is not None
-            else None
-        ),
     )
-
-
-def map_episode_summary(metadata: IndexedAssetMetadata) -> list[EpisodeSummaryResponse]:
-    if metadata.default_episode is None:
-        return []
-    visualization_summary = metadata.visualization_summary
-    return [
-        EpisodeSummaryResponse(
-            default_lane_count=(
-                visualization_summary.default_lane_count if visualization_summary is not None else 0
-            ),
-            duration=metadata.default_episode.duration,
-            end_time=metadata.end_time,
-            episode_id=metadata.default_episode.episode_id,
-            has_visualizable_streams=(
-                visualization_summary.has_visualizable_streams
-                if visualization_summary is not None
-                else False
-            ),
-            label=metadata.default_episode.label,
-            start_time=metadata.start_time,
-        )
-    ]
 
 
 def _map_job_type(kind: str) -> str:
@@ -440,7 +407,6 @@ def map_output_summary(
         size_bytes=0,
         availability_status="ready",
         metadata={},
-        latest_action=None,
         content_url=content_url,
         created_at=artifact.created_at,
         updated_at=artifact.created_at,

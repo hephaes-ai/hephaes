@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { ArrowLeft, ArrowRight, ArrowRightLeft, Database, Eye, RefreshCw, Waves } from "lucide-react";
+import { ArrowLeft, ArrowRight, ArrowRightLeft, Database, RefreshCw, Waves } from "lucide-react";
 
 import { AssetStatusBadge } from "@/components/asset-status-badge";
 import { EmptyState } from "@/components/empty-state";
@@ -50,7 +50,6 @@ import {
 import { buildConversionHref, buildJobDetailHref, resolveReturnHref } from "@/lib/navigation";
 import { buildOutputsHref } from "@/lib/outputs";
 import type { NoticeMessage } from "@/lib/types";
-import { buildReplayHref } from "@/lib/visualization";
 
 function AssetDetailSkeleton() {
   return (
@@ -182,12 +181,6 @@ export function AssetDetailPage({ assetId }: { assetId: string }) {
   const modalitySummary = Array.from(modalityCounts.entries()).sort(([left], [right]) =>
     left.localeCompare(right),
   );
-  const canReplay = Boolean(metadata?.visualization_summary?.has_visualizable_streams && data.episodes.length > 0);
-  const replayHref = buildReplayHref({
-    assetId: asset.id,
-    episodeId: data.episodes.length === 1 ? data.episodes[0].episode_id : null,
-    from: currentDetailHref,
-  });
   const convertHref = buildConversionHref({
     assetIds: [asset.id],
     from: currentDetailHref,
@@ -355,14 +348,6 @@ export function AssetDetailPage({ assetId }: { assetId: string }) {
           </div>
           <div className="flex shrink-0 flex-wrap items-center gap-2">
             <AssetStatusBadge status={effectiveStatus} />
-            {canReplay ? (
-              <Button asChild size="sm" type="button" variant="secondary">
-                <Link href={replayHref}>
-                  <Eye className="size-3.5" />
-                  Replay
-                </Link>
-              </Button>
-            ) : null}
             {conversions.length > 0 ? (
               <Button asChild size="sm" type="button" variant="outline">
                 <Link href={buildOutputsHref({ assetId: asset.id })}>View outputs</Link>
@@ -398,7 +383,7 @@ export function AssetDetailPage({ assetId }: { assetId: string }) {
 
       {effectiveStatus === "pending" && !metadata ? (
         <InlineNotice
-          description="Run indexing to extract duration, topic summaries, and replay readiness for this asset."
+          description="Run indexing to extract duration, topic summaries, and other recorded metadata for this asset."
           title="This asset has not been indexed yet"
           tone="info"
         />
@@ -492,14 +477,6 @@ export function AssetDetailPage({ assetId }: { assetId: string }) {
                 <MetadataField label="End time" value={formatDateTime(metadata.end_time)} />
                 <MetadataField label="Topic count" value={metadata.topic_count} />
                 <MetadataField label="Message count" value={metadata.message_count} />
-                <MetadataField
-                  label="Replay data"
-                  value={metadata.visualization_summary?.has_visualizable_streams ? "Available" : "Not available"}
-                />
-                <MetadataField
-                  label="Replay lanes"
-                  value={metadata.visualization_summary?.default_lane_count ?? "Not available"}
-                />
               </dl>
 
               <div className="space-y-2">
@@ -557,7 +534,7 @@ export function AssetDetailPage({ assetId }: { assetId: string }) {
             />
           ) : (
             <EmptyState variant="card"
-              description="Use the index action above to extract duration, topic summaries, and replay readiness."
+              description="Use the index action above to extract duration, topic summaries, and recorded metadata."
               title="Metadata has not been generated"
             />
           )}
@@ -606,7 +583,7 @@ export function AssetDetailPage({ assetId }: { assetId: string }) {
               ))
             ) : (
               <EmptyState variant="card"
-                description="Jobs will appear here after indexing, conversion, or replay-preparation runs are started for this asset."
+                description="Jobs will appear here after indexing or conversion runs are started for this asset."
                 title="No related jobs yet"
               />
             )}
@@ -675,21 +652,6 @@ export function AssetDetailPage({ assetId }: { assetId: string }) {
             </CardTitle>
             <CardDescription>Indexed topics, modalities, and stream rates.</CardDescription>
           </div>
-          {metadata?.visualization_summary ? (
-            <Badge
-              className={
-                metadata.visualization_summary.has_visualizable_streams
-                  ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-900 dark:text-emerald-200"
-                  : ""
-              }
-              variant={metadata.visualization_summary.has_visualizable_streams ? "outline" : "secondary"}
-            >
-              <Eye className="size-3.5" />
-              {metadata.visualization_summary.has_visualizable_streams
-                ? `${metadata.visualization_summary.default_lane_count} replay lane${metadata.visualization_summary.default_lane_count === 1 ? "" : "s"} ready`
-                : "No replay streams"}
-            </Badge>
-          ) : null}
         </CardHeader>
         <CardContent>
           {metadata?.topics.length ? (

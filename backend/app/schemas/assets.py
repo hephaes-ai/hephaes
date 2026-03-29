@@ -216,32 +216,6 @@ class DefaultEpisodeSummary(BaseModel):
     label: str = Field(min_length=1)
 
 
-class VisualizationSummary(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    default_lane_count: int = Field(ge=0)
-    has_visualizable_streams: bool
-
-
-class EpisodeSummaryResponse(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    default_lane_count: int = Field(ge=0)
-    duration: float = Field(ge=0)
-    end_time: datetime | None = None
-    episode_id: str = Field(min_length=1)
-    has_visualizable_streams: bool
-    label: str = Field(min_length=1)
-    start_time: datetime | None = None
-
-    @field_validator("start_time", "end_time", mode="before")
-    @classmethod
-    def normalize_episode_datetimes_to_utc(cls, value: datetime | None) -> datetime | None:
-        if value is None or value.tzinfo is not None:
-            return value
-        return value.replace(tzinfo=UTC)
-
-
 class AssetMetadataResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -255,7 +229,6 @@ class AssetMetadataResponse(BaseModel):
     start_time: datetime | None = None
     topic_count: int = Field(ge=0)
     topics: list[IndexedTopicSummary]
-    visualization_summary: VisualizationSummary | None = None
 
     @field_validator("start_time", "end_time", mode="before")
     @classmethod
@@ -305,6 +278,5 @@ class AssetDetailResponse(BaseModel):
     asset: AssetSummary
     metadata: AssetMetadataResponse | None = None
     tags: list[TagResponse] = Field(default_factory=list)
-    episodes: list[EpisodeSummaryResponse] = Field(default_factory=list)
     related_jobs: list[JobResponse] = Field(default_factory=list)
     conversions: list[ConversionSummaryResponse] = Field(default_factory=list)

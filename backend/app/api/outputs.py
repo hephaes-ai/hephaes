@@ -8,33 +8,19 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import FileResponse
 from pydantic import ValidationError
 from pathlib import Path
-from sqlalchemy.orm import Session
 
 from app.api._status import HTTP_422_UNPROCESSABLE_CONTENT
-from app.db.session import get_db_session
 from app.dependencies import get_workspace
 from app.mappers.workspace import map_output_detail
 from app.schemas.outputs import (
-    OutputActionCreateRequest,
-    OutputActionDetailResponse,
-    OutputActionSummaryResponse,
     OutputArtifactDetailResponse,
     OutputArtifactSummaryResponse,
     OutputListQueryParams,
-)
-from app.services.output_actions import (
-    OutputActionNotFoundError,
-    OutputActionService,
-    OutputActionValidationError,
-    get_latest_output_actions,
-    get_output_action_or_raise,
-    list_output_actions_for_output,
 )
 from hephaes import OutputArtifactNotFoundError, Workspace
 
 router = APIRouter(prefix="/outputs", tags=["outputs"])
 output_actions_router = APIRouter(prefix="/output-actions", tags=["outputs"])
-DbSession = Annotated[Session, Depends(get_db_session)]
 WorkspaceDep = Annotated[Workspace, Depends(get_workspace)]
 
 
@@ -111,8 +97,6 @@ def _normalize_output_metadata(metadata: dict) -> dict:
 def _workspace_output_summary_response(
     workspace: Workspace,
     artifact,
-    *,
-    latest_action: OutputActionSummaryResponse | None = None,
 ) -> OutputArtifactSummaryResponse:
     detail = map_output_detail(
         artifact,
@@ -122,15 +106,12 @@ def _workspace_output_summary_response(
     payload = detail.model_dump()
     payload.pop("file_path", None)
     payload["metadata"] = _normalize_output_metadata(payload.get("metadata", {}))
-    payload["latest_action"] = latest_action.model_dump() if latest_action is not None else None
     return OutputArtifactSummaryResponse.model_validate(payload)
 
 
 def _workspace_output_detail_response(
     workspace: Workspace,
     artifact,
-    *,
-    latest_action: OutputActionSummaryResponse | None = None,
 ) -> OutputArtifactDetailResponse:
     detail = map_output_detail(
         artifact,
@@ -139,7 +120,6 @@ def _workspace_output_detail_response(
     )
     payload = detail.model_dump()
     payload["metadata"] = _normalize_output_metadata(payload.get("metadata", {}))
-    payload["latest_action"] = latest_action.model_dump() if latest_action is not None else None
     return OutputArtifactDetailResponse.model_validate(payload)
 
 
@@ -209,27 +189,9 @@ def _refresh_workspace_artifacts(workspace: Workspace, artifacts: list) -> list:
     return [refreshed_by_id[artifact.id] for artifact in artifacts]
 
 
-def build_output_action_summary_response(action) -> OutputActionSummaryResponse:
-    return OutputActionSummaryResponse(
-        id=action.id,
-        output_id=action.output_artifact_id,
-        action_type=action.action_type,
-        status=action.status,
-        config=dict(action.config_json),
-        result=dict(action.result_json),
-        output_path=action.output_path,
-        error_message=action.error_message,
-        created_at=action.created_at,
-        updated_at=action.updated_at,
-        started_at=action.started_at,
-        finished_at=action.finished_at,
-    )
-
-
 @router.get("", response_model=list[OutputArtifactSummaryResponse])
 def list_outputs_route(
     workspace: WorkspaceDep,
-    session: DbSession,
     query: Annotated[OutputListQueryParams, Depends(parse_list_outputs_query)],
 ) -> list[OutputArtifactSummaryResponse]:
     artifacts = _refresh_workspace_artifacts(workspace, [
@@ -241,19 +203,8 @@ def list_outputs_route(
         for artifact in artifacts
         if _workspace_output_matches_filters(workspace, artifact, query)
     ]
-    latest_actions = {
-        output_id: build_output_action_summary_response(action)
-        for output_id, action in get_latest_output_actions(
-            session,
-            [artifact.id for artifact in filtered_artifacts],
-        ).items()
-    }
     responses = [
-        _workspace_output_summary_response(
-            workspace,
-            artifact,
-            latest_action=latest_actions.get(artifact.id),
-        )
+        _workspace_output_summary_response(workspace, artifact)
         for artifact in filtered_artifacts
     ]
     responses.sort(key=lambda artifact: (artifact.created_at, artifact.id), reverse=True)
@@ -264,7 +215,6 @@ def list_outputs_route(
 def get_output_route(
     output_id: str,
     workspace: WorkspaceDep,
-    session: DbSession,
 ) -> OutputArtifactDetailResponse:
     workspace_artifact = workspace.get_output_artifact(output_id)
     if workspace_artifact is None:
@@ -273,16 +223,7 @@ def get_output_route(
             detail=f"output artifact not found: {output_id}",
         )
     workspace_artifact = _refresh_workspace_artifact(workspace, workspace_artifact)
-    latest_action = get_latest_output_actions(session, [output_id]).get(output_id)
-    return _workspace_output_detail_response(
-        workspace,
-        workspace_artifact,
-        latest_action=(
-            build_output_action_summary_response(latest_action)
-            if latest_action is not None
-            else None
-        ),
-    )
+    return _workspace_output_detail_response(workspace, workspace_artifact)
 
 
 @router.get("/{output_id}/content")
@@ -309,85 +250,4 @@ def get_output_content_route(
         path=str(artifact_path),
         media_type=media_type,
         filename=file_name,
-    )
-
-
-@router.post("/{output_id}/actions", response_model=OutputActionDetailResponse, status_code=status.HTTP_201_CREATED)
-def create_output_action_route(
-    output_id: str,
-    payload: OutputActionCreateRequest,
-    workspace: WorkspaceDep,
-    session: DbSession,
-) -> OutputActionDetailResponse:
-    service = OutputActionService(session, workspace)
-
-    try:
-        action = service.create_action(
-            output_id=output_id,
-            action_type=payload.action_type,
-            config=payload.config,
-        )
-    except OutputActionValidationError as exc:
-        detail = str(exc)
-        status_code = (
-            status.HTTP_404_NOT_FOUND
-            if "not found" in detail.casefold()
-            else HTTP_422_UNPROCESSABLE_CONTENT
-        )
-        raise HTTPException(status_code=status_code, detail=detail) from exc
-
-    artifact = workspace.get_output_artifact_or_raise(action.output_artifact_id)
-    return OutputActionDetailResponse(
-        **build_output_action_summary_response(action).model_dump(),
-        output_file_path=artifact.output_path,
-    )
-
-
-@router.get("/{output_id}/actions", response_model=list[OutputActionSummaryResponse])
-def list_output_actions_route(
-    output_id: str,
-    workspace: WorkspaceDep,
-    session: DbSession,
-) -> list[OutputActionSummaryResponse]:
-    try:
-        workspace.get_output_artifact_or_raise(output_id)
-        actions = list_output_actions_for_output(session, output_id)
-    except OutputArtifactNotFoundError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-
-    return [build_output_action_summary_response(action) for action in actions]
-
-
-@router.get("/actions/{action_id}", response_model=OutputActionDetailResponse)
-def get_output_action_route(
-    action_id: str,
-    workspace: WorkspaceDep,
-    session: DbSession,
-) -> OutputActionDetailResponse:
-    return _build_output_action_detail_response(action_id, workspace, session)
-
-
-@output_actions_router.get("/{action_id}", response_model=OutputActionDetailResponse)
-def get_output_action_route_alias(
-    action_id: str,
-    workspace: WorkspaceDep,
-    session: DbSession,
-) -> OutputActionDetailResponse:
-    return _build_output_action_detail_response(action_id, workspace, session)
-
-
-def _build_output_action_detail_response(
-    action_id: str,
-    workspace: Workspace,
-    session: DbSession,
-) -> OutputActionDetailResponse:
-    try:
-        action = get_output_action_or_raise(session, action_id)
-    except OutputActionNotFoundError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-
-    artifact = workspace.get_output_artifact(action.output_artifact_id)
-    return OutputActionDetailResponse(
-        **build_output_action_summary_response(action).model_dump(),
-        output_file_path=artifact.output_path if artifact is not None else None,
     )

@@ -14,7 +14,6 @@ function buildBaseOutput(): OutputDetail {
     format: "tfrecord",
     id: "output-1",
     job_id: "job-1",
-    latest_action: null,
     media_type: "application/octet-stream",
     metadata: {
       manifest: {

@@ -45,8 +45,34 @@ cd frontend
 npm run tauri:dev
 ```
 
-If `VITE_BACKEND_BASE_URL` is unset, `npm run tauri:dev` will launch the
-bundled backend sidecar automatically.
+`npm run tauri:dev` now defaults to the packaged backend sidecar in dev, so
+the desktop shell starts the backend automatically.
+
+If you want the backend by itself, `npm run backend:dev` still uses a clean
+repo-local development data root at:
+
+```text
+<repo>/.dev/backend
+```
+
+If you want Tauri dev to connect to an already running external backend
+instead, use:
+
+```bash
+npm run tauri:dev:external
+```
+
+The default external backend URL is:
+
+```text
+http://127.0.0.1:8000
+```
+
+If you want Tauri dev to use a different loopback backend URL, set:
+
+```bash
+VITE_BACKEND_BASE_URL=http://127.0.0.1:9000 npm run tauri:dev:external
+```
 
 ## Build
 

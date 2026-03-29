@@ -16,7 +16,6 @@ def test_get_settings_uses_desktop_defaults_when_desktop_mode_is_enabled(monkeyp
         "HEPHAES_BACKEND_DATA_DIR",
         "HEPHAES_BACKEND_RAW_DATA_DIR",
         "HEPHAES_BACKEND_OUTPUTS_DIR",
-        "HEPHAES_BACKEND_DB_PATH",
         "HEPHAES_BACKEND_LOG_DIR",
         "HEPHAES_BACKEND_CORS_ALLOW_ORIGIN_REGEX",
     ):
@@ -31,7 +30,6 @@ def test_get_settings_uses_desktop_defaults_when_desktop_mode_is_enabled(monkeyp
     assert settings.raw_data_dir == expected_data_dir / "raw"
     assert settings.outputs_dir == expected_data_dir / "outputs"
     assert settings.log_dir == expected_data_dir / "logs"
-    assert settings.database_path == expected_data_dir / "app.db"
 
     clear_settings_cache()
 
@@ -41,14 +39,12 @@ def test_get_settings_prefers_explicit_env_paths(monkeypatch, tmp_path: Path):
     raw_dir = tmp_path / "raw"
     outputs_dir = tmp_path / "outputs"
     log_dir = tmp_path / "logs"
-    db_path = tmp_path / "db" / "app.db"
     cors_regex = r"https?://example\.com(:\d+)?"
 
     monkeypatch.setenv("HEPHAES_BACKEND_DATA_DIR", str(data_dir))
     monkeypatch.setenv("HEPHAES_BACKEND_RAW_DATA_DIR", str(raw_dir))
     monkeypatch.setenv("HEPHAES_BACKEND_OUTPUTS_DIR", str(outputs_dir))
     monkeypatch.setenv("HEPHAES_BACKEND_LOG_DIR", str(log_dir))
-    monkeypatch.setenv("HEPHAES_BACKEND_DB_PATH", str(db_path))
     monkeypatch.setenv("HEPHAES_BACKEND_CORS_ALLOW_ORIGIN_REGEX", cors_regex)
 
     clear_settings_cache()
@@ -58,7 +54,6 @@ def test_get_settings_prefers_explicit_env_paths(monkeypatch, tmp_path: Path):
     assert settings.raw_data_dir == raw_dir
     assert settings.outputs_dir == outputs_dir
     assert settings.log_dir == log_dir
-    assert settings.database_path == db_path
     assert settings.cors_allow_origin_regex == cors_regex
 
     clear_settings_cache()

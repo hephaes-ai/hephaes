@@ -34,10 +34,6 @@ class InvalidAssetUploadError(AssetServiceError):
     """Raised when an uploaded file is invalid or unsupported."""
 
 
-class EpisodeDiscoveryUnavailableError(AssetServiceError):
-    """Raised when episode summaries are not available for an asset."""
-
-
 @dataclass(frozen=True)
 class AssetRegistrationSkip:
     """Reason a selected file could not be added to the registry."""

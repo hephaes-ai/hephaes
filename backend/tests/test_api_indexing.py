@@ -104,10 +104,6 @@ def test_index_asset_success(client: TestClient, monkeypatch, sample_asset_file:
                 "rate_hz": 20.0,
             },
         ],
-        "visualization_summary": {
-            "default_lane_count": 2,
-            "has_visualizable_streams": True,
-        },
     }
 
     detail_response = client.get(f"/assets/{asset_id}")

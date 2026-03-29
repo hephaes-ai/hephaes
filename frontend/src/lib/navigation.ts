@@ -130,10 +130,6 @@ export function buildHref(
   return query ? `${pathname}?${query}` : pathname;
 }
 
-export function buildInventoryReplayHref(assetId: string, returnHref: string) {
-  return buildHref("/replay", { asset_id: assetId, from: returnHref });
-}
-
 export function resolveReturnHref(from: string | null | undefined, fallbackHref: string) {
   if (!from) {
     return fallbackHref;

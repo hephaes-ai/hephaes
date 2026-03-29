@@ -1,28 +1,18 @@
 "use client";
 
-import * as React from "react";
-import {
-  ArrowRight,
-  Copy,
-  ExternalLink,
-  Sparkles,
-  Wrench,
-} from "lucide-react";
+import { ArrowRight, Copy, ExternalLink } from "lucide-react";
 
 import { MetadataField } from "@/components/metadata-field";
 import { OutputAvailabilityBadge } from "@/components/output-availability-badge";
-import { WorkflowStatusBadge } from "@/components/workflow-status-badge";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import type { AssetSummary, OutputActionDetail, OutputDetail, OutputRole } from "@/lib/api";
-import { getErrorMessage, resolveBackendUrl } from "@/lib/api";
+import type { AssetSummary, OutputDetail, OutputRole } from "@/lib/api";
+import { resolveBackendUrl } from "@/lib/api";
 import { AppLink } from "@/lib/app-routing";
 import {
   formatDateTime,
   formatFileSize,
-  formatOutputActionType,
   formatOutputAvailability,
   formatOutputFormat,
   formatOutputRole,
@@ -83,42 +73,6 @@ function getPayloadRepresentation(
     nullEncoding: getStringValue(payloadRepresentation?.null_encoding),
     payloadEncoding: getStringValue(payloadRepresentation?.payload_encoding),
   };
-}
-
-export function formatOutputActionSummary(action: OutputActionDetail) {
-  if (action.error_message) {
-    return action.error_message;
-  }
-
-  if (action.status === "queued") {
-    return "Queued on the backend.";
-  }
-
-  if (action.status === "running") {
-    return "Running on the backend now.";
-  }
-
-  if (action.action_type === "refresh_metadata") {
-    const availability = getStringValue(action.result.availability_status);
-    const sizeBytes = getNumberValue(action.result.size_bytes);
-    const parts = ["Metadata refreshed"];
-
-    if (availability) {
-      parts.push(formatOutputAvailability(availability));
-    }
-
-    if (sizeBytes !== null) {
-      parts.push(formatFileSize(sizeBytes));
-    }
-
-    return parts.join(" . ");
-  }
-
-  if (Object.keys(action.result).length > 0) {
-    return "Completed and returned a result payload.";
-  }
-
-  return action.status === "succeeded" ? "Completed." : "No summary available yet.";
 }
 
 export function buildOutputPreview(output: OutputDetail) {
@@ -214,12 +168,6 @@ export function buildOutputPreview(output: OutputDetail) {
       label: "Media type",
       value: output.media_type ?? "Not available",
     });
-  }
-
-  if (output.latest_action) {
-    notes.push(
-      `Latest backend action: ${formatOutputActionType(output.latest_action.action_type)} (${formatOutputActionSummary(output.latest_action)}).`,
-    );
   }
 
   if (notes.length === 0) {
@@ -359,28 +307,14 @@ export function OutputPreviewPanel({ output }: { output: OutputDetail }) {
 export function OutputDetailContent({
   assetsById,
   currentHref,
-  isRefreshing,
   onCopyReference,
-  onCopyResultJson,
-  onRefreshMetadata,
-  onShowVlmTaggingStub,
   output,
-  outputActions,
-  outputActionsError,
 }: {
   assetsById: Map<string, AssetSummary>;
   currentHref: string;
-  isRefreshing: boolean;
   onCopyReference: (output: OutputDetail) => Promise<void>;
-  onCopyResultJson: (action: OutputActionDetail) => Promise<void>;
-  onRefreshMetadata: (outputs: OutputDetail[]) => Promise<void>;
-  onShowVlmTaggingStub: (scopeLabel: string) => void;
   output: OutputDetail;
-  outputActions: OutputActionDetail[];
-  outputActionsError: unknown;
 }) {
-  const latestAction = output.latest_action;
-
   return (
     <div className="space-y-6">
       <Card>
@@ -396,20 +330,6 @@ export function OutputDetailContent({
             <Button onClick={() => void onCopyReference(output)} size="sm" type="button" variant="outline">
               <Copy className="size-3.5" />
               Copy reference
-            </Button>
-            <Button
-              disabled={isRefreshing}
-              onClick={() => void onRefreshMetadata([output])}
-              size="sm"
-              type="button"
-              variant="outline"
-            >
-              <Wrench className="size-3.5" />
-              Refresh metadata
-            </Button>
-            <Button onClick={() => onShowVlmTaggingStub(output.file_name)} size="sm" type="button">
-              <Sparkles className="size-3.5" />
-              VLM tagging soon
             </Button>
           </div>
         </CardHeader>
@@ -436,16 +356,6 @@ export function OutputDetailContent({
               </dd>
             </div>
           </dl>
-
-          {latestAction ? (
-            <div className="space-y-2 rounded-lg border bg-muted/15 px-3 py-3">
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge variant="outline">{formatOutputActionType(latestAction.action_type)}</Badge>
-                <WorkflowStatusBadge status={latestAction.status} />
-              </div>
-              <p className="text-sm text-foreground">{formatOutputActionSummary(latestAction)}</p>
-            </div>
-          ) : null}
 
           <div className="space-y-2">
             <p className="text-xs uppercase tracking-wide text-muted-foreground">Source assets</p>
@@ -488,104 +398,6 @@ export function OutputDetailContent({
           </CardContent>
         </Card>
       ) : null}
-
-      <Card>
-        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <CardTitle>Compute actions</CardTitle>
-            <CardDescription>
-              Refresh backend metadata now, and leave room for future actions like VLM tagging.
-            </CardDescription>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Button
-              disabled={isRefreshing}
-              onClick={() => void onRefreshMetadata([output])}
-              size="sm"
-              type="button"
-              variant="outline"
-            >
-              <Wrench className="size-3.5" />
-              Refresh metadata
-            </Button>
-            <Button onClick={() => onShowVlmTaggingStub(output.file_name)} size="sm" type="button">
-              <Sparkles className="size-3.5" />
-              VLM tagging soon
-            </Button>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {outputActionsError ? (
-            <Alert variant="destructive">
-              <AlertTitle>Could not load output actions</AlertTitle>
-              <AlertDescription>{getErrorMessage(outputActionsError)}</AlertDescription>
-            </Alert>
-          ) : null}
-
-          {outputActions.length > 0 ? (
-            outputActions.map((action) => (
-              <div key={action.id} className="space-y-3 rounded-xl border bg-muted/15 px-4 py-4">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="min-w-0 space-y-1">
-                    <p className="text-sm font-medium text-foreground">
-                      {formatOutputActionType(action.action_type)}
-                    </p>
-                    <p className="break-all font-mono text-xs text-muted-foreground">{action.id}</p>
-                  </div>
-                  <WorkflowStatusBadge status={action.status} />
-                </div>
-                <dl className="grid gap-3 sm:grid-cols-2">
-                  <MetadataField label="Created" value={formatDateTime(action.created_at)} />
-                  <MetadataField label="Finished" value={formatDateTime(action.finished_at)} />
-                  <MetadataField label="Action type" value={formatOutputActionType(action.action_type)} />
-                  <MetadataField label="Started" value={formatDateTime(action.started_at)} />
-                </dl>
-                <p className="text-sm text-foreground">{formatOutputActionSummary(action)}</p>
-                {action.output_file_path ? (
-                  <div className="space-y-1">
-                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Output file path</p>
-                    <p className="break-all text-sm text-foreground">{action.output_file_path}</p>
-                  </div>
-                ) : null}
-                {action.output_path ? (
-                  <div className="space-y-1">
-                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Result path</p>
-                    <p className="break-all text-sm text-foreground">{action.output_path}</p>
-                  </div>
-                ) : null}
-                {Object.keys(action.config).length > 0 ? (
-                  <div className="space-y-2">
-                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Config</p>
-                    <pre className="overflow-x-auto rounded-lg border bg-muted/20 p-3 text-xs text-foreground">
-                      {JSON.stringify(action.config, null, 2)}
-                    </pre>
-                  </div>
-                ) : null}
-                {Object.keys(action.result).length > 0 ? (
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between gap-3">
-                      <p className="text-xs uppercase tracking-wide text-muted-foreground">Result JSON</p>
-                      <Button onClick={() => void onCopyResultJson(action)} size="sm" type="button" variant="ghost">
-                        Copy JSON
-                      </Button>
-                    </div>
-                    <pre className="overflow-x-auto rounded-lg border bg-muted/20 p-3 text-xs text-foreground">
-                      {JSON.stringify(action.result, null, 2)}
-                    </pre>
-                  </div>
-                ) : null}
-              </div>
-            ))
-          ) : (
-            <div className="rounded-lg border border-dashed px-4 py-8 text-sm text-muted-foreground">
-              <p className="font-medium text-foreground">No backend actions yet</p>
-              <p className="mt-2">
-                Run `Refresh metadata` when you want the backend to rescan the artifact and update its catalog record.
-              </p>
-            </div>
-          )}
-        </CardContent>
-      </Card>
     </div>
   );
 }

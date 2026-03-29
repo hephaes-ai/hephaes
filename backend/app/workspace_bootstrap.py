@@ -8,8 +8,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from hephaes import (
-    UnsupportedWorkspaceSchemaError,
     Workspace,
+    WorkspaceError,
     WorkspaceNotFoundError,
 )
 from hephaes.workspace.schema import WORKSPACE_DIRNAME
@@ -18,13 +18,30 @@ from app.config import Settings
 
 logger = logging.getLogger(__name__)
 
+try:
+    from hephaes import UnsupportedWorkspaceSchemaError
+except ImportError:
+    UnsupportedWorkspaceSchemaError = None
+
+
+def _is_unsupported_workspace_schema_error(exc: WorkspaceError) -> bool:
+    if (
+        UnsupportedWorkspaceSchemaError is not None
+        and isinstance(exc, UnsupportedWorkspaceSchemaError)
+    ):
+        return True
+
+    return "unsupported workspace schema version" in str(exc).lower()
+
 
 def resolve_backend_workspace(settings: Settings) -> Workspace:
     try:
         return Workspace.open(settings.workspace_root)
     except WorkspaceNotFoundError:
         return Workspace.init(settings.workspace_root, exist_ok=True)
-    except UnsupportedWorkspaceSchemaError as exc:
+    except WorkspaceError as exc:
+        if not _is_unsupported_workspace_schema_error(exc):
+            raise
         if not settings.desktop_mode:
             raise
 

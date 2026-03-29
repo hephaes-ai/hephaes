@@ -10,8 +10,12 @@ from app.schemas.conversion_authoring import (
     ConversionInspectionRequest,
     ConversionPreviewRequest,
 )
-from app.services.episodes import open_asset_reader
 from hephaes import AssetNotFoundError, Workspace, build_conversion_capabilities
+from hephaes.reader import RosReader
+
+
+def open_asset_reader(file_path: str):
+    return RosReader.open(file_path)
 from hephaes.conversion import (
     build_draft_conversion_spec,
     inspect_reader,

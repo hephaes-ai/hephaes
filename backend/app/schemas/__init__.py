@@ -11,12 +11,8 @@ from app.schemas.assets import (
     IndexedTopicSummary,
     IndexingStatus,
     ReindexAllResponse,
-    VisualizationSummary,
 )
 from app.schemas.outputs import (
-    OutputActionCreateRequest,
-    OutputActionDetailResponse,
-    OutputActionSummaryResponse,
     OutputArtifactDetailResponse,
     OutputArtifactSummaryResponse,
     OutputListQueryParams,
@@ -64,9 +60,6 @@ __all__ = [
     "ConversionInspectionResponse",
     "ConversionPreviewRequest",
     "ConversionPreviewResponse",
-    "OutputActionCreateRequest",
-    "OutputActionDetailResponse",
-    "OutputActionSummaryResponse",
     "OutputArtifactDetailResponse",
     "OutputArtifactSummaryResponse",
     "OutputListQueryParams",
@@ -82,5 +75,4 @@ __all__ = [
     "SavedConversionDraftRevisionResponse",
     "SavedConversionDraftStatus",
     "ReindexAllResponse",
-    "VisualizationSummary",
 ]

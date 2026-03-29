@@ -30,10 +30,6 @@ import {
   OutputsPage,
   OutputsPageFallback,
 } from "@/features/outputs/outputs-page"
-import {
-  VisualizationPage,
-  VisualizationPageFallback,
-} from "@/features/replay/visualization-page"
 
 import { ConversionEntryErrorState } from "@/components/conversion-entry-state"
 import { resolveConversionEntry } from "@/lib/conversion-entry"
@@ -45,13 +41,6 @@ function HomeRedirectRoute() {
   const query = searchParams.toString()
 
   return <Navigate replace to={query ? `/inventory?${query}` : "/dashboard"} />
-}
-
-function VisualizeRedirectRoute() {
-  const searchParams = useAppSearchParams()
-  const query = searchParams.toString()
-
-  return <Navigate replace to={query ? `/replay?${query}` : "/replay"} />
 }
 
 function DashboardRoute() {
@@ -131,12 +120,8 @@ function OutputDetailRoute() {
   )
 }
 
-function ReplayRoute() {
-  return (
-    <React.Suspense fallback={<VisualizationPageFallback />}>
-      <VisualizationPage />
-    </React.Suspense>
-  )
+function LegacyReplayRedirectRoute() {
+  return <Navigate replace to="/inventory" />
 }
 
 function ConversionBootstrapRoute() {
@@ -213,8 +198,8 @@ export function DesktopRoutes() {
       <Route element={<JobDetailRoute />} path="/jobs/:jobId" />
       <Route element={<OutputsRoute />} path="/outputs" />
       <Route element={<OutputDetailRoute />} path="/outputs/:outputId" />
-      <Route element={<ReplayRoute />} path="/replay" />
-      <Route element={<VisualizeRedirectRoute />} path="/visualize" />
+      <Route element={<LegacyReplayRedirectRoute />} path="/replay" />
+      <Route element={<LegacyReplayRedirectRoute />} path="/visualize" />
       <Route element={<ConversionBootstrapRoute />} path="/convert" />
       <Route element={<ConversionCreateRoute />} path="/convert/new" />
       <Route element={<ConversionUseRoute />} path="/convert/use" />

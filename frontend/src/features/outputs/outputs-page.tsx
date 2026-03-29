@@ -7,13 +7,11 @@ import {
   ListFilter,
   RefreshCw,
   Search,
-  Sparkles,
-  Wrench,
   X,
 } from "lucide-react";
 
 import { EmptyState } from "@/components/empty-state";
-import { OutputsTable, OutputsCards } from "@/components/output-table";
+import { OutputsCards, OutputsTable } from "@/components/output-table";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -21,14 +19,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { toast } from "@/components/ui/sonner";
-import {
-  useAssets,
-  useCreateOutputAction,
-  useOutputs,
-} from "@/hooks/use-backend";
+import { useAssets, useOutputs } from "@/hooks/use-backend";
 import type {
-  OutputActionDetail,
   OutputAvailability,
   OutputDetail,
   OutputFormat,
@@ -46,7 +38,6 @@ import {
   formatOutputAvailability,
   formatOutputFormat,
   formatOutputRole,
-  isWorkflowActiveStatus,
 } from "@/lib/format";
 import { buildOutputDetailHref } from "@/lib/navigation";
 import type { ActiveFilterChip } from "@/lib/types";
@@ -62,11 +53,6 @@ const OUTPUT_PRESET_OPTIONS = [
     value: "ready_datasets",
   },
   {
-    description: "Focus on outputs with queued or running backend actions.",
-    label: "Active compute",
-    value: "active_compute",
-  },
-  {
     description: "Show JSON and JSONL sidecars such as manifests and summaries.",
     label: "JSON sidecars",
     value: "json_sidecars",
@@ -74,17 +60,6 @@ const OUTPUT_PRESET_OPTIONS = [
 ] as const;
 
 type OutputPreset = (typeof OUTPUT_PRESET_OPTIONS)[number]["value"];
-
-function parseOutputSelection(value: string | null) {
-  return Array.from(
-    new Set(
-      (value ?? "")
-        .split(",")
-        .map((item) => item.trim())
-        .filter(Boolean),
-    ),
-  );
-}
 
 function buildOutputsQuery(searchParams: URLSearchParams): OutputsQuery {
   const search = searchParams.get("search")?.trim() ?? "";
@@ -113,13 +88,6 @@ function applyOutputPreset(outputs: OutputDetail[], preset: OutputPreset | null)
   if (preset === "ready_datasets") {
     return outputs.filter(
       (output) => output.role === "dataset" && output.availability_status === "ready",
-    );
-  }
-
-  if (preset === "active_compute") {
-    return outputs.filter(
-      (output) =>
-        output.latest_action !== null && isWorkflowActiveStatus(output.latest_action.status),
     );
   }
 
@@ -155,8 +123,6 @@ export function OutputsPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const { isCreating, trigger } = useCreateOutputAction();
-
   const query = React.useMemo(() => buildOutputsQuery(searchParams), [searchParams]);
   const presetValue = searchParams.get("preset")?.trim() ?? "";
   const preset = React.useMemo(
@@ -166,12 +132,7 @@ export function OutputsPage() {
         : null,
     [presetValue],
   );
-  const selectedOutputId = searchParams.get("output")?.trim() ?? "";
   const imagePayloadContract = searchParams.get("image_payload_contract")?.trim() ?? "";
-  const selectedOutputIds = React.useMemo(
-    () => parseOutputSelection(searchParams.get("selection")),
-    [searchParams],
-  );
   const [searchInput, setSearchInput] = React.useState(query.search ?? "");
   const [isFiltersOpen, setIsFiltersOpen] = React.useState(false);
 
@@ -183,14 +144,6 @@ export function OutputsPage() {
     () => applyOutputPreset(baseOutputs, preset),
     [baseOutputs, preset],
   );
-  const selectedOutputIdsSet = React.useMemo(
-    () => new Set(selectedOutputIds),
-    [selectedOutputIds],
-  );
-  const selectedOutputs = React.useMemo(
-    () => outputs.filter((output) => selectedOutputIdsSet.has(output.id)),
-    [outputs, selectedOutputIdsSet],
-  );
   const currentHref = React.useMemo(() => {
     const queryString = searchParams.toString();
     return queryString ? `${pathname}?${queryString}` : pathname;
@@ -199,22 +152,13 @@ export function OutputsPage() {
     () => new Map((assetsResponse.data ?? []).map((asset) => [asset.id, asset])),
     [assetsResponse.data],
   );
-  const visibleOutputIds = React.useMemo(
-    () => new Set(outputs.map((output) => output.id)),
-    [outputs],
-  );
-  const activeActionCount = outputs.filter(
-    (output) =>
-      output.latest_action !== null && isWorkflowActiveStatus(output.latest_action.status),
-  ).length;
-  const allVisibleSelected = outputs.length > 0 && selectedOutputs.length === outputs.length;
   const activeFilterChips: ActiveFilterChip[] = [];
 
   if (query.search) {
     activeFilterChips.push({
       key: "search",
       label: `Search: ${query.search}`,
-      updates: { output: null, search: null, selection: null },
+      updates: { output: null, search: null },
     });
   }
 
@@ -222,7 +166,7 @@ export function OutputsPage() {
     activeFilterChips.push({
       key: "format",
       label: `Format: ${formatOutputFormat(query.format as OutputFormat)}`,
-      updates: { format: null, output: null, selection: null },
+      updates: { format: null, output: null },
     });
   }
 
@@ -230,7 +174,7 @@ export function OutputsPage() {
     activeFilterChips.push({
       key: "role",
       label: `Role: ${formatOutputRole(query.role as OutputRole)}`,
-      updates: { output: null, role: null, selection: null },
+      updates: { output: null, role: null },
     });
   }
 
@@ -238,7 +182,7 @@ export function OutputsPage() {
     activeFilterChips.push({
       key: "availability",
       label: `Availability: ${formatOutputAvailability(query.availability as OutputAvailability)}`,
-      updates: { availability: null, output: null, selection: null },
+      updates: { availability: null, output: null },
     });
   }
 
@@ -246,7 +190,7 @@ export function OutputsPage() {
     activeFilterChips.push({
       key: "asset_id",
       label: `Asset: ${query.asset_id}`,
-      updates: { asset_id: null, output: null, selection: null },
+      updates: { asset_id: null, output: null },
     });
   }
 
@@ -254,7 +198,7 @@ export function OutputsPage() {
     activeFilterChips.push({
       key: "conversion_id",
       label: `Conversion: ${query.conversion_id}`,
-      updates: { conversion_id: null, output: null, selection: null },
+      updates: { conversion_id: null, output: null },
     });
   }
 
@@ -262,7 +206,7 @@ export function OutputsPage() {
     activeFilterChips.push({
       key: "image_payload_contract",
       label: `Image payload: ${imagePayloadContract}`,
-      updates: { image_payload_contract: null, output: null, selection: null },
+      updates: { image_payload_contract: null, output: null },
     });
   }
 
@@ -270,7 +214,7 @@ export function OutputsPage() {
     activeFilterChips.push({
       key: "preset",
       label: `Preset: ${OUTPUT_PRESET_OPTIONS.find((option) => option.value === preset)?.label ?? preset}`,
-      updates: { output: null, preset: null, selection: null },
+      updates: { output: null, preset: null },
     });
   }
 
@@ -318,47 +262,14 @@ export function OutputsPage() {
       preset: null,
       role: null,
       search: null,
-      selection: null,
     });
   }, [updateFilters]);
-
-  React.useEffect(() => {
-    if ((outputsResponse.isLoading && !outputsResponse.data) || selectedOutputIds.length === 0) {
-      return;
-    }
-
-    const trimmedSelection = selectedOutputIds.filter((outputId) => visibleOutputIds.has(outputId));
-    if (trimmedSelection.length !== selectedOutputIds.length) {
-      updateFilters({
-        selection: trimmedSelection.length > 0 ? trimmedSelection.join(",") : null,
-      });
-    }
-  }, [
-    outputsResponse.data,
-    outputsResponse.isLoading,
-    selectedOutputIds,
-    updateFilters,
-    visibleOutputIds,
-  ]);
-
-  React.useEffect(() => {
-    if (activeActionCount === 0) {
-      return;
-    }
-
-    const intervalId = window.setInterval(() => {
-      void outputsResponse.mutate();
-    }, 1000);
-
-    return () => window.clearInterval(intervalId);
-  }, [activeActionCount, outputsResponse]);
 
   function onSearchSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     updateFilters({
       output: null,
       search: searchInput,
-      selection: null,
     });
   }
 
@@ -367,58 +278,7 @@ export function OutputsPage() {
     updateFilters({
       output: null,
       search: null,
-      selection: null,
     });
-  }
-
-  function onToggleOutputSelection(outputId: string) {
-    const nextSelection = selectedOutputIdsSet.has(outputId)
-      ? selectedOutputIds.filter((currentId) => currentId !== outputId)
-      : [...selectedOutputIds, outputId];
-
-    updateFilters({
-      selection: nextSelection.length > 0 ? nextSelection.join(",") : null,
-    });
-  }
-
-  function onToggleAllVisible() {
-    updateFilters({
-      selection: allVisibleSelected ? null : outputs.map((output) => output.id).join(","),
-    });
-  }
-
-  async function onRefreshMetadata(outputsToRefresh: OutputDetail[]) {
-    if (outputsToRefresh.length === 0) {
-      return;
-    }
-
-    try {
-      const createdActions: OutputActionDetail[] = [];
-
-      for (const output of outputsToRefresh) {
-        const action = await trigger(output.id, {
-          action_type: "refresh_metadata",
-          config: {
-            reason:
-              outputsToRefresh.length > 1
-                ? "batch_refresh_from_outputs_page"
-                : "manual_refresh_from_outputs_page",
-          },
-        });
-        createdActions.push(action);
-      }
-
-      const firstOutput = outputsToRefresh[0];
-      toast.success(
-        outputsToRefresh.length === 1
-          ? `Metadata refreshed for ${firstOutput?.file_name ?? "the selected output"}.`
-          : `Metadata refreshed for ${outputsToRefresh.length} selected outputs.`,
-      );
-    } catch (error) {
-      toast.error("Could not refresh output metadata", {
-        description: getErrorMessage(error),
-      });
-    }
   }
 
   if (outputsResponse.isLoading && !outputsResponse.data) {
@@ -451,11 +311,10 @@ export function OutputsPage() {
               <span className="rounded-full border px-2 py-0.5 text-xs text-muted-foreground">
                 {formatCount(outputs.length, "output")}
               </span>
-              <span className="rounded-full border px-2 py-0.5 text-xs text-muted-foreground">
-                {formatCount(activeActionCount, "active action")}
-              </span>
             </div>
-            <p className="max-w-3xl text-sm text-muted-foreground">Output artifacts and actions.</p>
+            <p className="max-w-3xl text-sm text-muted-foreground">
+              Output artifacts registered in the backend catalog.
+            </p>
           </div>
           <div className="flex flex-wrap gap-2">
             <Button
@@ -485,39 +344,6 @@ export function OutputsPage() {
               <Badge className="h-6" variant="secondary">
                 {formatCount(outputs.length, "result")}
               </Badge>
-              {selectedOutputs.length > 0 ? (
-                <>
-                  <Badge className="h-6" variant="outline">
-                    {selectedOutputs.length} selected
-                  </Badge>
-                  <Button
-                    disabled={isCreating}
-                    onClick={() => void onRefreshMetadata(selectedOutputs)}
-                    size="sm"
-                    type="button"
-                  >
-                    <Wrench className="size-3.5" />
-                    Batch refresh metadata
-                  </Button>
-                  <Button
-                    disabled
-                    size="sm"
-                    type="button"
-                    variant="outline"
-                  >
-                    <Sparkles className="size-3.5" />
-                    Batch VLM tagging soon
-                  </Button>
-                  <Button
-                    onClick={() => updateFilters({ selection: null })}
-                    size="sm"
-                    type="button"
-                    variant="ghost"
-                  >
-                    Clear selection
-                  </Button>
-                </>
-              ) : null}
               {imagePayloadContract ? (
                 <Alert>
                   <AlertTitle>Conversion payload context</AlertTitle>
@@ -587,7 +413,6 @@ export function OutputsPage() {
                         updateFilters({
                           format: event.target.value || null,
                           output: null,
-                          selection: null,
                         })
                       }
                       value={query.format ?? ""}
@@ -610,7 +435,6 @@ export function OutputsPage() {
                         updateFilters({
                           output: null,
                           role: event.target.value || null,
-                          selection: null,
                         })
                       }
                       value={query.role ?? ""}
@@ -636,7 +460,6 @@ export function OutputsPage() {
                         updateFilters({
                           availability: event.target.value || null,
                           output: null,
-                          selection: null,
                         })
                       }
                       value={query.availability ?? ""}
@@ -656,7 +479,7 @@ export function OutputsPage() {
                     <Input
                       id="outputs-asset"
                       onChange={(event) =>
-                        updateFilters({ asset_id: event.target.value, output: null, selection: null })
+                        updateFilters({ asset_id: event.target.value, output: null })
                       }
                       placeholder="Filter to one asset"
                       value={query.asset_id ?? ""}
@@ -675,7 +498,6 @@ export function OutputsPage() {
                         updateFilters({
                           conversion_id: event.target.value,
                           output: null,
-                          selection: null,
                         })
                       }
                       placeholder="Filter to one conversion"
@@ -697,7 +519,6 @@ export function OutputsPage() {
                             updateFilters({
                               output: null,
                               preset: isActive ? null : option.value,
-                              selection: null,
                             })
                           }
                           size="sm"
@@ -764,33 +585,21 @@ export function OutputsPage() {
           ) : (
             <>
               <OutputsTable
-                allVisibleSelected={allVisibleSelected}
                 assetsById={assetsById}
                 currentHref={currentHref}
-                isRefreshing={isCreating}
-                onRefreshMetadata={onRefreshMetadata}
                 onSelectOutput={(outputId) => router.push(buildOutputDetailHref(outputId, currentHref))}
-                onToggleAllVisible={onToggleAllVisible}
-                onToggleOutputSelection={onToggleOutputSelection}
                 outputs={outputs}
-                selectedOutputId={selectedOutputId}
-                selectedOutputIds={selectedOutputIdsSet}
               />
               <OutputsCards
                 assetsById={assetsById}
                 currentHref={currentHref}
-                isRefreshing={isCreating}
-                onRefreshMetadata={onRefreshMetadata}
                 onSelectOutput={(outputId) => router.push(buildOutputDetailHref(outputId, currentHref))}
-                onToggleOutputSelection={onToggleOutputSelection}
                 outputs={outputs}
-                selectedOutputIds={selectedOutputIdsSet}
               />
             </>
           )}
         </CardContent>
       </Card>
-
     </div>
   );
 }

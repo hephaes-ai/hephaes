@@ -176,50 +176,7 @@ def test_scan_directory_rejects_invalid_directory(client: TestClient, tmp_path: 
     }
 
 
-def test_get_asset_episodes_requires_indexed_asset(client: TestClient, sample_asset_file: Path):
-    asset_id = register_asset(client, sample_asset_file).json()["id"]
-
-    response = client.get(f"/assets/{asset_id}/episodes")
-
-    assert response.status_code == 422
-    assert response.json() == {
-        "detail": f"asset must be indexed before episodes are available: {sample_asset_file.name}"
-    }
-
-
-def test_get_asset_episodes_returns_default_episode_for_indexed_asset(
-    client: TestClient,
-    monkeypatch,
-    sample_asset_file: Path,
-):
-    asset_id = register_asset(client, sample_asset_file).json()["id"]
-
-    monkeypatch.setattr(
-        indexing_service,
-        "profile_asset_file",
-        lambda _file_path: build_profile(sample_asset_file),
-    )
-
-    index_response = client.post(f"/assets/{asset_id}/index")
-    assert index_response.status_code == 200
-
-    response = client.get(f"/assets/{asset_id}/episodes")
-
-    assert response.status_code == 200
-    assert response.json() == [
-        {
-            "default_lane_count": 2,
-            "duration": 5.0,
-            "end_time": "2026-03-16T10:00:05Z",
-            "episode_id": f"{asset_id}:default",
-            "has_visualizable_streams": True,
-            "label": "Episode 1",
-            "start_time": "2026-03-16T10:00:00Z",
-        }
-    ]
-
-
-def test_asset_detail_includes_episodes_jobs_and_conversions_for_uploaded_asset(
+def test_asset_detail_includes_jobs_and_conversions_for_uploaded_asset(
     client: TestClient,
     monkeypatch,
 ):
@@ -273,17 +230,6 @@ def test_asset_detail_includes_episodes_jobs_and_conversions_for_uploaded_asset(
             "id": tag_id,
             "name": "field-run",
             "created_at": tag_response.json()["created_at"],
-        }
-    ]
-    assert body["episodes"] == [
-        {
-            "default_lane_count": 2,
-            "duration": 5.0,
-            "end_time": "2026-03-16T10:00:05Z",
-            "episode_id": f"{asset_id}:default",
-            "has_visualizable_streams": True,
-            "label": "Episode 1",
-            "start_time": "2026-03-16T10:00:00Z",
         }
     ]
     assert [job["type"] for job in body["related_jobs"]] == ["convert", "index"]
