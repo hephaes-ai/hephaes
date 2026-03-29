@@ -38,22 +38,27 @@ Everything touching `rerun-sdk`, RRD file generation, and visualization job prep
 
 ---
 
-## Phase 2 — Remove Episodes
+## Phase 2 — Remove Episodes ✅ COMPLETE
 
 Everything touching episode playback, timeline scrubbing, and message sampling.
 
-- [ ] Delete `app/api/episodes.py`
-- [ ] Delete `app/services/episodes.py`
-- [ ] Delete `app/schemas/episodes.py`
-- [ ] `app/main.py` — remove `episodes_router` import and `app.include_router(episodes_router)`
+- [x] Delete `app/api/episodes.py`
+- [x] Delete `app/services/episodes.py`
+- [x] Delete `app/schemas/episodes.py`
+- [x] Delete `tests/test_api_episodes.py`
+- [x] `app/main.py` — remove `episodes_router` import and `app.include_router(episodes_router)`
 - [x] `app/api/assets.py` — remove `GET /assets/{asset_id}/episodes` endpoint *(done in Phase 1 cascade)*
 - [x] `app/api/assets.py` — remove `EpisodeSummaryResponse` import and usage *(done in Phase 1 cascade)*
 - [x] `app/schemas/assets.py` — remove `EpisodeSummaryResponse` class *(done in Phase 1 cascade)*
 - [x] `app/schemas/assets.py` — remove `has_visualizable_streams` and `default_lane_count` from episode-related schemas *(done in Phase 1 cascade)*
 - [x] `app/mappers/workspace.py` — remove `map_episode_summary` function *(done in Phase 1 cascade)*
 - [x] `app/mappers/workspace.py` — remove `visualization_summary` references from asset mappers *(done in Phase 1 cascade)*
-- [ ] `app/services/assets.py` — remove `EpisodeDiscoveryUnavailableError` if it's no longer raised anywhere
-- [ ] `pyproject.toml` — remove `websockets` dependency (only used by the episodes replay WebSocket)
+- [x] `app/services/assets.py` — remove `EpisodeDiscoveryUnavailableError`
+- [x] `pyproject.toml` — remove `websockets` dependency
+- [x] `app/services/conversion_authoring.py` — replace `open_asset_reader` import from episodes with module-level wrapper around `RosReader.open`
+- [x] `app/services/__init__.py` — remove episode service exports
+
+**After Phase 2:** 85 tests passing. All episode and visualization code removed.
 
 ---
 

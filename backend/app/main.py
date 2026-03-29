@@ -11,7 +11,6 @@ from app.api.assets import router as assets_router
 from app.api.conversion_configs import router as conversion_configs_router
 from app.api.conversions import router as conversions_router
 from app.api.dashboard import router as dashboard_router
-from app.api.episodes import router as episodes_router
 from app.api.health import router as health_router
 from app.api.jobs import router as jobs_router
 from app.api.outputs import output_actions_router, router as outputs_router
@@ -63,7 +62,6 @@ def create_app() -> FastAPI:
     app.state.settings = settings
     app.include_router(health_router)
     app.include_router(assets_router)
-    app.include_router(episodes_router)
     app.include_router(dashboard_router)
     app.include_router(conversion_configs_router)
     app.include_router(conversions_router)

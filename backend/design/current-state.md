@@ -1,6 +1,6 @@
 # Backend Current State
 
-Snapshot of the backend as of the start of the visualization/episodes/DB removal effort.
+Snapshot of the backend after completing Phase 1 (Remove Visualization) and Phase 2 (Remove Episodes).
 
 ---
 
@@ -21,9 +21,9 @@ The goal of this effort is to remove the visualization feature, the episodes/rep
 
 | File | Endpoints | Uses DB? | Status |
 |------|-----------|----------|--------|
-| `assets.py` | GET/POST /assets, POST /assets/register, POST /assets/upload, POST /assets/scan-directory, POST /assets/{id}/index, POST/DELETE /assets/{id}/tags, POST /assets/reindex-all, GET /assets/{id}/episodes | No | Keep, remove episodes endpoint |
-| `episodes.py` | GET /assets/{id}/episodes/{eid}, GET .../timeline, GET .../samples, WS .../replay | No | **Remove entirely** |
-| `visualization.py` | POST .../prepare-visualization, GET .../viewer-source | Yes | **Remove entirely** |
+| `assets.py` | GET/POST /assets, POST /assets/register, POST /assets/upload, POST /assets/scan-directory, POST /assets/{id}/index, POST/DELETE /assets/{id}/tags, POST /assets/reindex-all | No | ✅ Keep |
+| `episodes.py` | — | — | ✅ **Deleted (Phase 2)** |
+| `visualization.py` | — | — | ✅ **Deleted (Phase 1)** |
 | `conversions.py` | POST /conversions, GET /conversions/capabilities, POST /conversions/inspect, POST /conversions/draft, POST /conversions/preview, GET /conversions, GET /conversions/{id} | No | Keep |
 | `conversion_configs.py` | GET/POST /conversion-configs, GET/PATCH/POST /conversion-configs/{id} | No | Keep |
 | `jobs.py` | GET /jobs, GET /jobs/{id} | No | Keep (queries workspace jobs, not DB) |
@@ -36,10 +36,10 @@ The goal of this effort is to remove the visualization feature, the episodes/rep
 
 | File | Purpose | Uses DB? | Status |
 |------|---------|----------|--------|
-| `assets.py` | Path normalization, file dialogs, directory scanning | No | Keep |
-| `episodes.py` | Episode detail, timeline bucketing, message sampling for replay | No | **Remove entirely** |
-| `visualization.py` | RRD generation via rerun-sdk, prepare-visualization job orchestration | Yes (Job model) | **Remove entirely** |
-| `jobs.py` | CRUD for backend `Job` DB model | Yes (Job model) | **Remove entirely** (only used by visualization) |
+| `assets.py` | Path normalization, file dialogs, directory scanning | No | ✅ Keep |
+| `episodes.py` | — | — | ✅ **Deleted (Phase 2)** |
+| `visualization.py` | — | — | ✅ **Deleted (Phase 1)** |
+| `jobs.py` | CRUD for backend `Job` DB model | Yes (Job model) | **Remove in Phase 4** (dead since Phase 1) |
 | `conversions.py` | Conversion creation and execution, delegates to workspace | No | Keep |
 | `conversion_authoring.py` | Inspect/draft/preview workflow, delegates to workspace | No | Keep |
 | `output_actions.py` | OutputAction CRUD (refresh_metadata action type) | Yes (OutputAction model) | **Remove entirely** |
@@ -51,9 +51,9 @@ The goal of this effort is to remove the visualization feature, the episodes/rep
 
 | File | Status |
 |------|--------|
-| `assets.py` | Keep, remove `EpisodeSummaryResponse`, remove `has_visualizable_streams`/`default_lane_count` fields |
-| `episodes.py` | **Remove entirely** |
-| `visualization.py` | **Remove entirely** |
+| `assets.py` | ✅ Keep (`EpisodeSummaryResponse`, viz fields removed) |
+| `episodes.py` | ✅ **Deleted (Phase 2)** |
+| `visualization.py` | ✅ **Deleted (Phase 1)** |
 | `conversions.py` | Keep |
 | `conversion_authoring.py` | Keep |
 | `jobs.py` | Keep (represents workspace jobs, not DB jobs) |
@@ -84,9 +84,9 @@ The goal of this effort is to remove the visualization feature, the episodes/rep
 |-----------|--------|
 | `fastapi` | Keep |
 | `uvicorn` | Keep |
-| `websockets` | **Remove** (only used by episodes replay WebSocket) |
-| `sqlalchemy` | **Remove** |
-| `rerun-sdk` | **Remove** |
+| `websockets` | ✅ **Removed (Phase 2)** |
+| `sqlalchemy` | **Remove in Phase 4** |
+| `rerun-sdk` | ✅ **Removed (Phase 1)** |
 | `hephaes` | Keep |
 
 ---
@@ -113,7 +113,6 @@ Once both tables have no writers, the entire `app.db` is dead weight.
 
 ## CORS Note
 
-Current default allows `app.rerun.io` (for the Rerun web viewer). After removing visualization this origin can be removed.
+✅ `app.rerun.io` removed from CORS regex in Phase 1.
 
-Default: `r"https?://(localhost|127\.0\.0\.1|app\.rerun\.io)(:\d+)?"`
-Target: `r"https?://(localhost|127\.0\.0\.1)(:\d+)?"`
+Current: `r"https?://(localhost|127\.0\.0\.1)(:\d+)?"`

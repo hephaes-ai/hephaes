@@ -19,16 +19,6 @@ from app.services.conversions import (
     get_conversion_or_raise,
     list_conversions,
 )
-from app.services.episodes import (
-    EpisodeDiscoveryUnavailableError,
-    EpisodeNotFoundError,
-    EpisodePlaybackError,
-    EpisodeStreamNotFoundError,
-    get_episode_detail,
-    get_episode_samples,
-    get_episode_timeline,
-    open_asset_reader,
-)
 from app.services.jobs import (
     JobNotFoundError,
     JobService,
@@ -55,10 +45,6 @@ __all__ = [
     "ConversionValidationError",
     "AssetNotFoundError",
     "AssetServiceError",
-    "EpisodeDiscoveryUnavailableError",
-    "EpisodeNotFoundError",
-    "EpisodePlaybackError",
-    "EpisodeStreamNotFoundError",
     "InvalidAssetPathError",
     "InvalidAssetUploadError",
     "JobNotFoundError",
@@ -71,9 +57,6 @@ __all__ = [
     "OutputActionValidationError",
     "get_conversion",
     "get_conversion_or_raise",
-    "get_episode_detail",
-    "get_episode_samples",
-    "get_episode_timeline",
     "get_job",
     "get_job_or_raise",
     "get_output_action",
@@ -84,5 +67,4 @@ __all__ = [
     "list_tracked_jobs",
     "normalize_asset_path",
     "normalize_uploaded_file_name",
-    "open_asset_reader",
 ]
