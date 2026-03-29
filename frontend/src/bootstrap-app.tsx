@@ -4,14 +4,14 @@ import App from "@/App"
 import { AppProviders } from "@/components/app-providers"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
-  loadDesktopBackendRuntime,
-  setDesktopBackendRuntime,
-  type DesktopBackendRuntime,
+  loadFrontendRuntime,
+  setFrontendRuntime,
+  type FrontendRuntimeSnapshot,
 } from "@/lib/backend-runtime"
 
 type BootstrapState =
   | { status: "loading" }
-  | { runtime: DesktopBackendRuntime; status: "failed" }
+  | { runtime: FrontendRuntimeSnapshot; status: "failed" }
   | { status: "ready" }
 
 export function StartupScreen({
@@ -61,10 +61,10 @@ export function StartupScreen({
 }
 
 export function BootstrapApp({
-  loadRuntime = loadDesktopBackendRuntime,
+  loadRuntime = loadFrontendRuntime,
   readyFallback = <App />,
 }: {
-  loadRuntime?: () => Promise<DesktopBackendRuntime | undefined>
+  loadRuntime?: () => Promise<FrontendRuntimeSnapshot | undefined>
   readyFallback?: React.ReactNode
 }) {
   const [state, setState] = React.useState<BootstrapState>({
@@ -82,7 +82,7 @@ export function BootstrapApp({
       }
 
       if (runtime) {
-        setDesktopBackendRuntime(runtime)
+        setFrontendRuntime(runtime)
       }
 
       if (runtime?.status === "failed") {
@@ -114,9 +114,11 @@ export function BootstrapApp({
 
   if (state.status === "failed") {
     const runtimeLabel =
-      state.runtime.mode === "sidecar"
+      state.runtime.mode === "desktop-sidecar"
         ? "the bundled backend"
-        : "the configured external backend"
+        : state.runtime.mode === "desktop-external"
+          ? "the configured external backend"
+          : "the configured backend"
     const baseUrl = state.runtime.baseUrl?.trim()
     const errorText = state.runtime.error?.trim()
     const details = [

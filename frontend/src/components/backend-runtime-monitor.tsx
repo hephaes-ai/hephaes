@@ -3,15 +3,15 @@
 import * as React from "react"
 
 import { useFeedback } from "@/components/feedback-provider"
-import { useDesktopBackendRuntime } from "@/hooks/use-desktop-backend-runtime"
+import { useFrontendRuntime } from "@/hooks/use-desktop-backend-runtime"
 
 export function BackendRuntimeMonitor() {
   const { notify } = useFeedback()
-  const runtime = useDesktopBackendRuntime()
+  const runtime = useFrontendRuntime()
   const previousStatus = React.useRef(runtime?.status)
 
   React.useEffect(() => {
-    if (runtime?.mode !== "sidecar") {
+    if (runtime?.mode !== "desktop-sidecar") {
       previousStatus.current = runtime?.status
       return
     }

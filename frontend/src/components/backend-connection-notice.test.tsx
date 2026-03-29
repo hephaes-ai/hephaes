@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { cleanup, render, screen } from "@testing-library/react"
 
 import { BackendConnectionNotice } from "@/components/backend-connection-notice"
-import { setDesktopBackendRuntime } from "@/lib/backend-runtime"
+import { setFrontendRuntime } from "@/lib/backend-runtime"
 
 const mockUseHealth = vi.fn<
   () => {
@@ -21,17 +21,17 @@ vi.mock("@/hooks/use-backend", () => ({
 describe("BackendConnectionNotice", () => {
   afterEach(() => {
     cleanup()
-    setDesktopBackendRuntime(undefined)
+    setFrontendRuntime(undefined)
     mockUseHealth.mockClear()
   })
 
   it("shows a bundled backend stop notice as soon as the sidecar terminates", () => {
-    setDesktopBackendRuntime({
+    setFrontendRuntime({
       backendLogDir: "/tmp/hephaes/backend-logs",
       baseUrl: "http://127.0.0.1:65123",
       desktopLogDir: "/tmp/hephaes/desktop-logs",
       error: "backend sidecar exited with status code 1",
-      mode: "sidecar",
+      mode: "desktop-sidecar",
       status: "stopped",
     })
     mockUseHealth.mockReturnValue({
@@ -51,10 +51,10 @@ describe("BackendConnectionNotice", () => {
   })
 
   it("shows the configured backend error when the health check fails", () => {
-    setDesktopBackendRuntime({
+    setFrontendRuntime({
       baseUrl: "http://127.0.0.1:8000",
       error: null,
-      mode: "external",
+      mode: "desktop-external",
       status: "ready",
     })
     mockUseHealth.mockReturnValue({

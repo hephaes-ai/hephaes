@@ -2,23 +2,29 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { render, screen, waitFor } from "@testing-library/react"
 
 import { BootstrapApp } from "@/bootstrap-app"
-import { setDesktopBackendRuntime } from "@/lib/backend-runtime"
-import type { DesktopBackendRuntime } from "@/lib/backend-runtime"
+import {
+  createWebFrontendRuntime,
+  normalizeFrontendRuntime,
+  setFrontendRuntime,
+  type FrontendRuntimeSnapshot,
+} from "@/lib/backend-runtime"
 
 describe("BootstrapApp", () => {
   afterEach(() => {
-    setDesktopBackendRuntime(undefined)
+    setFrontendRuntime(undefined)
   })
 
   it("renders the app once a ready runtime is returned", async () => {
     const loadRuntime = vi
-      .fn<() => Promise<DesktopBackendRuntime | undefined>>()
-      .mockResolvedValue({
-        baseUrl: "http://127.0.0.1:8123",
-        error: null,
-        mode: "sidecar",
-        status: "ready",
-      })
+      .fn<() => Promise<FrontendRuntimeSnapshot | undefined>>()
+      .mockResolvedValue(
+        normalizeFrontendRuntime({
+          baseUrl: "http://127.0.0.1:8123",
+          error: null,
+          mode: "desktop-sidecar",
+          status: "ready",
+        })
+      )
 
     render(
       <BootstrapApp
@@ -36,15 +42,17 @@ describe("BootstrapApp", () => {
 
   it("renders the startup failure screen when the runtime fails", async () => {
     const loadRuntime = vi
-      .fn<() => Promise<DesktopBackendRuntime | undefined>>()
-      .mockResolvedValue({
-        backendLogDir: "/tmp/hephaes/backend-logs",
-        baseUrl: "http://127.0.0.1:65094",
-        desktopLogDir: "/tmp/hephaes/desktop-logs",
-        error: "sidecar binary was not found",
-        mode: "sidecar",
-        status: "failed",
-      })
+      .fn<() => Promise<FrontendRuntimeSnapshot | undefined>>()
+      .mockResolvedValue(
+        normalizeFrontendRuntime({
+          backendLogDir: "/tmp/hephaes/backend-logs",
+          baseUrl: "http://127.0.0.1:65094",
+          desktopLogDir: "/tmp/hephaes/desktop-logs",
+          error: "sidecar binary was not found",
+          mode: "desktop-sidecar",
+          status: "failed",
+        })
+      )
 
     render(
       <BootstrapApp
@@ -67,10 +75,10 @@ describe("BootstrapApp", () => {
     expect(screen.getByText(/backend-logs/i)).toBeInTheDocument()
   })
 
-  it("still renders the app when no desktop runtime is required", async () => {
+  it("still renders the app when the Vite app is running in web mode", async () => {
     const loadRuntime = vi
-      .fn<() => Promise<DesktopBackendRuntime | undefined>>()
-      .mockResolvedValue(undefined)
+      .fn<() => Promise<FrontendRuntimeSnapshot | undefined>>()
+      .mockResolvedValue(createWebFrontendRuntime("http://localhost:3000"))
 
     render(
       <BootstrapApp

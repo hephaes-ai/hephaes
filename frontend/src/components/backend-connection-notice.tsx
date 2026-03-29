@@ -2,15 +2,16 @@
 
 import { getBackendBaseUrl } from "@/lib/api"
 import { useHealth } from "@/hooks/use-backend"
-import { useDesktopBackendRuntime } from "@/hooks/use-desktop-backend-runtime"
+import { useFrontendRuntime } from "@/hooks/use-desktop-backend-runtime"
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 
 export function BackendConnectionNotice() {
   const { error, isLoading } = useHealth()
-  const runtime = useDesktopBackendRuntime()
-  const isBundledBackend = runtime?.mode === "sidecar"
+  const runtime = useFrontendRuntime()
+  const isBundledBackend = runtime?.mode === "desktop-sidecar"
   const bundledBackendStopped = isBundledBackend && runtime.status === "stopped"
+  const isDesktopExternal = runtime?.mode === "desktop-external"
 
   if (!bundledBackendStopped && (isLoading || !error)) {
     return null
@@ -18,9 +19,11 @@ export function BackendConnectionNotice() {
 
   const title = bundledBackendStopped
     ? "Bundled backend stopped"
-    : isBundledBackend
-      ? "Bundled backend unavailable"
-      : "Configured backend unavailable"
+    : isDesktopExternal
+      ? "Configured backend unavailable"
+      : isBundledBackend
+        ? "Bundled backend unavailable"
+        : "Backend unavailable"
   const details = [
     bundledBackendStopped
       ? "The bundled backend stopped after startup."
@@ -28,7 +31,9 @@ export function BackendConnectionNotice() {
     `Target URL: ${getBackendBaseUrl()}.`,
     isBundledBackend
       ? "The app may still be starting its local backend, or the sidecar may have stopped unexpectedly."
-      : "Check the configured backend URL and make sure the external service is running.",
+      : isDesktopExternal
+        ? "Check the configured backend URL and make sure the external service is running."
+        : "Check the configured backend URL and make sure the backend is reachable.",
     runtime?.error?.trim() ? `Error: ${runtime.error.trim()}` : null,
     runtime?.backendLogDir ? `Backend logs: ${runtime.backendLogDir}.` : null,
     runtime?.desktopLogDir ? `Desktop logs: ${runtime.desktopLogDir}.` : null,

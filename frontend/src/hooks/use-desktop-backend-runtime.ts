@@ -3,19 +3,21 @@
 import * as React from "react"
 
 import {
-  ensureDesktopBackendRuntimeSync,
-  getDesktopBackendRuntime,
-  subscribeToDesktopBackendRuntime,
+  ensureFrontendRuntimeSync,
+  getFrontendRuntime,
+  subscribeToFrontendRuntime,
 } from "@/lib/backend-runtime"
 
-export function useDesktopBackendRuntime() {
+export function useFrontendRuntime() {
   React.useEffect(() => {
-    void ensureDesktopBackendRuntimeSync()
+    void ensureFrontendRuntimeSync()
   }, [])
 
   return React.useSyncExternalStore(
-    subscribeToDesktopBackendRuntime,
-    getDesktopBackendRuntime,
-    getDesktopBackendRuntime
+    subscribeToFrontendRuntime,
+    getFrontendRuntime,
+    getFrontendRuntime
   )
 }
+
+export const useDesktopBackendRuntime = useFrontendRuntime
