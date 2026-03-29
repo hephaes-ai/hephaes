@@ -1,240 +1,337 @@
-# Backend Sidecar Architecture
+# Frontend Runtime Architecture
 
 ## Summary
 
-This document describes the next desktop architecture for `frontend/`.
+This document defines the target frontend architecture for `frontend/`.
 
-The frontend migration is complete enough to treat the Tauri shell as the
-primary app container. The next step is to package the FastAPI backend as a
-local sidecar so the app can launch from a single executable and fully manage
-its own backend lifecycle.
+The target is:
 
-## Scope
+- one Vite-powered React app
+- one routing model
+- one runtime abstraction layer
+- Tauri as the native desktop host
 
-In scope:
+The Next.js App Router tree should not remain as a second application surface.
+It is currently useful as a migration source, but it should not remain part of
+the steady-state architecture.
 
-- bundle the FastAPI backend with the Tauri app as a local sidecar
-- let Tauri launch, monitor, and stop the backend process
-- move backend storage into desktop app-managed directories
-- provide the resolved backend base URL to the frontend at runtime
-- keep the current REST and WebSocket API contract intact
-- replace desktop-only native picker behavior with Tauri-native dialogs where
-  needed
+## Problem Statement
 
-Out of scope:
+The frontend currently contains two overlapping app models:
 
-- rewriting backend APIs into Rust commands
-- turning the backend into a long-running system service outside the app
-- redesigning the data model, jobs model, or database schema
-- changing core frontend routes or feature behavior unless sidecar support
-  requires it
+- a Next.js app under `frontend/app`
+- a Vite + React Router desktop app under `frontend/src`
 
-## Current State
+The desktop shell currently imports and reuses page modules from the Next app
+while swapping runtime behavior with aliases and shims.
 
-Today the desktop app already has:
+That creates several problems:
 
-- a working Tauri shell in `frontend/src-tauri`
-- a React + Vite frontend in `frontend/src`
-- runtime backend URL support in `frontend/src/lib/api.ts`
-- a desktop build and dev flow that assumes a separately started backend
+- two routing systems must be kept in sync
+- platform behavior is split across Next assumptions and desktop assumptions
+- startup and runtime behavior are harder to reason about
+- desktop-specific work can be blocked by web-framework coupling
+- large screens are harder to refactor because they serve two runtimes at once
 
-The backend is still standalone and still assumes source-tree-relative storage
-defaults. It also contains desktop-specific file dialog logic implemented with
-`tkinter` and AppleScript, which is not a good long-term fit for a bundled
-desktop app.
+## Architecture Goal
 
-## Target Architecture
+The long-term frontend architecture should be:
 
-### High-Level Design
+- `frontend/src` is the single app runtime
+- Vite is the single frontend build tool
+- React Router is the single routing layer
+- Tauri hosts the Vite app for desktop
+- platform-specific behavior is abstracted behind a small runtime boundary
 
-- Tauri remains the native host, installer target, and process supervisor.
-- React + Vite remains the frontend runtime.
-- FastAPI stays a separate process, but is bundled inside the desktop app.
-- Rust owns sidecar startup, shutdown, health checks, configuration injection,
-  and error reporting.
-- The frontend continues to talk to the backend over loopback HTTP and
-  WebSocket using a runtime-provided base URL.
+If a browser build remains necessary later, it should use the same Vite app and
+the same route definitions rather than a separate Next application tree.
 
-## Runtime Topology
+## In Scope
 
-```text
-+-------------------------------+
-| Hephaes desktop bundle        |
-|  - Tauri host                |
-|  - React/Vite frontend       |
-|  - bundled backend binary    |
-+---------------+---------------+
-                |
-                v
-+-------------------------------+
-| Tauri runtime                 |
-|  - resolves app data paths    |
-|  - picks backend port         |
-|  - spawns sidecar             |
-|  - waits for /health          |
-|  - exposes backend base URL   |
-+---------------+---------------+
-                |
-                v
-+-------------------------------+
-| FastAPI backend sidecar       |
-|  - binds 127.0.0.1:<port>     |
-|  - uses app-local db/storage  |
-|  - serves HTTP + WebSocket    |
-+-------------------------------+
-```
+- collapsing the app surface to one Vite app
+- removing Next-specific runtime assumptions from feature code
+- unifying routing and app composition under React Router
+- keeping a clean runtime boundary for:
+  - desktop startup
+  - backend runtime status
+  - native dialogs
+  - platform capabilities
+- migrating startup and asset-ingestion flows to desktop-native behavior
 
-## Startup Sequence
+## Out Of Scope
 
-1. The user launches the desktop app.
-2. Tauri resolves app-local paths for data, raw assets, outputs, and logs.
-3. Tauri picks a local backend port.
-4. Tauri starts the bundled backend binary with env vars for host, port, and
-   storage paths.
-5. Tauri polls `GET /health` until the backend is ready or startup times out.
-6. Tauri publishes the resolved backend base URL to the frontend runtime.
-7. The main window becomes visible and the React app boots normally.
+- rewriting the backend into Rust commands
+- redesigning product features
+- a full visual redesign
+- converting the entire app into Tauri-specific Rust UI
 
-## Shutdown Sequence
+## Design Principles
 
-1. The app begins exit or window-close handling.
-2. Tauri signals the backend child process to stop.
-3. Tauri waits briefly for graceful shutdown.
-4. Tauri force-kills the child only if it does not exit cleanly.
-5. Logs remain in the desktop log directory for debugging failed launches.
+### 1. One application surface
 
-## Process Ownership
+The repo should not maintain both:
 
-Tauri is the single owner of backend lifecycle in packaged mode.
+- a Next application tree as an app runtime
+- a Vite application tree as another app runtime
 
-- the backend should never choose its own storage root in packaged mode
-- the backend should never depend on repository-relative paths in packaged mode
-- the frontend should never hardcode `http://127.0.0.1:8000` in packaged mode
-- the backend should bind only to loopback
+There should be one source of truth for:
 
-## Backend Runtime Contract
+- routes
+- app providers
+- app shell
+- runtime state
 
-The backend sidecar should accept configuration entirely through environment
-variables or CLI flags provided by Tauri.
+### 2. Platform concerns belong at the boundary
 
-Required runtime inputs:
+Feature components should not care whether they are running:
 
-- `HEPHAES_BACKEND_HOST`
-- `HEPHAES_BACKEND_PORT`
-- `HEPHAES_BACKEND_DATA_DIR`
-- `HEPHAES_BACKEND_RAW_DATA_DIR`
-- `HEPHAES_BACKEND_OUTPUTS_DIR`
-- `HEPHAES_BACKEND_DB_PATH`
-- `HEPHAES_BACKEND_LOG_DIR`
-- `HEPHAES_DESKTOP_MODE=1`
+- in Tauri
+- against an external loopback backend
+- in a browser-only environment
 
-Recommended behavior:
+They should read this through a narrow runtime interface instead of framework-
+or platform-specific checks scattered across the app.
 
-- keep all current API routes unchanged
-- keep all current WebSocket routes unchanged
-- create missing directories on startup
-- fail fast with clear logs if paths are invalid or unwritable
+### 3. Desktop behavior must be explicit
 
-## Frontend Runtime Contract
+For desktop mode:
 
-The frontend should treat the backend URL as runtime state provided by Tauri,
-not as a build-time constant.
+- startup is runtime-driven and visible
+- native dialogs are explicit capabilities
+- asset ingestion is path-based
+- browser upload behavior is not an invisible fallback
 
-Packaged mode:
+### 4. Route modules should be framework-agnostic
 
-- Tauri provides `baseUrl`
-- frontend sets `globalThis.__HEPHAES_BACKEND_BASE_URL__` before React renders
-- frontend shows a startup or failure view if the sidecar never becomes healthy
+Feature screens should be plain React components.
 
-Development mode:
+Routing concerns should live in the Vite app shell, not in duplicated
+framework-specific wrappers.
 
-- retain `VITE_BACKEND_BASE_URL` for local debugging
-- allow bypassing the sidecar so frontend and backend can still be developed
-  independently
+### 5. Migration should end in deletion
 
-## Storage Model
+The Next app may temporarily remain as a migration source, but the architecture
+is only complete when Next-specific app composition is deleted rather than left
+as parallel infrastructure.
 
-Desktop storage should live under app-managed directories instead of the source
-tree.
-
-Recommended layout:
+## Target Topology
 
 ```text
-AppData/
-  backend/
-    app.db
-    raw/
-    outputs/
-    logs/
+frontend/
+  src/
+    main.tsx
+    App.tsx
+    routes/
+    components/
+    hooks/
+    lib/
+  src-tauri/
+    src/lib.rs
+  public/
 ```
 
-This keeps the packaged app self-contained and preserves user data across app
-upgrades.
+Target responsibilities:
 
-## Native Integration Boundaries
+- `src/main.tsx`
+  - single frontend entrypoint
+- `src/App.tsx`
+  - app providers
+  - app shell
+  - router
+- `src/routes/*`
+  - route definitions
+  - route wrappers
+- `src/components/*`
+  - reusable UI and presentation
+- `src/hooks/*`
+  - feature orchestration
+- `src/lib/*`
+  - API, runtime, navigation, shared utilities
+- `src-tauri/*`
+  - desktop host and sidecar lifecycle
 
-Tauri-native responsibilities:
+## Target Routing Model
 
-- process launch and supervision
-- app data path resolution
-- splash screen or hidden-window startup experience
-- native file and directory selection
-- failure reporting for sidecar startup
+React Router should be the single routing system.
 
-Backend responsibilities:
+The route tree should live in the Vite app, and it should own:
 
-- indexing
-- conversion
-- job orchestration
-- output generation
-- replay and visualization APIs
+- `/dashboard`
+- `/inventory`
+- `/assets/:assetId`
+- `/jobs`
+- `/jobs/:jobId`
+- `/outputs`
+- `/outputs/:outputId`
+- `/replay`
+- `/convert`
+- `/convert/new`
+- `/convert/use`
+- redirects such as `/` and `/visualize`
 
-Frontend responsibilities:
+Next App Router page modules should not remain as the route source after the
+migration.
 
-- route rendering
-- user interaction
-- backend polling and mutations
-- desktop boot state presentation
+## Target Runtime Boundary
 
-## Packaging Strategy
+The runtime boundary should expose explicit mode and capabilities.
 
-The backend should be packaged as a standalone executable first and only then
-added as a Tauri sidecar.
+Recommended model:
 
-Recommended path:
+```ts
+type FrontendMode = "desktop-sidecar" | "desktop-external" | "web"
+type RuntimeStatus = "loading" | "ready" | "failed" | "stopped"
 
-- first prove a frozen backend binary in a debug-friendly `onedir` layout
-- once stable, switch to a single bundled executable if startup time and
-  dependency behavior remain acceptable
+interface FrontendCapabilities {
+  nativeFileDialog: boolean
+  nativeDirectoryDialog: boolean
+  pathAssetRegistration: boolean
+  browserUpload: boolean
+}
 
-This reduces sidecar-debug complexity and keeps backend packaging problems
-isolated from Tauri integration.
+interface FrontendRuntimeSnapshot {
+  mode: FrontendMode
+  status: RuntimeStatus
+  baseUrl: string
+  error?: string | null
+  backendLogDir?: string | null
+  desktopLogDir?: string | null
+  capabilities: FrontendCapabilities
+}
+```
 
-## Security And Permissions
+This runtime boundary should be the single place that translates:
 
-- the backend sidecar should be the only executable Tauri is allowed to spawn
-- the backend should bind to `127.0.0.1`, not a public interface
-- the frontend should only learn the chosen loopback URL from Tauri
-- the packaged app should not require repository access to run
+- Tauri events
+- Tauri commands
+- browser mode defaults
+- development overrides
 
-## Risks
+## Target Desktop Startup Flow
 
-- Python packaging may be the longest and most failure-prone part of this work
-- backend dependencies such as `rerun-sdk` and the local `hephaes` package may
-  require explicit packaging hooks
-- repo-relative defaults in backend settings can leak into packaged mode if not
-  removed cleanly
-- current backend dialog flows are not a good fit for a bundled desktop app
-- replay and WebSocket behavior still need packaged-app validation
+1. Tauri launches the webview quickly.
+2. The frontend renders a startup screen immediately.
+3. Rust starts the backend sidecar asynchronously.
+4. Rust emits runtime updates.
+5. React transitions through:
+   - loading -> ready
+   - loading -> failed
+   - ready -> stopped
+
+The important architectural point is:
+
+- React owns startup presentation
+- Rust owns process lifecycle
+- neither side should assume the other is blocking invisibly
+
+## Target Asset Ingestion Flow
+
+### Desktop
+
+Desktop ingestion should be:
+
+1. open native file or directory dialog
+2. receive local filesystem paths
+3. call path-based backend endpoints
+4. display path-based results and failures
+
+Desktop should use:
+
+- `/assets/register`
+- `/assets/scan-directory`
+
+Desktop should not silently use:
+
+- browser `<input type="file">`
+- `/assets/upload`
+- `/assets/register-dialog`
+
+### Web
+
+If browser upload remains supported, it should be:
+
+- explicit
+- capability-driven
+- isolated from desktop ingestion UI
+
+## Module Boundaries
+
+### Desktop host
+
+Responsible for:
+
+- sidecar startup and shutdown
+- runtime status emission
+- desktop log/data paths
+- Tauri-native capabilities
+
+Anchor today:
+
+- `frontend/src-tauri/src/lib.rs`
+
+### Frontend runtime layer
+
+Responsible for:
+
+- normalized runtime snapshot
+- capability exposure
+- startup-state subscription
+- frontend bootstrap decisions
+
+Anchor today:
+
+- `frontend/src/lib/backend-runtime.ts`
+- `frontend/src/bootstrap-app.tsx`
+- `frontend/src/hooks/use-desktop-backend-runtime.ts`
+
+### Routing and app composition
+
+Responsible for:
+
+- route definitions
+- shell layout
+- provider composition
+- framework-independent screen rendering
+
+Anchor today:
+
+- `frontend/src/App.tsx`
+- `frontend/src/components/app-shell.tsx`
+- `frontend/src/components/app-providers.tsx`
+
+### Asset ingestion layer
+
+Responsible for:
+
+- choosing ingestion strategy by capability
+- native dialogs in desktop mode
+- path registration
+- optional browser upload in web mode
+
+Anchor today:
+
+- `frontend/src/lib/native-dialogs.ts`
+- `frontend/src/hooks/use-register-asset-paths.ts`
+- `frontend/src/hooks/use-upload-assets.ts`
+- `frontend/src/features/inventory/inventory-upload-dialog.tsx`
+- `frontend/src/features/inventory/inventory-scan-dialog.tsx`
+
+## Migration Boundary
+
+This architecture is only complete when:
+
+- route ownership has moved fully into the Vite app
+- feature modules no longer depend on Next navigation APIs
+- `frontend/app` is no longer an active app runtime
+- build, typecheck, and desktop validation no longer rely on the Next app tree
 
 ## Success Criteria
 
-The sidecar architecture is complete when:
+This architecture is complete when:
 
-- launching the desktop app also launches a working backend automatically
-- no separate terminal command is required for normal app usage
-- the backend persists data in app-managed directories
-- the frontend receives the backend URL from Tauri at runtime
-- packaged builds can perform inventory, convert, outputs, and replay flows
-- backend startup failures produce a clear user-visible error state and useful
-  logs
+- Vite is the only frontend runtime
+- React Router is the only route system
+- Tauri startup and desktop runtime behavior are explicit and testable
+- desktop asset ingestion is path-based and native
+- Next App Router is no longer an active application surface
+- feature code no longer depends on mixed web and desktop assumptions

@@ -5,7 +5,12 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
 
-from .errors import WorkspaceAlreadyExistsError, WorkspaceError, WorkspaceNotFoundError
+from .errors import (
+    UnsupportedWorkspaceSchemaError,
+    WorkspaceAlreadyExistsError,
+    WorkspaceError,
+    WorkspaceNotFoundError,
+)
 from .models import WorkspacePaths
 from .schema import (
     WORKSPACE_DB_FILENAME,
@@ -119,7 +124,7 @@ class WorkspaceCoreMixin:
             try:
                 migrate_workspace_schema(connection, schema_version)
             except ValueError as exc:
-                raise WorkspaceError(str(exc)) from exc
+                raise UnsupportedWorkspaceSchemaError(str(exc)) from exc
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:

@@ -29,9 +29,19 @@ const BACKEND_HEALTHCHECK_INTERVAL: Duration = Duration::from_millis(250);
 
 #[derive(Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
+struct FrontendCapabilities {
+    browser_upload: bool,
+    native_directory_dialog: bool,
+    native_file_dialog: bool,
+    path_asset_registration: bool,
+}
+
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 struct BackendRuntimeSnapshot {
     backend_log_dir: Option<String>,
     base_url: String,
+    capabilities: FrontendCapabilities,
     desktop_log_dir: Option<String>,
     error: Option<String>,
     mode: String,
@@ -62,6 +72,23 @@ enum BackendRuntimeMode {
 }
 
 impl BackendRuntimeSnapshot {
+    fn loading(
+        mode: BackendRuntimeMode,
+        base_url: String,
+        backend_log_dir: Option<String>,
+        desktop_log_dir: Option<String>,
+    ) -> Self {
+        Self {
+            backend_log_dir,
+            base_url,
+            capabilities: mode.capabilities(),
+            desktop_log_dir,
+            error: None,
+            mode: mode.as_str().to_string(),
+            status: "loading".to_string(),
+        }
+    }
+
     fn failed(
         mode: BackendRuntimeMode,
         base_url: String,
@@ -72,6 +99,7 @@ impl BackendRuntimeSnapshot {
         Self {
             backend_log_dir,
             base_url,
+            capabilities: mode.capabilities(),
             desktop_log_dir,
             error: Some(error),
             mode: mode.as_str().to_string(),
@@ -88,6 +116,7 @@ impl BackendRuntimeSnapshot {
         Self {
             backend_log_dir,
             base_url,
+            capabilities: mode.capabilities(),
             desktop_log_dir,
             error: None,
             mode: mode.as_str().to_string(),
@@ -105,6 +134,7 @@ impl BackendRuntimeSnapshot {
         Self {
             backend_log_dir,
             base_url,
+            capabilities: mode.capabilities(),
             desktop_log_dir,
             error: Some(error),
             mode: mode.as_str().to_string(),
@@ -116,8 +146,17 @@ impl BackendRuntimeSnapshot {
 impl BackendRuntimeMode {
     const fn as_str(&self) -> &'static str {
         match self {
-            Self::External => "external",
-            Self::Sidecar => "sidecar",
+            Self::External => "desktop-external",
+            Self::Sidecar => "desktop-sidecar",
+        }
+    }
+
+    const fn capabilities(&self) -> FrontendCapabilities {
+        FrontendCapabilities {
+            browser_upload: false,
+            native_directory_dialog: true,
+            native_file_dialog: true,
+            path_asset_registration: true,
         }
     }
 }
@@ -126,10 +165,9 @@ impl Default for BackendProcessState {
     fn default() -> Self {
         Self {
             child: Mutex::new(None),
-            runtime: Mutex::new(BackendRuntimeSnapshot::failed(
+            runtime: Mutex::new(BackendRuntimeSnapshot::loading(
                 BackendRuntimeMode::Sidecar,
                 String::new(),
-                "backend runtime has not been initialized".to_string(),
                 None,
                 None,
             )),
@@ -517,6 +555,16 @@ fn initialize_backend_runtime(app: &AppHandle) {
         }
     };
 
+    set_backend_runtime_snapshot(
+        app,
+        BackendRuntimeSnapshot::loading(
+            BackendRuntimeMode::Sidecar,
+            runtime.base_url.clone(),
+            Some(runtime.log_dir.display().to_string()),
+            Some(runtime.desktop_log_dir.display().to_string()),
+        ),
+    );
+
     match spawn_backend_sidecar(app, &runtime) {
         Ok(()) => {
             set_backend_runtime_snapshot(
@@ -543,6 +591,12 @@ fn initialize_backend_runtime(app: &AppHandle) {
             );
         }
     }
+}
+
+fn initialize_backend_runtime_async(app: AppHandle) {
+    thread::spawn(move || {
+        initialize_backend_runtime(&app);
+    });
 }
 
 #[tauri::command]
@@ -577,7 +631,7 @@ pub fn run() {
 
     let app = builder
         .setup(|app| {
-            initialize_backend_runtime(app.handle());
+            initialize_backend_runtime_async(app.handle().clone());
             Ok(())
         })
         .build(tauri::generate_context!())

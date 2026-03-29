@@ -22,7 +22,7 @@ from app.api.visualization import router as visualization_router
 from app.config import get_settings
 from app.db.session import create_engine_and_session_factory, initialize_database
 from app.services.job_runner import BackendJobRunner
-from hephaes import Workspace, WorkspaceNotFoundError
+from app.workspace_bootstrap import resolve_backend_workspace
 
 
 def create_app() -> FastAPI:
@@ -32,10 +32,7 @@ def create_app() -> FastAPI:
         max_workers=settings.job_max_workers,
         inline=settings.job_execution_mode == "inline",
     )
-    try:
-        workspace = Workspace.open(settings.workspace_root)
-    except WorkspaceNotFoundError:
-        workspace = Workspace.init(settings.workspace_root, exist_ok=True)
+    workspace = resolve_backend_workspace(settings)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):

@@ -1,261 +1,445 @@
-# Backend Sidecar Implementation Plan
+# Frontend Runtime Implementation Plan
 
 ## Goal
 
-Package the FastAPI backend into the Tauri app so a user can launch one desktop
-application and have the full product working without starting a separate
-backend process manually.
+Collapse `frontend/` to a single Vite-powered React app that works cleanly with
+Tauri, while removing legacy web assumptions from desktop startup and asset
+ingestion.
 
 ## Guiding Constraints
 
-- keep the current backend API contract intact during the sidecar migration
-- preserve the existing React + Vite desktop frontend
-- keep development workflows usable while packaged mode is being added
-- ship in phases where each checkpoint can be validated independently
-- finish each phase with passing validation before moving to the next one
+- keep the app usable while migration is in progress
+- keep the current backend API contract intact
+- do not leave Next and Vite as permanent parallel runtimes
+- ship in phases with validation after each phase
+- keep `frontend/design/current-state.md` updated as implementation proceeds
+
+## Scope
+
+In scope:
+
+- unifying frontend runtime ownership under Vite
+- unifying routing under React Router
+- making the runtime boundary explicit
+- fixing desktop startup behavior
+- fixing desktop asset-ingestion behavior
+- retiring Next-specific app composition
+
+Out of scope:
+
+- redesigning backend APIs
+- rewriting major product workflows
+- a full component-library redesign
+
+## Phase Summary
+
+| Phase | Goal |
+| --- | --- |
+| 1 | Define and stabilize the runtime boundary |
+| 2 | Make desktop startup non-blocking and explicit |
+| 3 | Separate route ownership from the Next app tree |
+| 4 | Migrate screens into Vite-owned route modules |
+| 5 | Remove legacy web assumptions from asset ingestion |
+| 6 | Retire the Next app surface and clean up build/runtime drift |
+| 7 | Validate, document, and close the migration |
+
+Current status:
+
+- Phase 1 completed on `2026-03-28`
+- Phase 2 completed on `2026-03-28`
+- Phase 3 completed on `2026-03-28`
+- Phase 4 completed on `2026-03-28`
+- Phase 5 completed on `2026-03-28`
+- Phase 6 completed on `2026-03-28`
+- Phase 7 completed on `2026-03-28`
+
+## Phase 1: Runtime Boundary Contract
+
+### Goal
+
+Create one explicit runtime abstraction that the Vite app can use regardless
+of platform mode.
+
+### Status
+
+Completed on `2026-03-28`.
+
+### Tasks
+
+- Define a normalized runtime snapshot shape with:
+  - mode
+  - status
+  - base URL
+  - log locations
+  - capabilities
+- Add explicit capability fields for:
+  - native file dialog
+  - native directory dialog
+  - path asset registration
+  - browser upload
+- Update the Rust-side snapshot shape to support the new contract.
+- Update TypeScript runtime helpers and hooks to normalize and expose this
+  contract.
+- Add or update tests around runtime loading and subscription behavior.
+- Record the baseline in `frontend/design/current-state.md`.
+
+### Implemented In This Phase
+
+- Added a normalized `FrontendRuntimeSnapshot` TypeScript contract with:
+  - `mode`
+  - `status`
+  - `baseUrl`
+  - `error`
+  - `backendLogDir`
+  - `desktopLogDir`
+  - `capabilities`
+- Added `FrontendCapabilities` to the Tauri runtime snapshot and aligned mode
+  names with the Vite-side contract.
+- Normalized runtime loading so browser mode also resolves through the same
+  runtime loader.
+- Updated runtime consumers to read through the shared frontend runtime hook.
+- Added runtime normalization and subscription tests in the frontend unit
+  suite.
+
+### Likely Files
+
+- `frontend/src-tauri/src/lib.rs`
+- `frontend/src/lib/backend-runtime.ts`
+- `frontend/src/hooks/use-desktop-backend-runtime.ts`
+- `frontend/src/bootstrap-app.tsx`
+- `frontend/design/current-state.md`
+
+### Exit Criteria
 
-## Phase 0: Packaging Spike And Baseline
+- runtime state is explicit and serializable
+- feature code has one source of truth for platform capabilities
+- desktop and web runtime assumptions are no longer implicit
 
-Tasks:
+## Phase 2: Non-Blocking Desktop Startup
 
-- choose the initial backend freezing path and prove it on one platform first
-- add a desktop backend entrypoint that starts FastAPI with host and port
-  supplied from runtime config
-- verify the backend can run outside the repo layout after packaging
-- keep this phase isolated from Tauri so backend packaging bugs are easier to
-  debug
+### Goal
 
-Deliverable:
+Make startup behavior match the intended desktop UX.
 
-- a standalone packaged backend executable that answers `GET /health`
+### Status
 
-Validation:
+Completed on `2026-03-28`.
 
-- launch the packaged backend directly from the terminal
-- confirm `/health` succeeds
-- confirm startup logs are readable
-- confirm the packaged backend can import all runtime dependencies
+### Tasks
 
-Suggested commit:
+- Move sidecar startup off the blocking Tauri setup path.
+- Emit `loading` runtime status before backend readiness.
+- Ensure the Vite app renders immediately and shows startup UI.
+- Drive failure and stopped states from runtime updates.
+- Add tests for:
+  - loading screen
+  - startup failure state
+  - stopped-runtime state
+- Verify backend-status and runtime-monitor behavior against the new status
+  model.
 
-- `build(backend): add sidecar packaging spike`
+### Implemented In This Phase
 
-## Phase 1: Make Backend Configuration Relocatable
+- Moved backend runtime initialization off the blocking Tauri `.setup()` path
+  and into a background thread.
+- Kept the frontend startup screen mounted while the runtime snapshot remains
+  `loading`.
+- Made bootstrap state respond to live runtime updates so `loading -> ready`
+  and `loading -> failed/stopped` are observable in React.
+- Added bootstrap tests for:
+  - loading to ready
+  - loading to stopped before startup completes
+- Revalidated the desktop bundle after the startup lifecycle change.
 
-Tasks:
+### Likely Files
 
-- remove packaged-mode dependence on repository-relative defaults
-- add runtime config support for host, port, db path, raw data path, outputs
-  path, and log path
-- ensure startup creates missing directories automatically
-- update CORS and any origin checks needed for the desktop runtime
-- document the backend env contract expected from Tauri
+- `frontend/src-tauri/src/lib.rs`
+- `frontend/src/bootstrap-app.tsx`
+- `frontend/src/components/backend-runtime-monitor.tsx`
+- `frontend/src/components/backend-connection-notice.tsx`
+- `frontend/src/bootstrap-app.test.tsx`
 
-Deliverable:
+### Validation
 
-- a backend that can run entirely from Tauri-provided paths
-
-Validation:
-
-- start the backend from a temporary directory with only env-provided paths
-- verify database creation
-- verify raw and outputs directories are created correctly
-- run backend smoke requests for assets, jobs, outputs, conversion configs, and
-  conversions
-
-Suggested commit:
-
-- `refactor(backend): make settings desktop-relocatable`
-
-## Phase 2: Add Tauri Sidecar Launch And Supervision
-
-Tasks:
-
-- add the Tauri shell plugin and sidecar permissions
-- register the backend executable as an allowed external binary
-- create Rust-side state for backend process metadata
-- pick an available loopback port at startup
-- spawn the backend sidecar with the required env vars
-- stream or capture backend stdout and stderr for debugging
-- shut down the child process when the app exits
-
-Deliverable:
-
-- Tauri can launch and stop the backend process automatically
-
-Validation:
-
-- run `tauri:dev` with sidecar mode enabled
-- confirm the backend child starts without manual intervention
-- confirm `/health` passes through the chosen dynamic port
-- close the app and verify the backend child exits cleanly
-
-Suggested commit:
-
-- `feat(desktop): spawn backend sidecar from tauri`
-
-## Phase 3: Add Runtime Backend Bootstrap To The Frontend
-
-Tasks:
-
-- expose a Tauri command or bootstrap channel that returns backend runtime
-  details
-- set `globalThis.__HEPHAES_BACKEND_BASE_URL__` from Tauri before the React app
-  mounts
-- keep `VITE_BACKEND_BASE_URL` as a development override
-- add a startup-loading view while the app waits for backend readiness
-- add a clear startup-failure view when the backend fails to come up
-
-Deliverable:
-
-- the packaged frontend uses the Tauri-provided backend URL automatically
-
-Validation:
-
-- confirm the frontend boots against a dynamic backend port
-- confirm API and WebSocket URLs resolve from the same runtime base URL
-- simulate backend startup failure and verify the failure UI appears
-
-Suggested commit:
-
-- `feat(frontend): bootstrap backend url from tauri runtime`
-
-## Phase 4: Replace Desktop-Only Backend Dialog Flows
-
-Tasks:
-
-- add the Tauri dialog plugin
-- move file and directory selection into the frontend desktop shell
-- keep using existing backend register and scan APIs after a path is chosen
-- remove the packaged-app dependency on backend `tkinter` and AppleScript
-  dialogs
-- decide whether `/register-dialog` remains as a legacy dev-only endpoint or is
-  removed entirely
-
-Deliverable:
-
-- desktop file picking works through Tauri-native dialogs
-
-Validation:
-
-- verify single-file registration from the packaged app
-- verify directory scan flows from the packaged app
-- verify cancel flows do not create phantom jobs or partial state
-
-Suggested commit:
-
-- `feat(desktop): move asset selection to tauri dialogs`
-
-## Phase 5: Bundle The Sidecar Into Desktop Builds
-
-Tasks:
-
-- add a build script that produces the backend sidecar artifact for the target
-  platform
-- place the built binary where Tauri expects external sidecars
-- update Tauri config so the backend is included in dev and packaged builds
-- ensure backend logs and crash artifacts are written into app-managed
-  directories
-- document the full build path for local packaging and CI
-
-Deliverable:
-
-- `tauri build` produces a desktop bundle that includes the backend sidecar
-
-Validation:
-
-- run a clean packaged build
-- install or open the resulting bundle
-- verify the app launches without the repo or a separately running backend
-
-Suggested commit:
-
-- `build(desktop): bundle packaged backend with tauri`
-
-## Phase 6: Harden Startup, Shutdown, And Recovery
-
-Tasks:
-
-- add startup timeout handling with a user-visible error state
-- add better logging around sidecar spawn failures and health-check failures
-- ensure repeated app launches do not corrupt or lock the database unexpectedly
-- ensure shutdown does not leave orphan backend processes behind
-- verify upgrades preserve existing local app data
-
-Deliverable:
-
-- sidecar lifecycle is stable enough for normal desktop use
-
-Validation:
-
-- kill the backend during runtime and verify the app reports the failure
-- test repeated open and close cycles
-- test first-run and returning-user launch paths
-- inspect logs for actionable failure details
-
-Suggested commit:
-
-- `fix(desktop): harden backend sidecar lifecycle`
-
-## Phase 7: Full Parity And Release Validation
-
-Tasks:
-
-- run the existing frontend quality checks
-- run packaged-app smoke tests across major routes
-- verify at least one real mutation flow for inventory tagging
-- verify at least one directory scan flow
-- verify convert create and use flows
-- verify outputs browsing and output detail flows
-- verify replay and WebSocket behavior in the packaged app
-- update docs for local development, packaging, and debugging
-
-Deliverable:
-
-- a sidecar-backed desktop app that is functionally usable end to end
-
-Validation:
-
-- `npm run lint`
-- `npm run test`
-- `npm run typecheck`
-- `npm run build`
 - `cargo check --manifest-path frontend/src-tauri/Cargo.toml`
-- `npm run tauri:dev`
-- `npm run tauri:build`
-- packaged manual smoke pass covering dashboard, inventory, jobs, outputs,
-  convert, and replay
+- `npm test`
+- manual `npm run tauri:dev`
 
-Suggested commit:
+### Exit Criteria
 
-- `test(desktop): validate packaged sidecar parity`
+- the desktop webview renders while the backend is still starting
+- startup failure no longer appears as a blank or stalled app
+- runtime lifecycle is observable from the frontend
 
-## Recommended Execution Order
+## Phase 3: Route Ownership Separation
 
-1. prove backend packaging first
-2. make backend settings portable
-3. wire Tauri sidecar lifecycle
-4. hand the runtime backend URL to the frontend
-5. replace desktop-native dialog gaps
-6. bundle the sidecar into release builds
-7. harden failure handling and complete parity validation
+### Goal
 
-## Tracking Rules During Implementation
+Stop treating the Next app tree as the active source of route composition.
 
-- treat each phase as a separate milestone and separate commit
-- do not start the next phase until the current phase has passing validation
-- keep a short running checklist of failures found during packaged-app testing
-- prefer small compatibility shims over backend or frontend rewrites
+### Status
 
-## Definition Of Done
+Completed on `2026-03-28`.
 
-The sidecar work is complete when:
+### Tasks
 
-- the packaged desktop app launches a working backend automatically
-- no manual backend startup is required for normal usage
-- backend storage is fully app-local
-- frontend API and WebSocket traffic work against the runtime-provided backend
-  URL
-- desktop file picking no longer depends on backend-native GUI code
-- packaged smoke tests pass across inventory, jobs, outputs, convert, and
-  replay flows
+- Define a Vite-owned route tree under `frontend/src`.
+- Introduce route modules or route wrappers in `frontend/src/routes`.
+- Remove direct dependence on `frontend/app/*/page.tsx` from `frontend/src/App.tsx`.
+- Keep feature screens reusable, but make the Vite app own route composition.
+- Reduce dependence on alias-based router swapping for core app structure.
+- Update `current-state.md` with the new route ownership status.
+
+### Implemented In This Phase
+
+- Moved the desktop route tree into a Vite-owned module at
+  `frontend/src/routes/desktop-routes.tsx`.
+- Removed direct imports of `frontend/app/*/page.tsx` from `frontend/src/App.tsx`.
+- Rebuilt the route wrappers in Vite-owned code while keeping the underlying
+  screen modules in place under `frontend/app`.
+- Revalidated both the Next build and the Vite desktop build to keep the
+  migration state stable across both active runtimes.
+
+### Likely Files
+
+- `frontend/src/App.tsx`
+- `frontend/src/routes/*`
+- `frontend/src/lib/app-routing.tsx`
+- `frontend/vite.config.ts`
+- selected files in `frontend/app/*` as migration sources
+
+### Exit Criteria
+
+- the Vite app owns route definitions directly
+- the desktop shell no longer imports Next page entrypoints as routes
+- route composition has one active owner
+
+## Phase 4: Migrate Screens Into Vite-Owned Modules
+
+### Goal
+
+Move screen ownership out of the Next app tree and into Vite-owned modules.
+
+### Status
+
+Completed on `2026-03-28`.
+
+### Tasks
+
+- Identify the route screens currently imported from `frontend/app`.
+- Move or split them into Vite-owned feature modules under `frontend/src`.
+- Keep shared UI and feature logic framework-agnostic during the move.
+- Replace any lingering Next-only wrappers with plain React components.
+- Prioritize heavily used routes first:
+  - dashboard
+  - inventory
+  - jobs
+  - outputs
+  - replay
+  - convert
+- Update imports so the Vite route tree uses only Vite-owned modules.
+
+### Implemented In This Phase
+
+- Moved the route-facing screen modules from `frontend/app` into
+  `frontend/src/features`.
+- Kept the Next page wrappers in place, but rewired them to import the moved
+  feature screens from `src/features`.
+- Updated the Vite route tree to depend only on feature modules under
+  `frontend/src`.
+- Preserved the current hybrid migration state by keeping the Next routes thin
+  while making Vite the owner of both route composition and screen imports.
+
+### Likely Files
+
+- `frontend/app/**/*`
+- `frontend/src/routes/*`
+- `frontend/src/features/*` or similar new modules
+- `frontend/src/App.tsx`
+
+### Validation
+
+- `npm run typecheck`
+- `npm test`
+- `npm run desktop:build`
+- `npm run build`
+
+### Exit Criteria
+
+- Vite route screens no longer depend on Next page modules
+- screen composition is owned from `frontend/src`
+- framework-specific wrappers are minimized
+
+## Phase 5: Desktop Startup And Asset-Ingestion Cleanup
+
+### Goal
+
+Remove the remaining legacy web assumptions from desktop behavior.
+
+### Status
+
+Completed on `2026-03-28`.
+
+### Tasks
+
+- Remove the hidden file-input fallback from the desktop inventory add-files
+  flow.
+- Ensure desktop file selection always produces path registration.
+- Treat native dialog failure as a real desktop/runtime failure, not a signal
+  to upload bytes.
+- Split desktop path registration and optional web upload into explicit
+  ingestion paths.
+- Remove desktop dependence on:
+  - `/assets/upload`
+  - `/assets/register-dialog`
+- Consolidate duplicated result-formatting and progress logic between upload and
+  register flows where appropriate.
+
+### Implemented In This Phase
+
+- Changed the native dialog helpers to distinguish:
+  - selection
+  - cancellation
+  - runtime failure
+- Made inventory file add capability-driven:
+  - desktop runtime uses native path selection plus `/assets/register`
+  - browser runtime uses file upload explicitly
+- Removed the silent desktop fallback from native file selection to browser
+  upload.
+- Surfaced native dialog failures as real inventory notices/tests instead of
+  swallowing them.
+- Removed the unused `/assets/register-dialog` frontend API helper.
+
+### Likely Files
+
+- `frontend/src/features/inventory/inventory-upload-dialog.tsx`
+- `frontend/src/features/inventory/inventory-scan-dialog.tsx`
+- `frontend/src/lib/native-dialogs.ts`
+- `frontend/src/hooks/use-register-asset-paths.ts`
+- `frontend/src/hooks/use-upload-assets.ts`
+- `frontend/src/lib/api.ts`
+
+### Validation
+
+- `npm test`
+- `npm run desktop:build`
+- manual `npm run tauri:dev` checks for:
+  - add files
+  - scan directory
+  - dialog cancel
+  - dialog failure handling
+
+### Exit Criteria
+
+- desktop ingestion is path-based only
+- desktop mode no longer silently falls back to browser upload
+- platform-specific ingestion behavior is explicit
+
+## Phase 6: Retire The Next App Surface
+
+### Goal
+
+Remove the Next app as an active runtime and clean up supporting drift.
+
+### Status
+
+Completed on `2026-03-28`.
+
+### Tasks
+
+- Remove or archive `frontend/app` once screen migration is complete.
+- Remove Next-specific app shell composition that is no longer used.
+- Remove Next-specific routing abstractions that are no longer needed.
+- Simplify build scripts, typecheck assumptions, and docs around the single
+  Vite runtime.
+- Decide whether a web build is still required:
+  - if yes, serve the Vite app for web too
+  - if no, remove web-runtime-only scaffolding
+- Update README and design docs to describe the single-runtime model.
+
+### Implemented In This Phase
+
+- Deleted the old `frontend/app` Next App Router tree.
+- Removed the unused Next build config and moved the favicon into `public/`.
+- Collapsed `frontend/src/lib/app-routing.tsx` into the single React Router
+  implementation and removed the alias-based test/build shim.
+- Switched the active `dev`, `build`, `start`, and `typecheck` scripts to the
+  Vite/TypeScript toolchain.
+- Left some Next-oriented package/tooling dependencies in place temporarily,
+  but they are no longer part of the active runtime path.
+
+### Likely Files
+
+- `frontend/app/**/*`
+- `frontend/next.config.mjs`
+- `frontend/package.json`
+- `frontend/src/lib/app-routing.tsx`
+- `frontend/README.md`
+
+### Exit Criteria
+
+- Next App Router is no longer an active app runtime
+- frontend build/runtime docs describe one application model
+- Vite is the single frontend runtime in practice
+
+## Phase 7: Validation, Docs, And Closeout
+
+### Goal
+
+Finish the migration with stable validation and updated tracking docs.
+
+### Status
+
+Completed on `2026-03-28`.
+
+### Tasks
+
+- Update `frontend/design/current-state.md` with the final implementation
+  state.
+- Update `frontend/design/parity-checklist.md` to reflect the Vite-first
+  runtime.
+- Update `frontend/README.md` for:
+  - local development
+  - Tauri development
+  - desktop packaging
+  - runtime expectations
+- Run full validation:
+  - `npm run typecheck`
+  - `npm test`
+  - `npm run build`
+  - `npm run desktop:build`
+  - `cargo check --manifest-path frontend/src-tauri/Cargo.toml`
+- Run manual desktop smoke checks across core routes and startup/runtime flows.
+- Record any remaining rough edges that should become separate follow-up work.
+
+### Implemented In This Phase
+
+- Rewrote `frontend/README.md` around the single Vite runtime and Tauri host.
+- Rewrote `frontend/design/current-state.md` to reflect the post-migration
+  codebase instead of the old hybrid state.
+- Updated `frontend/design/parity-checklist.md` and design references to match
+  the Vite-owned route and feature structure.
+- Re-ran the full validation set against the final Vite/Tauri frontend.
+
+### Exit Criteria
+
+- docs describe the single Vite runtime clearly
+- current-state tracking matches the real codebase
+- the Vite/Tauri frontend is the clear steady-state architecture
+
+## Recommended Delivery Order
+
+1. runtime boundary
+2. non-blocking startup
+3. route ownership separation
+4. screen migration into Vite-owned modules
+5. asset-ingestion cleanup
+6. retire Next runtime
+7. validation and docs
+
+## Tracking Rules
+
+- update `frontend/design/current-state.md` after each completed phase
+- keep phase status explicit: `pending`, `in progress`, or `completed`
+- note where Next-specific code still remains after each phase
+- do not leave migration shims undocumented
