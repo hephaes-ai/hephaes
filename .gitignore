@@ -5,6 +5,7 @@
 /venv/
 /.venv/
 /env/
+/.dev/
 
 # Planning docs (legacy, now in docs/content/design/)
 # design/
