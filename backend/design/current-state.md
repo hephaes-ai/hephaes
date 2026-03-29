@@ -1,17 +1,14 @@
 # Backend Current State
 
-Snapshot of the backend after completing Phase 1 (Remove Visualization) and Phase 2 (Remove Episodes).
+Snapshot of the backend after completing Phases 1–4 (Visualization, Episodes, Output Actions, Backend DB all removed).
 
 ---
 
 ## Overview
 
-The backend is a FastAPI sidecar process that Tauri spawns and polls. It serves as a thin HTTP adapter between the frontend and the hephaes Python library. State lives in two places:
+The backend is a FastAPI sidecar process that Tauri spawns and polls. It serves as a thin HTTP adapter between the frontend and the hephaes Python library.
 
-- **hephaes workspace** (`workspace.db`) — assets, conversions, configs, drafts, jobs, output artifacts
-- **backend DB** (`app.db`) — `Job` records (only visualization jobs) and `OutputAction` records
-
-The goal of this effort is to remove the visualization feature, the episodes/replay feature, and as a result, eliminate the backend DB entirely.
+**All durable state now lives exclusively in the hephaes workspace (`workspace.db`).** The backend has zero SQLAlchemy/ORM dependencies.
 
 ---
 
@@ -19,92 +16,72 @@ The goal of this effort is to remove the visualization feature, the episodes/rep
 
 ### `app/api/` — Route handlers
 
-| File | Endpoints | Uses DB? | Status |
-|------|-----------|----------|--------|
-| `assets.py` | GET/POST /assets, POST /assets/register, POST /assets/upload, POST /assets/scan-directory, POST /assets/{id}/index, POST/DELETE /assets/{id}/tags, POST /assets/reindex-all | No | ✅ Keep |
-| `episodes.py` | — | — | ✅ **Deleted (Phase 2)** |
-| `visualization.py` | — | — | ✅ **Deleted (Phase 1)** |
-| `conversions.py` | POST /conversions, GET /conversions/capabilities, POST /conversions/inspect, POST /conversions/draft, POST /conversions/preview, GET /conversions, GET /conversions/{id} | No | Keep |
-| `conversion_configs.py` | GET/POST /conversion-configs, GET/PATCH/POST /conversion-configs/{id} | No | Keep |
-| `jobs.py` | GET /jobs, GET /jobs/{id} | No | Keep (queries workspace jobs, not DB) |
-| `outputs.py` | GET/GET-detail /outputs, GET /outputs/{id}/content | No | ✅ Keep (action endpoints removed Phase 3) |
-| `tags.py` | GET /tags, POST /tags | No | Keep |
-| `dashboard.py` | GET /dashboard/summary, GET /dashboard/trends, GET /dashboard/blockers | Yes | Keep, remove session dependency |
-| `health.py` | GET /health | No | Keep |
+| File | Endpoints | Status |
+|------|-----------|--------|
+| `assets.py` | GET/POST /assets, POST /assets/register, POST /assets/upload, POST /assets/scan-directory, POST /assets/{id}/index, POST/DELETE /assets/{id}/tags, POST /assets/reindex-all | ✅ Keep |
+| `episodes.py` | — | ✅ **Deleted (Phase 2)** |
+| `visualization.py` | — | ✅ **Deleted (Phase 1)** |
+| `conversions.py` | POST /conversions, GET /conversions/capabilities, POST /conversions/inspect, POST /conversions/draft, POST /conversions/preview, GET /conversions, GET /conversions/{id} | ✅ Keep |
+| `conversion_configs.py` | GET/POST /conversion-configs, GET/PATCH/POST /conversion-configs/{id} | ✅ Keep |
+| `jobs.py` | GET /jobs, GET /jobs/{id} | ✅ Keep (workspace jobs only) |
+| `outputs.py` | GET/GET-detail /outputs, GET /outputs/{id}/content | ✅ Keep (action endpoints removed Phase 3) |
+| `tags.py` | GET /tags, POST /tags | ✅ Keep |
+| `dashboard.py` | GET /dashboard/summary, GET /dashboard/trends, GET /dashboard/blockers | ✅ Keep (session removed Phase 4) |
+| `health.py` | GET /health | ✅ Keep |
 
 ### `app/services/` — Business logic
 
-| File | Purpose | Uses DB? | Status |
-|------|---------|----------|--------|
-| `assets.py` | Path normalization, file dialogs, directory scanning | No | ✅ Keep |
-| `episodes.py` | — | — | ✅ **Deleted (Phase 2)** |
-| `visualization.py` | — | — | ✅ **Deleted (Phase 1)** |
-| `jobs.py` | CRUD for backend `Job` DB model | Yes (Job model) | **Remove in Phase 4** (dead since Phase 1) |
-| `conversions.py` | Conversion creation and execution, delegates to workspace | No | Keep |
-| `conversion_authoring.py` | Inspect/draft/preview workflow, delegates to workspace | No | Keep |
-| `output_actions.py` | — | — | ✅ **Deleted (Phase 3)** |
-| `dashboard.py` | Aggregate stats from workspace + backend DB | Yes (visualization jobs only) | Keep, remove `session` param and `_backend_visualization_jobs()` |
-| `indexing.py` | Thin wrapper around hephaes Profiler | No | Keep |
-| `job_runner.py` | ThreadPoolExecutor wrapper for background jobs | No | Keep |
+| File | Purpose | Status |
+|------|---------|--------|
+| `assets.py` | Path normalization, file dialogs, directory scanning | ✅ Keep |
+| `episodes.py` | — | ✅ **Deleted (Phase 2)** |
+| `visualization.py` | — | ✅ **Deleted (Phase 1)** |
+| `jobs.py` | — | ✅ **Deleted (Phase 4)** |
+| `conversions.py` | Conversion creation and execution, delegates to workspace | ✅ Keep |
+| `conversion_authoring.py` | Inspect/draft/preview workflow, delegates to workspace | ✅ Keep |
+| `output_actions.py` | — | ✅ **Deleted (Phase 3)** |
+| `dashboard.py` | Aggregate stats from workspace only | ✅ Keep (session removed Phase 4) |
+| `indexing.py` | Thin wrapper around hephaes Profiler | ✅ Keep |
+| `job_runner.py` | ThreadPoolExecutor wrapper for background jobs | ✅ Keep |
 
 ### `app/schemas/` — Pydantic response/request models
 
 | File | Status |
 |------|--------|
-| `assets.py` | ✅ Keep (`EpisodeSummaryResponse`, viz fields removed) |
+| `assets.py` | ✅ Keep |
 | `episodes.py` | ✅ **Deleted (Phase 2)** |
 | `visualization.py` | ✅ **Deleted (Phase 1)** |
-| `conversions.py` | Keep |
-| `conversion_authoring.py` | Keep |
-| `jobs.py` | Keep (represents workspace jobs, not DB jobs) |
-| `outputs.py` | ✅ Keep (`OutputAction*` schemas and `latest_action` removed Phase 3) |
-| `dashboard.py` | Keep (no change needed to schemas themselves) |
+| `conversions.py` | ✅ Keep |
+| `conversion_authoring.py` | ✅ Keep |
+| `jobs.py` | ✅ Keep (workspace jobs) |
+| `outputs.py` | ✅ Keep (`OutputAction*` schemas removed Phase 3) |
+| `dashboard.py` | ✅ Keep |
 
 ### `app/db/` — SQLAlchemy ORM
 
-| File | Contents | Status |
-|------|----------|--------|
-| `models.py` | `Job` model (type: prepare_visualization, index, convert — only viz used), `OutputAction` model | **Remove entirely** |
-| `session.py` | Engine creation, `get_db_session` dependency | **Remove entirely** |
+✅ **Entire directory deleted (Phase 4).** `models.py`, `session.py`, `__init__.py` all removed.
 
 ### Other files
 
 | File | Status |
 |------|--------|
-| `main.py` | Remove: episodes router, visualization router, output_actions_router, `/visualizations` static mount, DB engine/session init, `initialize_database()` call |
-| `config.py` | Remove: `database_path`, `database_url`, `rerun_sdk_version`, `rerun_recording_format_version`, `_resolve_rerun_sdk_version()`, `DEFAULT_RERUN_*` constants. Remove `app.rerun.io` from default CORS regex |
-| `dependencies.py` | Remove `get_db_session` if defined here (currently in `app/db/session.py`) |
-| `workspace_bootstrap.py` | Keep, no changes needed |
-| `desktop_main.py` | Keep, no changes needed |
-| `mappers/workspace.py` | Remove `map_episode_summary`, remove visualization_summary fields from asset mappers |
+| `main.py` | ✅ Cleaned — no DB engine/session, no viz/episodes routers |
+| `config.py` | ✅ Cleaned — no `database_path`/`database_url`, no rerun fields |
+| `dependencies.py` | ✅ Cleaned — `get_db_session` removed |
+| `workspace_bootstrap.py` | ✅ Keep, no changes |
+| `desktop_main.py` | ✅ Keep, no changes |
+| `mappers/workspace.py` | ✅ Cleaned — viz/episode mapper logic removed |
 
 ### `pyproject.toml` dependencies
 
 | Dependency | Status |
 |-----------|--------|
-| `fastapi` | Keep |
-| `uvicorn` | Keep |
+| `fastapi` | ✅ Keep |
+| `uvicorn` | ✅ Keep |
 | `websockets` | ✅ **Removed (Phase 2)** |
-| `sqlalchemy` | **Remove in Phase 4** |
+| `sqlalchemy` | ✅ **Removed (Phase 4)** |
 | `rerun-sdk` | ✅ **Removed (Phase 1)** |
-| `hephaes` | Keep |
-
----
-
-## DB Dependency Map
-
-The backend's `app.db` SQLite file has two tables:
-
-### `jobs` table
-- **Writers:** `app/services/visualization.py` via `JobService`
-- **Readers:** `app/services/dashboard.py` (`_backend_visualization_jobs`), `app/services/jobs.py`
-- **Routes:** `app/api/visualization.py` (create/read), `app/api/dashboard.py` (read)
-- **After removing visualization:** zero writers, dashboard reads become no-ops → table is dead
-
-### `output_actions` table
-- ✅ All writers and readers removed in Phase 3. Table is dead.
-
-Once both tables have no writers, the entire `app.db` is dead weight.
+| `hephaes` | ✅ Keep |
 
 ---
 

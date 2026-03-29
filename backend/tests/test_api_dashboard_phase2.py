@@ -6,13 +6,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi.testclient import TestClient
-from sqlalchemy import select
 
-from app.db.models import Job
 from app.services import conversions as conversion_service
 from app.services import dashboard as dashboard_service
 from app.services import indexing as indexing_service
-from app.services.jobs import JobService
 from hephaes.models import BagMetadata, Topic
 import hephaes.workspace.assets as workspace_assets
 import hephaes.workspace.configs.documents as workspace_config_documents
@@ -337,7 +334,7 @@ def test_dashboard_routes_aggregate_mixed_operational_states(
     failed_asset.write_bytes(b"failed")
 
     indexed_asset_id = register_asset(client, indexed_asset).json()["id"]
-    pending_asset_id = register_asset(client, pending_asset).json()["id"]
+    _pending_asset_id = register_asset(client, pending_asset).json()["id"]
     failed_asset_id = register_asset(client, failed_asset).json()["id"]
 
     def fake_profile(file_path: str) -> BagMetadata:
@@ -355,24 +352,6 @@ def test_dashboard_routes_aggregate_mixed_operational_states(
 
     assert indexed_response.status_code == 200
     assert failed_response.status_code == 422
-
-    session = client.app.state.session_factory()
-    try:
-        job_service = JobService(session)
-        queued_job = job_service.create_job(
-            job_type="prepare_visualization",
-            target_asset_ids=[indexed_asset_id],
-            config={"execution": "manual", "trigger": "dashboard_test"},
-        )
-        running_job = job_service.create_job(
-            job_type="prepare_visualization",
-            target_asset_ids=[pending_asset_id],
-            config={"execution": "manual", "trigger": "dashboard_test"},
-        )
-        job_service.mark_job_running(running_job.id)
-        assert queued_job.status == "queued"
-    finally:
-        session.close()
 
     install_dashboard_converter(monkeypatch)
     successful_conversion = client.post(
@@ -474,24 +453,6 @@ def test_dashboard_routes_aggregate_mixed_operational_states(
         updated_at=datetime(2026, 3, 18, 13, 3, 0, tzinfo=UTC),
     )
 
-    session = client.app.state.session_factory()
-    try:
-        for job in session.scalars(select(Job)).all():
-            if job.type == "prepare_visualization" and job.status == "queued":
-                job.created_at = datetime(2026, 3, 19, 9, 0, 0, tzinfo=UTC)
-                job.updated_at = datetime(2026, 3, 19, 9, 0, 0, tzinfo=UTC)
-                job.started_at = None
-                job.finished_at = None
-            elif job.type == "prepare_visualization" and job.status == "running":
-                job.created_at = datetime(2026, 3, 19, 9, 30, 0, tzinfo=UTC)
-                job.updated_at = datetime(2026, 3, 19, 9, 35, 0, tzinfo=UTC)
-                job.started_at = datetime(2026, 3, 19, 9, 31, 0, tzinfo=UTC)
-                job.finished_at = None
-
-        session.commit()
-    finally:
-        session.close()
-
     summary_response = client.get("/dashboard/summary")
     trends_response = client.get("/dashboard/trends")
     blockers_response = client.get("/dashboard/blockers")
@@ -514,12 +475,13 @@ def test_dashboard_routes_aggregate_mixed_operational_states(
         "indexed": 1,
         "failed": 1,
     }
+    # Jobs now come from workspace only (no backend DB visualization jobs)
     assert summary_body["jobs"] == {
-        "active_count": 2,
+        "active_count": 0,
         "failed_last_24h": 2,
         "status_counts": {
-            "queued": 1,
-            "running": 1,
+            "queued": 0,
+            "running": 0,
             "succeeded": 2,
             "failed": 2,
         },
@@ -551,8 +513,9 @@ def test_dashboard_routes_aggregate_mixed_operational_states(
     assert parse_api_datetime(freshness["latest_asset_indexed_at"]) == datetime(
         2026, 3, 18, 11, 5, 0, tzinfo=UTC
     )
+    # latest_job_update_at from workspace jobs only: max of 2026-03-19T08:03 (index failed)
     assert parse_api_datetime(freshness["latest_job_update_at"]) == datetime(
-        2026, 3, 19, 9, 35, 0, tzinfo=UTC
+        2026, 3, 19, 8, 3, 0, tzinfo=UTC
     )
     assert parse_api_datetime(freshness["latest_conversion_update_at"]) == datetime(
         2026, 3, 19, 7, 2, 0, tzinfo=UTC

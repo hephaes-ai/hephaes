@@ -29,8 +29,6 @@ class Settings:
     raw_data_dir: Path
     outputs_dir: Path
     log_dir: Path
-    database_path: Path
-    database_url: str
     cors_allow_origin_regex: str
     job_execution_mode: str
     job_max_workers: int
@@ -71,7 +69,6 @@ def get_settings() -> Settings:
     raw_data_dir = _resolve_path("HEPHAES_BACKEND_RAW_DATA_DIR", data_dir / "raw")
     outputs_dir = _resolve_path("HEPHAES_BACKEND_OUTPUTS_DIR", data_dir / "outputs")
     log_dir = _resolve_path("HEPHAES_BACKEND_LOG_DIR", data_dir / "logs")
-    database_path = _resolve_path("HEPHAES_BACKEND_DB_PATH", data_dir / "app.db")
     cors_allow_origin_regex = os.environ.get(
         "HEPHAES_BACKEND_CORS_ALLOW_ORIGIN_REGEX",
         DEFAULT_CORS_ALLOW_ORIGIN_REGEX,
@@ -86,8 +83,6 @@ def get_settings() -> Settings:
         raw_data_dir=raw_data_dir,
         outputs_dir=outputs_dir,
         log_dir=log_dir,
-        database_path=database_path,
-        database_url=f"sqlite:///{database_path}",
         cors_allow_origin_regex=cors_allow_origin_regex,
         job_execution_mode=DEFAULT_JOB_EXECUTION_MODE,
         job_max_workers=DEFAULT_JOB_MAX_WORKERS,

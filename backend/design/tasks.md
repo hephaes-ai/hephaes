@@ -85,27 +85,26 @@ Everything touching the `OutputAction` DB model and the `/actions` sub-routes.
 
 ---
 
-## Phase 4 — Remove Backend DB
+## Phase 4 — Remove Backend DB ✅ COMPLETE
 
 Eliminate SQLAlchemy, the session factory, and all DB infrastructure.
 
-- [ ] `app/services/dashboard.py` — remove `session: Session` parameter from `get_dashboard_summary`, `get_dashboard_trends`, `get_dashboard_blockers`
-- [ ] `app/services/dashboard.py` — remove `_backend_visualization_jobs(session)` function and its call sites (merge step in each function)
-- [ ] `app/services/dashboard.py` — remove `from sqlalchemy import select` and `from sqlalchemy.orm import Session` imports
-- [ ] `app/services/dashboard.py` — remove `from app.db.models import Job, utc_now` import (keep `utc_now` only if used elsewhere, otherwise inline `datetime.now(UTC)`)
-- [ ] `app/api/dashboard.py` — remove `DbSession` dependency from all three route handlers
-- [ ] Delete `app/services/jobs.py` (backend Job service, dead since Phase 1)
-- [ ] Delete `app/db/models.py`
-- [ ] Delete `app/db/session.py`
-- [ ] Delete `app/db/` directory
-- [ ] `app/main.py` — remove `create_engine_and_session_factory` import and call
-- [ ] `app/main.py` — remove `initialize_database(engine)` from lifespan
-- [ ] `app/main.py` — remove `app.state.engine`, `app.state.session_factory` assignments
-- [ ] `app/main.py` — remove `engine.dispose()` from lifespan teardown
-- [ ] `app/config.py` — remove `database_path` and `database_url` fields from `Settings`
-- [ ] `app/config.py` — remove `database_path` resolution logic and `database_path.parent.mkdir()` from lifespan (or main)
-- [ ] `app/dependencies.py` — remove `get_db_session` dependency if defined there
-- [ ] `pyproject.toml` — remove `sqlalchemy` dependency
+- [x] `app/services/dashboard.py` — remove `session: Session` from all 3 functions, remove `_backend_visualization_jobs`, inline `utc_now` from `datetime.now(UTC)`
+- [x] `app/api/dashboard.py` — remove `DbSession` dependency from all three route handlers
+- [x] Delete `app/services/jobs.py`
+- [x] Delete `app/db/models.py`, `app/db/session.py`, `app/db/__init__.py`, `app/db/` directory
+- [x] `app/main.py` — remove engine/session factory creation and teardown
+- [x] `app/config.py` — remove `database_path` and `database_url` fields
+- [x] `app/dependencies.py` — remove `get_db_session`
+- [x] `app/services/__init__.py` — remove Job service exports
+- [x] `pyproject.toml` — remove `sqlalchemy` dependency
+- [x] `tests/conftest.py` — remove `backend_db_path` fixture and `HEPHAES_BACKEND_DB_PATH` env var
+- [x] `tests/test_config.py` — remove `database_path` assertions
+- [x] `tests/test_api_dashboard_phase1.py` — remove `JobService` visualization job setup
+- [x] `tests/test_api_dashboard_phase2.py` — remove `JobService`/`Job` usage, update job count assertions (active_count=0, queued=0, running=0), update `latest_job_update_at` to workspace max
+- [x] `tests/test_authoring_contracts.py` — remove `test_backend_database_only_keeps_runtime_tables` (premise eliminated)
+
+**After Phase 4:** 82 tests passing. Backend has zero SQLAlchemy/ORM dependencies. All state lives in hephaes `workspace.db`.
 
 ---
 

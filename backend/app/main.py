@@ -16,14 +16,12 @@ from app.api.jobs import router as jobs_router
 from app.api.outputs import router as outputs_router
 from app.api.tags import router as tags_router
 from app.config import get_settings
-from app.db.session import create_engine_and_session_factory, initialize_database
 from app.services.job_runner import BackendJobRunner
 from app.workspace_bootstrap import resolve_backend_workspace
 
 
 def create_app() -> FastAPI:
     settings = get_settings()
-    engine, session_factory = create_engine_and_session_factory(settings)
     job_runner = BackendJobRunner(
         max_workers=settings.job_max_workers,
         inline=settings.job_execution_mode == "inline",
@@ -37,15 +35,10 @@ def create_app() -> FastAPI:
         settings.raw_data_dir.mkdir(parents=True, exist_ok=True)
         settings.outputs_dir.mkdir(parents=True, exist_ok=True)
         settings.log_dir.mkdir(parents=True, exist_ok=True)
-        settings.database_path.parent.mkdir(parents=True, exist_ok=True)
-        initialize_database(engine)
-        app.state.engine = engine
         app.state.job_runner = job_runner
-        app.state.session_factory = session_factory
         app.state.workspace = workspace
         yield
         job_runner.shutdown()
-        engine.dispose()
 
     app = FastAPI(
         title=settings.app_name,

@@ -5,10 +5,6 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from sqlalchemy import select
-from sqlalchemy.orm import Session
-
-from app.db.models import Job, utc_now
 from app.schemas.dashboard import (
     DashboardBlockersResponse,
     DashboardConversionsSummary,
@@ -33,6 +29,10 @@ from hephaes import (
 OUTPUT_AVAILABILITY_STATUSES = ("ready", "missing", "invalid")
 ASSET_INDEXING_STATUSES = ("pending", "indexing", "indexed", "failed")
 JOB_STATUSES = ("queued", "running", "succeeded", "failed")
+
+
+def utc_now() -> datetime:
+    return datetime.now(UTC)
 
 
 def _normalize_utc(value: datetime) -> datetime:
@@ -119,15 +119,6 @@ def _latest_timestamp(values: list[datetime | None]) -> datetime | None:
     return max(filtered, default=None)
 
 
-def _backend_visualization_jobs(session: Session) -> list[Job]:
-    statement = (
-        select(Job)
-        .where(Job.type == "prepare_visualization")
-        .order_by(Job.created_at.desc(), Job.id.desc())
-    )
-    return list(session.scalars(statement).all())
-
-
 def _refresh_workspace_outputs(workspace: Workspace) -> list[WorkspaceOutputArtifact]:
     artifacts = [
         workspace.get_output_artifact_or_raise(summary.id)
@@ -164,19 +155,15 @@ def _refresh_workspace_outputs(workspace: Workspace) -> list[WorkspaceOutputArti
     return [refreshed_by_id[artifact.id] for artifact in artifacts]
 
 
-def _job_status(job: WorkspaceJob | Job) -> str:
-    if isinstance(job, WorkspaceJob):
-        return "queued" if job.status == "pending" else job.status
-    return job.status
+def _job_status(job: WorkspaceJob) -> str:
+    return "queued" if job.status == "pending" else job.status
 
 
-def _job_failure_timestamp(job: WorkspaceJob | Job) -> datetime | None:
-    if isinstance(job, WorkspaceJob):
-        return job.completed_at or job.updated_at or job.created_at
-    return job.finished_at or job.updated_at or job.created_at
+def _job_failure_timestamp(job: WorkspaceJob) -> datetime | None:
+    return job.completed_at or job.updated_at or job.created_at
 
 
-def _job_updated_at(job: WorkspaceJob | Job) -> datetime | None:
+def _job_updated_at(job: WorkspaceJob) -> datetime | None:
     return job.updated_at
 
 
@@ -220,10 +207,10 @@ def _asset_last_indexed_at(asset: RegisteredAsset) -> datetime | None:
     return asset.last_indexed_at
 
 
-def get_dashboard_summary(workspace: Workspace, session: Session) -> DashboardSummaryResponse:
+def get_dashboard_summary(workspace: Workspace) -> DashboardSummaryResponse:
     now = utc_now()
     assets = workspace.list_assets()
-    jobs = [*workspace.list_jobs(), *_backend_visualization_jobs(session)]
+    jobs = list(workspace.list_jobs())
     conversions = workspace.list_conversion_runs()
     outputs = _refresh_workspace_outputs(workspace)
 
@@ -311,10 +298,10 @@ def get_dashboard_summary(workspace: Workspace, session: Session) -> DashboardSu
     )
 
 
-def get_dashboard_trends(workspace: Workspace, session: Session, *, days: int = 7) -> DashboardTrendsResponse:
+def get_dashboard_trends(workspace: Workspace, *, days: int = 7) -> DashboardTrendsResponse:
     now = utc_now()
     assets = workspace.list_assets()
-    jobs = [*workspace.list_jobs(), *_backend_visualization_jobs(session)]
+    jobs = list(workspace.list_jobs())
     conversions = workspace.list_conversion_runs()
     outputs = _refresh_workspace_outputs(workspace)
 
@@ -352,9 +339,9 @@ def get_dashboard_trends(workspace: Workspace, session: Session, *, days: int = 
     )
 
 
-def get_dashboard_blockers(workspace: Workspace, session: Session) -> DashboardBlockersResponse:
+def get_dashboard_blockers(workspace: Workspace) -> DashboardBlockersResponse:
     assets = workspace.list_assets()
-    jobs = [*workspace.list_jobs(), *_backend_visualization_jobs(session)]
+    jobs = list(workspace.list_jobs())
     conversions = workspace.list_conversion_runs()
     outputs = _refresh_workspace_outputs(workspace)
 
