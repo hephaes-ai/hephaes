@@ -89,10 +89,11 @@ This is the main structural migration gap.
 
 ## 2. Route ownership still depends on Next modules
 
-`frontend/src/App.tsx` currently imports route entrypoints from `frontend/app`.
+The Vite app now owns the route tree from `frontend/src/routes`, but the
+underlying screen modules still live under `frontend/app`.
 
-That means Vite is the desktop runtime, but Next still owns much of the route
-surface.
+That means route composition is no longer owned by Next page entrypoints, but
+screen ownership is still not fully Vite-native yet.
 
 ## 3. Runtime assumptions are still mixed
 
@@ -152,7 +153,8 @@ Current state:
 
 - React Router is active in the Vite app
 - Next App Router still exists
-- route ownership is still mixed
+- route ownership is now centered in `frontend/src/routes`
+- screen modules are still imported from `frontend/app`
 - feature code can now read runtime mode/capabilities from one normalized
   frontend runtime source
 
@@ -237,7 +239,7 @@ Current phase status:
 
 - Phase 1 completed: define and stabilize the runtime boundary
 - Phase 2 completed: make desktop startup non-blocking and explicit
-- Phase 3 pending: separate route ownership from the Next app tree
+- Phase 3 completed: separate route ownership from the Next app tree
 - Phase 4 pending: migrate screens into Vite-owned route modules
 - Phase 5 pending: remove legacy web assumptions from asset ingestion
 - Phase 6 pending: retire the Next app surface and clean up build/runtime drift
@@ -250,6 +252,7 @@ Current phase status:
   new platform checks in feature components
 - route migration should not reintroduce blocking boot assumptions into screen
   composition
+- screen migration should not pull route ownership back into `frontend/app`
 
 - route migration may stall if large screen modules are not split carefully
 - desktop startup fixes may be harder to validate if route/runtime cleanup is

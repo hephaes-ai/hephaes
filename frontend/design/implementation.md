@@ -47,7 +47,7 @@ Current status:
 
 - Phase 1 completed on `2026-03-28`
 - Phase 2 completed on `2026-03-28`
-- Phase 3 pending
+- Phase 3 completed on `2026-03-28`
 - Phase 4 pending
 - Phase 5 pending
 - Phase 6 pending
@@ -177,6 +177,10 @@ Completed on `2026-03-28`.
 
 Stop treating the Next app tree as the active source of route composition.
 
+### Status
+
+Completed on `2026-03-28`.
+
 ### Tasks
 
 - Define a Vite-owned route tree under `frontend/src`.
@@ -185,6 +189,16 @@ Stop treating the Next app tree as the active source of route composition.
 - Keep feature screens reusable, but make the Vite app own route composition.
 - Reduce dependence on alias-based router swapping for core app structure.
 - Update `current-state.md` with the new route ownership status.
+
+### Implemented In This Phase
+
+- Moved the desktop route tree into a Vite-owned module at
+  `frontend/src/routes/desktop-routes.tsx`.
+- Removed direct imports of `frontend/app/*/page.tsx` from `frontend/src/App.tsx`.
+- Rebuilt the route wrappers in Vite-owned code while keeping the underlying
+  screen modules in place under `frontend/app`.
+- Revalidated both the Next build and the Vite desktop build to keep the
+  migration state stable across both active runtimes.
 
 ### Likely Files
 
