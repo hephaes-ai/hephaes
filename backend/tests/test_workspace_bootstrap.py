@@ -8,6 +8,7 @@ import pytest
 from app.config import get_settings
 from app.workspace_bootstrap import resolve_backend_workspace
 from hephaes import UnsupportedWorkspaceSchemaError
+from hephaes.workspace.errors import WorkspaceError
 from hephaes.workspace import Workspace
 from hephaes.workspace.schema import (
     WORKSPACE_DB_FILENAME,
@@ -101,6 +102,62 @@ def test_resolve_backend_workspace_raises_for_unsupported_non_desktop_workspace(
         UnsupportedWorkspaceSchemaError,
         match="unsupported workspace schema version 9",
     ):
+        resolve_backend_workspace(settings)
+
+    assert not (settings.data_dir / "workspace-archives").exists()
+    get_settings.cache_clear()
+
+
+def test_resolve_backend_workspace_resets_for_legacy_generic_schema_error(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _configure_backend_env(monkeypatch, tmp_path, desktop_mode=True)
+    settings = get_settings()
+    workspace_root = settings.workspace_root
+    original_init = Workspace.init
+
+    monkeypatch.setattr(
+        Workspace,
+        "open",
+        classmethod(
+            lambda cls, root: (_ for _ in ()).throw(
+                WorkspaceError("unsupported workspace schema version 9")
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        Workspace,
+        "init",
+        classmethod(lambda cls, root, exist_ok=False: original_init(root, exist_ok=exist_ok)),
+    )
+    _write_unsupported_workspace(workspace_root)
+
+    workspace = resolve_backend_workspace(settings)
+
+    assert workspace.root == workspace_root
+    archived_workspaces = list((settings.data_dir / "workspace-archives").iterdir())
+    assert len(archived_workspaces) == 1
+
+    get_settings.cache_clear()
+
+
+def test_resolve_backend_workspace_does_not_swallow_other_workspace_errors(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _configure_backend_env(monkeypatch, tmp_path, desktop_mode=True)
+    settings = get_settings()
+
+    monkeypatch.setattr(
+        Workspace,
+        "open",
+        classmethod(
+            lambda cls, root: (_ for _ in ()).throw(WorkspaceError("disk is unavailable"))
+        ),
+    )
+
+    with pytest.raises(WorkspaceError, match="disk is unavailable"):
         resolve_backend_workspace(settings)
 
     assert not (settings.data_dir / "workspace-archives").exists()
