@@ -100,7 +100,7 @@ screen ownership is still not fully Vite-native yet.
 Desktop-specific runtime behavior exists, but some assumptions still reflect
 the old web model:
 
-- desktop asset intake can still fall back to browser upload behavior
+- the Next runtime surface still exists alongside the Vite desktop runtime
 
 ## 4. Feature ownership is not yet Vite-native
 
@@ -177,9 +177,11 @@ Current state:
 - desktop native path-selection exists
 - path registration exists
 - directory scan exists
-- browser upload fallback still exists in desktop add-files flow
-- runtime capabilities now distinguish desktop path registration from browser
-  upload, but the inventory flows do not fully enforce that split yet
+- desktop add-files now stays path-based and no longer falls back silently to
+  browser upload
+- browser upload remains available only as an explicit capability-driven path
+- native dialog failures now surface as inventory notices instead of no-op
+  behavior
 
 Primary files:
 
@@ -246,7 +248,7 @@ Current phase status:
 - Phase 2 completed: make desktop startup non-blocking and explicit
 - Phase 3 completed: separate route ownership from the Next app tree
 - Phase 4 completed: migrate screens into Vite-owned route modules
-- Phase 5 pending: remove legacy web assumptions from asset ingestion
+- Phase 5 completed: remove legacy web assumptions from asset ingestion
 - Phase 6 pending: retire the Next app surface and clean up build/runtime drift
 - Phase 7 pending: validate, document, and close the migration
 

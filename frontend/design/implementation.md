@@ -49,7 +49,7 @@ Current status:
 - Phase 2 completed on `2026-03-28`
 - Phase 3 completed on `2026-03-28`
 - Phase 4 completed on `2026-03-28`
-- Phase 5 pending
+- Phase 5 completed on `2026-03-28`
 - Phase 6 pending
 - Phase 7 pending
 
@@ -276,6 +276,10 @@ Completed on `2026-03-28`.
 
 Remove the remaining legacy web assumptions from desktop behavior.
 
+### Status
+
+Completed on `2026-03-28`.
+
 ### Tasks
 
 - Remove the hidden file-input fallback from the desktop inventory add-files
@@ -290,6 +294,21 @@ Remove the remaining legacy web assumptions from desktop behavior.
   - `/assets/register-dialog`
 - Consolidate duplicated result-formatting and progress logic between upload and
   register flows where appropriate.
+
+### Implemented In This Phase
+
+- Changed the native dialog helpers to distinguish:
+  - selection
+  - cancellation
+  - runtime failure
+- Made inventory file add capability-driven:
+  - desktop runtime uses native path selection plus `/assets/register`
+  - browser runtime uses file upload explicitly
+- Removed the silent desktop fallback from native file selection to browser
+  upload.
+- Surfaced native dialog failures as real inventory notices/tests instead of
+  swallowing them.
+- Removed the unused `/assets/register-dialog` frontend API helper.
 
 ### Likely Files
 

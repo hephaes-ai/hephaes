@@ -19,7 +19,12 @@ export type ResampleMethod = "interpolate" | "downsample"
 export type DecodeFailurePolicy = "skip" | "warn" | "fail"
 export type TFRecordImagePayloadContract = "bytes_v2" | "legacy_list_v1"
 export type ConversionRowStrategyKind = "trigger" | "per-message" | "resample"
-export type ConversionFeatureSourceKind = "path" | "constant" | "metadata" | "concat" | "stack"
+export type ConversionFeatureSourceKind =
+  | "path"
+  | "constant"
+  | "metadata"
+  | "concat"
+  | "stack"
 export type ConversionTransformKind =
   | "cast"
   | "clamp"
@@ -401,12 +406,6 @@ export interface AssetRegistrationSkip {
   reason: "duplicate" | "invalid_path"
 }
 
-export interface DialogAssetRegistrationResponse {
-  canceled: boolean
-  registered_assets: AssetSummary[]
-  skipped: AssetRegistrationSkip[]
-}
-
 export interface DirectoryScanResponse {
   discovered_file_count: number
   recursive: boolean
@@ -717,8 +716,7 @@ export interface SavedConversionConfigSummaryResponse {
   status: "ready" | "needs_migration" | "invalid"
 }
 
-export interface SavedConversionConfigDetailResponse
-  extends SavedConversionConfigSummaryResponse {
+export interface SavedConversionConfigDetailResponse extends SavedConversionConfigSummaryResponse {
   spec_document_json: ConversionSpecDocument
   resolved_spec: ConversionSpec | null
   resolved_spec_document: ConversionSpecDocument | null
@@ -1003,7 +1001,9 @@ export function getDashboardSummary() {
 export function getDashboardTrends(days = 7) {
   const params = new URLSearchParams()
   params.set("days", String(days))
-  return request<DashboardTrendsResponse>(`/dashboard/trends?${params.toString()}`)
+  return request<DashboardTrendsResponse>(
+    `/dashboard/trends?${params.toString()}`
+  )
 }
 
 export function getDashboardBlockers() {
@@ -1083,12 +1083,6 @@ export function uploadAssetFile(file: File) {
   })
 }
 
-export function registerAssetsFromDialog() {
-  return request<DialogAssetRegistrationResponse>("/assets/register-dialog", {
-    method: "POST",
-  })
-}
-
 export function scanDirectoryForAssets(payload: DirectoryScanRequest) {
   return request<DirectoryScanResponse>("/assets/scan-directory", {
     body: JSON.stringify(payload),
@@ -1104,7 +1098,9 @@ export function createConversion(payload: ConversionCreateRequest) {
 }
 
 export function getConversionAuthoringCapabilities() {
-  return request<ConversionAuthoringCapabilitiesResponse>("/conversions/capabilities")
+  return request<ConversionAuthoringCapabilitiesResponse>(
+    "/conversions/capabilities"
+  )
 }
 
 export function inspectConversion(payload: ConversionInspectionRequest) {
@@ -1141,10 +1137,14 @@ export function listConversionConfigs() {
 }
 
 export function getConversionConfig(configId: string) {
-  return request<SavedConversionConfigDetailResponse>(`/conversion-configs/${configId}`)
+  return request<SavedConversionConfigDetailResponse>(
+    `/conversion-configs/${configId}`
+  )
 }
 
-export function createConversionConfig(payload: SavedConversionConfigCreateRequest) {
+export function createConversionConfig(
+  payload: SavedConversionConfigCreateRequest
+) {
   return request<SavedConversionConfigDetailResponse>("/conversion-configs", {
     body: JSON.stringify(payload),
     method: "POST",
@@ -1153,22 +1153,28 @@ export function createConversionConfig(payload: SavedConversionConfigCreateReque
 
 export function updateConversionConfig(
   configId: string,
-  payload: SavedConversionConfigUpdateRequest,
+  payload: SavedConversionConfigUpdateRequest
 ) {
-  return request<SavedConversionConfigDetailResponse>(`/conversion-configs/${configId}`, {
-    body: JSON.stringify(payload),
-    method: "PATCH",
-  })
+  return request<SavedConversionConfigDetailResponse>(
+    `/conversion-configs/${configId}`,
+    {
+      body: JSON.stringify(payload),
+      method: "PATCH",
+    }
+  )
 }
 
 export function duplicateConversionConfig(
   configId: string,
-  payload: SavedConversionConfigDuplicateRequest,
+  payload: SavedConversionConfigDuplicateRequest
 ) {
-  return request<SavedConversionConfigDetailResponse>(`/conversion-configs/${configId}/duplicate`, {
-    body: JSON.stringify(payload),
-    method: "POST",
-  })
+  return request<SavedConversionConfigDetailResponse>(
+    `/conversion-configs/${configId}/duplicate`,
+    {
+      body: JSON.stringify(payload),
+      method: "POST",
+    }
+  )
 }
 
 export function listOutputs(query?: OutputsQuery | null) {
