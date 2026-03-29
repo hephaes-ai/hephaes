@@ -96,6 +96,8 @@ def build_pyinstaller_command(
         "--collect-submodules",
         "hephaes",
         "--collect-submodules",
+        "rosbags.serde",
+        "--collect-submodules",
         "rosbags.typesys.stores",
         str(entrypoint_path),
     ]

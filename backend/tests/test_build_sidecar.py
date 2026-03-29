@@ -6,7 +6,7 @@ from pathlib import Path
 from scripts.build_sidecar import build_pyinstaller_command
 
 
-def test_build_pyinstaller_command_collects_rosbags_typestore_modules(tmp_path: Path):
+def test_build_pyinstaller_command_collects_required_rosbags_modules(tmp_path: Path):
     backend_dir = tmp_path / "backend"
     hephaes_src_dir = tmp_path / "hephaes-src"
     dist_dir = tmp_path / "dist"
@@ -23,6 +23,12 @@ def test_build_pyinstaller_command_collects_rosbags_typestore_modules(tmp_path: 
         spec_dir=spec_dir,
     )
 
-    assert "--collect-submodules" in command
-    assert "rosbags.typesys.stores" in command
+    collected_modules = [
+        command[index + 1]
+        for index, value in enumerate(command)
+        if value == "--collect-submodules"
+    ]
+
+    assert "rosbags.serde" in collected_modules
+    assert "rosbags.typesys.stores" in collected_modules
     assert str(backend_dir / "app" / "desktop_main.py") == command[-1]
