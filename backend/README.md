@@ -1,101 +1,70 @@
 # Backend
 
+FastAPI service that powers the Hephaes desktop app and local development server.
+
 ## Install
 
-From `backend/`:
-
 ```bash
-python -m pip install -e ../hephaes
-python -m pip install -e ".[dev]"
-```
+# from repo root
+pip install -r requirements.txt
 
-The backend replay websocket endpoint requires a websocket transport library.
-Installing `backend` from this project now includes `websockets` automatically.
-
-Or from the repository root:
-
-```bash
-python -m pip install -r requirements.txt
+# or individually from backend/
+pip install -e ../hephaes
+pip install -e ".[dev]"
 ```
 
 ## Run
 
-From `backend/`:
-
 ```bash
+# from backend/
 python -m uvicorn app.main:app --reload
 ```
 
-If you upgraded from an older checkout, reinstall the backend package once so the
-new websocket dependency is present:
-
-```bash
-python -m pip install -e ".[dev]"
-```
-
-The health endpoint is available at:
-
-```text
-http://127.0.0.1:8000/health
-```
+Health check: `http://127.0.0.1:8000/health`
 
 ## Test
 
-From `backend/`:
-
 ```bash
+# from backend/
 pytest tests -q
 ```
 
-## Conversion Contract Examples
+## API
 
-Default TFRecord behavior (image payload bytes-first):
+| Prefix | Description |
+|---|---|
+| `GET /health` | Health check |
+| `GET/POST /assets` | Register, scan, list, and index log assets |
+| `GET /dashboard` | Summary, trends, and blockers |
+| `GET/POST /conversions` | Run and inspect conversions |
+| `GET/POST /conversion-configs` | Saved conversion configs |
+| `GET /jobs` | Job status and history |
+| `GET /outputs` | Browse generated output artifacts |
+| `GET/POST /tags` | Tag catalog |
+
+## Configuration
+
+| Variable | Default | Description |
+|---|---|---|
+| `HEPHAES_BACKEND_DATA_DIR` | `backend/data/` (dev) · `~/.hephaes/backend/` (desktop) | Root data directory |
+| `HEPHAES_WORKSPACE_ROOT` | `<data_dir>/workspace/` | Workspace storage path |
+| `HEPHAES_BACKEND_RAW_DATA_DIR` | `<data_dir>/raw/` | Staged raw log files |
+| `HEPHAES_BACKEND_OUTPUTS_DIR` | `<data_dir>/outputs/` | Conversion output artifacts |
+| `HEPHAES_BACKEND_LOG_DIR` | `<data_dir>/logs/` | Uvicorn log files |
+| `HEPHAES_DESKTOP_MODE` | `0` | Set to `1` for desktop/sidecar mode |
+| `HEPHAES_BACKEND_HOST` | `127.0.0.1` | Bind host |
+| `HEPHAES_BACKEND_PORT` | `8000` | Bind port |
+| `HEPHAES_BACKEND_DEBUG` | `0` | Enable FastAPI debug mode |
+| `HEPHAES_BACKEND_CORS_ALLOW_ORIGIN_REGEX` | `https?://(localhost\|127\.0\.0\.1)(:\d+)?` | CORS origin allowlist |
+
+## Desktop / Sidecar
+
+The Tauri desktop app bundles the backend as a sidecar binary. See `frontend/README.md` for how to stage and run it.
+
+To run the desktop entrypoint directly:
 
 ```bash
-curl -X POST http://127.0.0.1:8000/conversions \
-	-H "Content-Type: application/json" \
-	-d '{
-		"asset_ids": ["<asset-id>"],
-		"output": {
-			"format": "tfrecord",
-			"compression": "none"
-		}
-	}'
+python -m app.desktop_main --host 127.0.0.1 --port 8000
 ```
 
-Legacy compatibility behavior (list-based image payload contract):
-
-```bash
-curl -X POST http://127.0.0.1:8000/conversions \
-	-H "Content-Type: application/json" \
-	-d '{
-		"asset_ids": ["<asset-id>"],
-		"output": {
-			"format": "tfrecord",
-			"compression": "none",
-			"image_payload_contract": "legacy_list_v1"
-		}
-	}'
-```
-
-Filter conversion history by representation mode:
-
-```bash
-curl "http://127.0.0.1:8000/conversions?image_payload_contract=bytes_v2"
-curl "http://127.0.0.1:8000/conversions?legacy_compatible=true"
-```
-
-## Rollout Checklist
-
-- Validate `GET /conversions/capabilities` exposes output-contract defaults expected by frontend.
-- Validate new conversions return `representation_policy` in both conversion and embedded job payloads.
-- Verify manifest summaries in `GET /outputs` include `payload_representation` for TFRecord runs.
-- Verify compatibility filtering works for historical runs (`legacy_compatible=true`).
-- Confirm no existing client breaks from additive fields in conversion and authoring responses.
-
-## Monitoring Notes
-
-- Track count of conversions by `representation_policy.image_payload_contract`.
-- Track share of legacy-compatible runs via `legacy_list_image_payload` compatibility marker.
-- Alert on validation failures related to invalid payload contract combinations.
-- During rollout, sample output artifacts and compare conversion policy contract with manifest payload representation.
+In desktop mode, data is stored under `~/.hephaes/backend/` and logs go to `~/.hephaes/backend/logs/`.
