@@ -20,11 +20,25 @@ your own machine.
 
 Requires [Rust](https://www.rust-lang.org/tools/install), Node.js, and Python 3.11+.
 
+This launches the local desktop UI and starts the bundled backend sidecar on your machine.
+
 ```bash
 pip install -r requirements.txt
 cd frontend && npm install
 npm run tauri:dev:sidecar
 ```
+
+## Using Hephaes as a Python Package
+
+```bash
+pip install hephaes
+```
+
+If you want the Python CLI or library instead of the desktop app, start with
+[`hephaes/README.md`](./hephaes/README.md). It covers CLI workflows, the Workspace API,
+and direct conversion examples.
+
+For product and usage documentation, see [docs.hephaes.ai](https://docs.hephaes.ai/).
 
 ## Enterprise Features
 
