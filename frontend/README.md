@@ -1,8 +1,8 @@
 # Frontend
 
-## Install
+React + Vite UI with a Tauri desktop shell.
 
-From the repository root:
+## Install
 
 ```bash
 cd frontend
@@ -11,133 +11,61 @@ npm install
 
 ## Run
 
-For a frontend-only Vite dev session against an already running backend, start
-the backend first from the repository root:
+**Web dev** (against a running backend):
 
 ```bash
-cd backend
+# terminal 1 — from backend/
 python -m uvicorn app.main:app --reload
-```
 
-Then start the frontend:
-
-```bash
-cd frontend
+# terminal 2 — from frontend/
 npm run dev
 ```
 
-The frontend defaults to talking to:
+The frontend talks to `http://127.0.0.1:8000` by default. Override with `VITE_BACKEND_BASE_URL`.
 
-```text
-http://127.0.0.1:8000
-```
-
-If you need a different backend URL, set:
+**Desktop dev** (sidecar — stages and starts the backend automatically):
 
 ```bash
-VITE_BACKEND_BASE_URL=http://127.0.0.1:8000
+npm run desktop:tauri-dev
 ```
 
-For the desktop shell, run:
+**Desktop dev** (external — connect to an already running backend):
 
 ```bash
-cd frontend
-npm run tauri:dev
-```
-
-`npm run tauri:dev` now defaults to the packaged backend sidecar in dev, so
-the desktop shell starts the backend automatically.
-
-If you want the backend by itself, `npm run backend:dev` still uses a clean
-repo-local development data root at:
-
-```text
-<repo>/.dev/backend
-```
-
-If you want Tauri dev to connect to an already running external backend
-instead, use:
-
-```bash
-npm run tauri:dev:external
-```
-
-The default external backend URL is:
-
-```text
-http://127.0.0.1:8000
-```
-
-If you want Tauri dev to use a different loopback backend URL, set:
-
-```bash
-VITE_BACKEND_BASE_URL=http://127.0.0.1:9000 npm run tauri:dev:external
+npm run desktop:tauri-dev:external
 ```
 
 ## Build
 
-From `frontend/`:
+Web bundle only:
 
 ```bash
 npm run build
 ```
 
-To preview the built frontend locally:
+Desktop app (stage sidecar first, then bundle):
 
 ```bash
-npm run start
+npm run tauri:prepare-backend:clean
+npm run tauri:build
 ```
 
-## Checks
+Output: `src-tauri/target/release/bundle/`
 
-From `frontend/`:
+## Checks
 
 ```bash
 npm run lint
 npm test
 npm run typecheck
 npm run build
-npm run desktop:build
-cargo check --manifest-path /Users/danielyoo/workspace/hephaes/frontend/src-tauri/Cargo.toml
+cargo check --manifest-path src-tauri/Cargo.toml
 ```
 
-## Package
+## Logs and data (packaged app)
 
-From `frontend/`:
-
-```bash
-npm run tauri:build
-```
-
-This build now stages the packaged backend sidecar automatically before the
-desktop bundle is created. The macOS app bundle is written to:
-
-```text
-src-tauri/target/release/bundle/macos/Hephaes.app
-```
-
-and the matching DMG is written to:
-
-```text
-src-tauri/target/release/bundle/dmg/
-```
-
-## Debugging
-
-The packaged desktop shell writes its own logs to:
-
-```text
-~/Library/Logs/ai.hephaes.desktop/desktop.log
-```
-
-The bundled FastAPI sidecar writes backend startup and request logs to:
-
-```text
-~/Library/Logs/ai.hephaes.desktop/backend/
-```
-
-The packaged app stores its local database, raw assets, and generated outputs in:
-
-```text
-~/Library/Application Support/ai.hephaes.desktop/backend/
-```
+| Path | Contents |
+|---|---|
+| `~/Library/Logs/ai.hephaes.desktop/desktop.log` | Tauri shell logs |
+| `~/Library/Logs/ai.hephaes.desktop/backend/` | Sidecar backend logs |
+| `~/Library/Application Support/ai.hephaes.desktop/backend/` | Database, raw assets, outputs |
