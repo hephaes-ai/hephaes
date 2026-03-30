@@ -23,7 +23,7 @@ Requires [Rust](https://www.rust-lang.org/tools/install), Node.js, and Python 3.
 ```bash
 pip install -r requirements.txt
 cd frontend && npm install
-npm run desktop:tauri-dev
+npm run tauri:dev:sidecar
 ```
 
 ## Enterprise Features

@@ -26,13 +26,13 @@ The frontend talks to `http://127.0.0.1:8000` by default. Override with `VITE_BA
 **Desktop dev** (sidecar — stages and starts the backend automatically):
 
 ```bash
-npm run desktop:tauri-dev
+npm run tauri:dev:sidecar
 ```
 
 **Desktop dev** (external — connect to an already running backend):
 
 ```bash
-npm run desktop:tauri-dev:external
+npm run tauri:dev:external
 ```
 
 ## Build
