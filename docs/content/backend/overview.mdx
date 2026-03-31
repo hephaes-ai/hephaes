@@ -2,35 +2,47 @@
 
 ## Goal
 
-The Hephaes backend is the API and orchestration layer for the local data pipeline. It manages asset registration, indexing, conversion execution, job tracking, and output cataloging — connecting the frontend UI to the `hephaes` conversion library.
+The Hephaes backend is the local API and orchestration layer for the data pipeline.
+It connects the desktop UI to the `hephaes` package for asset registration, authoring,
+conversion execution, job tracking, and output cataloging.
 
 ## Local-Only Design
 
-The backend is designed for **local use only**. It runs on the user's machine, stores data on the local filesystem, and uses SQLite for persistence. There is no authentication, multi-tenancy, or cloud deployment model in the current release.
+The backend is designed for **local use only**. It runs on the user's machine and
+stores data in the package-owned `hephaes` workspace (`workspace.db`) plus local
+filesystem directories for uploads, outputs, and logs.
+
+There is no authentication, multi-tenancy, or cloud deployment model in the current
+open-source release.
 
 ## What It Does
 
-- **Asset management** — register, upload, scan directories, index MCAP files, and manage tags
-- **Conversion authoring** — inspect asset topics, draft conversion specs, preview sample output, and persist reusable configs with revision history
+- **Asset management** — register, upload, scan directories, index `.bag` and `.mcap` files, and manage tags
+- **Conversion authoring** — inspect asset topics, generate draft specs, preview sample rows, and persist reusable configs with revision history
 - **Conversion execution** — run conversions via the `hephaes` library to produce TFRecord or Parquet output
-- **Job tracking** — durable job records for indexing, conversion, and visualization preparation
-- **Output catalog** — track output artifacts with metadata, filtering, content serving, and post-processing actions
-- **Episode replay** — serve timeline data, sample windows, and realtime websocket streaming for episode playback
-- **Dashboard** — aggregate metrics, trend views, and blocker rollups
-- **Visualization** — generate and cache Rerun `.rrd` artifacts for episode visualization
+- **Job tracking** — durable index and convert job records
+- **Output catalog** — track output artifacts, surface manifest and artifact metadata, and serve file content directly
+- **Dashboard** — aggregate summary metrics, trend views, and blocker counts for the local workflow
+
+## What It Does Not Do Today
+
+- replay or visualization APIs
+- output-action APIs
+- authentication, organizations, or cloud-hosted multi-user workflows
 
 ## Architecture
 
 ```
-Frontend (Next.js) ←→ Backend (FastAPI) ←→ hephaes (Python library)
-                           ↕
-                     SQLite + Filesystem
+Frontend (React + Vite / Tauri) <-> Backend (FastAPI) <-> hephaes (Workspace + conversion library)
+                                                     ↕
+                                           workspace.db + local filesystem
 ```
 
-The backend is a thin orchestration layer:
-- **`hephaes`** owns conversion semantics, encoding behavior, spec validation, and data processing
-- **Backend** owns HTTP contracts, persistence, policy exposure, job lifecycle, and migration signaling
-- **Frontend** owns presentation and guided user workflows based on backend contracts
+The backend is intentionally thin:
+
+- **`hephaes`** owns workspace persistence, conversion semantics, spec validation, and data processing
+- **Backend** owns HTTP contracts, local runtime configuration, background job submission, and response mapping
+- **Frontend** owns presentation and guided user workflows
 
 ## Stack
 
@@ -38,10 +50,9 @@ The backend is a thin orchestration layer:
 |---|---|
 | Framework | FastAPI (Python 3.11+) |
 | Server | Uvicorn (ASGI) |
-| Database | SQLite via SQLAlchemy 2.0 |
-| Realtime | websockets (episode replay) |
-| Visualization | Rerun SDK 0.22 |
-| Conversion | hephaes (internal library) |
+| Persistence | `hephaes` workspace SQLite database (`workspace.db`) |
+| Background jobs | In-process `ThreadPoolExecutor` wrapper |
+| Conversion | `hephaes` (internal library) |
 | Testing | pytest, httpx |
 
 ## Configuration
@@ -50,27 +61,31 @@ The backend is configured via environment variables:
 
 | Variable | Purpose | Default |
 |---|---|---|
-| `HEPHAES_BACKEND_DATA_DIR` | Local data directory | `backend/data` |
-| `HEPHAES_BACKEND_RAW_DATA_DIR` | Raw asset storage | `data/raw` |
-| `HEPHAES_BACKEND_OUTPUTS_DIR` | Conversion outputs | `data/outputs` |
-| `HEPHAES_BACKEND_DB_PATH` | SQLite database file | `data/app.db` |
-| `HEPHAES_BACKEND_DEBUG` | Debug mode | `false` |
+| `HEPHAES_BACKEND_DATA_DIR` | Root local data directory | `backend/data/` (dev) or `~/.hephaes/backend/` (desktop) |
+| `HEPHAES_WORKSPACE_ROOT` | Workspace storage path | `<data_dir>/workspace/` |
+| `HEPHAES_BACKEND_RAW_DATA_DIR` | Staged uploaded asset files | `<data_dir>/raw/` |
+| `HEPHAES_BACKEND_OUTPUTS_DIR` | Conversion output artifacts | `<data_dir>/outputs/` |
+| `HEPHAES_BACKEND_LOG_DIR` | Backend log files | `<data_dir>/logs/` |
+| `HEPHAES_DESKTOP_MODE` | Desktop sidecar mode toggle | `0` |
+| `HEPHAES_BACKEND_APP_NAME` | FastAPI app title | `Hephaes Backend` |
+| `HEPHAES_BACKEND_DEBUG` | Debug mode | `0` |
+| `HEPHAES_BACKEND_CORS_ALLOW_ORIGIN_REGEX` | CORS origin allowlist | `https?://(localhost\|127\.0\.0\.1)(:\d+)?` |
 
 ## Code Organization
 
 | Directory | Purpose |
 |---|---|
-| `app/api/` | HTTP route handlers (thin layer) |
+| `app/api/` | HTTP route handlers |
 | `app/services/` | Business logic and orchestration |
-| `app/db/models.py` | SQLAlchemy ORM models |
+| `app/mappers/` | Workspace-to-API response mapping |
 | `app/schemas/` | Request/response Pydantic models |
 | `app/config.py` | Environment-based configuration |
-| `app/main.py` | App creation, CORS, router registration, lifespan |
-| `tests/` | API test suite (17 test modules) |
+| `app/main.py` | App creation, middleware, router registration, lifespan |
+| `app/workspace_bootstrap.py` | Workspace bootstrap and resolution |
+| `tests/` | API and sidecar test suite |
 
 ## Future Direction
 
-- Worker queue for long-running conversion jobs (currently inline)
+- Worker queue for long-running conversion jobs with retry and cancellation support
 - Custom computation scripts as a conversion option
-- Cloud-hosted deployment model beyond local use
-- Expanded output action support beyond `refresh_metadata`
+- Richer backend-side filtering, pagination, and output inspection metadata

@@ -12,10 +12,10 @@ your own machine.
 - index logs to extract duration, start and end time, topic summaries, message counts, sensor types, and raw metadata
 - inspect source assets and draft conversion specs from real data
 - preview drafts, confirm them, and save reusable configs
-- convert selected sessions to Parquet or TFRecord with custom mappings, compression, resampling, and manifests
+- convert selected logs to Parquet or TFRecord with custom mappings, compression, resampling, and manifests
 - browse generated outputs and open artifact content directly
-- track durable jobs for indexing, conversion, and visualization preparation
-- prepare local replay and visualization artifacts for indexed assets
+- track durable jobs for indexing and conversion
+- review dashboard summaries, trends, and blockers for the local workflow
 
 ## Open Source Package Today
 
@@ -54,8 +54,8 @@ If you are interested in being a design partner, please reach out to hello@hepha
 
 ## Repository Layout
 
-- `frontend/`: the Next.js UI
-- `backend/`: the FastAPI service
+- `frontend/`: React + Vite UI with a Tauri desktop shell
+- `backend/`: FastAPI sidecar/service backed by the `hephaes` workspace
 - `hephaes/`: the shared Python package
 - `docs/`: this documentation site (Nextra)
 

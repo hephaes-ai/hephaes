@@ -2,29 +2,37 @@
 
 ## What It Does
 
-The Hephaes frontend is a local-use web application for managing robotics data assets and converting them into ML-ready formats. It runs alongside the backend on a user's local machine and provides a UI for the full data pipeline workflow.
+The Hephaes frontend is a local-use React application for managing robotics data
+assets and converting them into ML-ready formats. The main product experience runs
+inside a Tauri desktop shell, and the same UI can also be run in web development
+mode against a local backend.
 
 Users can:
 
-- **Manage local assets** — register, upload, scan directories, tag, and browse MCAP files stored on disk
+- **Manage local assets** — register, upload, scan directories, tag, and browse `.bag` and `.mcap` files stored on disk
+- **Inspect indexed metadata** — review topic summaries, modality breakdowns, and recent jobs and conversions for each asset
 - **Create conversion specs** — inspect asset topics, draft conversion configurations, preview sample output, and save reusable configs
-- **Run conversions** — convert MCAP files into TFRecord or Parquet output with a guided authoring workflow
-- **Monitor jobs** — track conversion job progress, view results, and inspect output metadata
-- **Replay episodes** — scrub through episode timelines with websocket-based realtime replay
+- **Run conversions** — convert source logs into TFRecord or Parquet output with a guided authoring workflow
+- **Monitor jobs** — track indexing and conversion job progress
+- **Browse outputs** — inspect generated datasets, manifests, and other output artifacts
 
 ## Local-Only Design
 
-The open source frontend is designed for **local use only**. It connects to a locally running backend server and operates on assets stored on the user's filesystem. There is no authentication, multi-user support, or cloud deployment model in the current release.
+The open-source frontend is designed for **local use only**. It connects to a
+locally running backend server and operates on assets stored on the user's
+filesystem. There is no authentication, multi-user support, or cloud deployment
+model in the current release.
 
 ## Stack
 
 | Layer | Technology |
 |---|---|
-| Framework | Next.js 16 (App Router, Turbopack) |
-| UI | React 19, Tailwind CSS 4, shadcn/Radix UI |
+| Framework | React 19 + Vite 8 |
+| Routing | React Router 7 |
+| Desktop host | Tauri 2 |
+| UI | Tailwind CSS 4, shadcn/Radix UI |
 | Data fetching | SWR with typed fetch helpers |
 | Notifications | Sonner (toast) |
-| Visualization | @rerun-io/web-viewer |
 | Testing | Vitest, React Testing Library |
 | Language | TypeScript 5.9 |
 
@@ -33,18 +41,23 @@ The open source frontend is designed for **local use only**. It connects to a lo
 The app shell provides four primary navigation sections:
 
 1. **Dashboard** — summary cards, trend views, and blockers with drill-through links
-2. **Inventory** — asset listing with filters, upload, directory scan, bulk indexing, and tagging
-3. **Outputs** — browse and inspect converted output datasets
+2. **Inventory** — asset listing with filters, upload, directory scan, bulk indexing, and tag management
+3. **Outputs** — browse and inspect converted output datasets and sidecars
 4. **Jobs** — job history with status tracking and detail views
 
 Additional routes are accessed contextually from within these sections:
 
-- `/assets/[assetId]` — asset detail with metadata, episodes, and related jobs
-- `/convert` — conversion authoring workspace (create new or use saved configs)
-- `/replay` — episode timeline replay with playback controls
+- `/assets/:assetId` — asset detail with metadata, tags, topic summaries, related jobs, and conversion history
+- `/convert` — conversion authoring workspace bootstrap route
+- `/convert/new` — create a new conversion config from inspection and draft flows
+- `/convert/use` — run selected assets against a saved config
+- `/jobs/:jobId` — job detail
+- `/outputs/:outputId` — output detail
+- `/replay` and `/visualize` — legacy compatibility redirects that currently send users back to inventory
 
 ## Future Direction
 
-- Custom computation scripts as an option in conversion jobs
-- Cloud-hosted deployment model beyond local use
-- Enhanced visualization and replay capabilities
+- Saved searches and saved selections in inventory
+- Friendlier conversion authoring, including config import/export and less raw-JSON editing
+- Richer output artifact previews and inspection tools
+- Cloud-hosted deployment beyond local use

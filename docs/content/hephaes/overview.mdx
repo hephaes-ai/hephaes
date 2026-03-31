@@ -23,7 +23,7 @@ It is the core data-conversion engine used by the backend and frontend, but it i
 - Map variable source topic names into a canonical output schema
 - Save reusable conversion configs from confirmed drafts
 - Synchronize asynchronous streams onto a shared timeline
-- Convert episodes into Parquet or TFRecord outputs
+- Convert source logs into Parquet or TFRecord outputs
 - Emit sidecar manifests with provenance and metadata
 
 ## Design Principles
@@ -42,7 +42,7 @@ ROS/MCAP logs -> hephaes (inspect + draft + preview + save + convert) -> Parquet
 In the full local stack:
 
 ```
-Frontend (Next.js) <-> Backend (FastAPI) <-> hephaes (Python package)
+Frontend (React + Vite / Tauri) <-> Backend (FastAPI) <-> hephaes (Python package)
 ```
 
 ## Current Scope
