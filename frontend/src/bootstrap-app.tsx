@@ -2,7 +2,7 @@ import * as React from "react"
 
 import App from "@/App"
 import { AppProviders } from "@/components/app-providers"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Progress } from "@/components/ui/progress"
 import { useFrontendRuntime } from "@/hooks/use-desktop-backend-runtime"
 import {
   loadFrontendRuntime,
@@ -15,47 +15,11 @@ type BootstrapState =
   | { runtime: FrontendRuntimeSnapshot; status: "failed" }
   | { status: "ready" }
 
-export function StartupScreen({
-  description,
-  title,
-}: {
-  description: string
-  title: string
-}) {
+export function StartupScreen() {
   return (
     <AppProviders>
-      <div className="flex min-h-svh items-center justify-center bg-background px-4">
-        <Card className="w-full max-w-lg border-border/60 shadow-sm">
-          <CardHeader className="space-y-3">
-            <div className="flex items-center gap-3">
-              <span className="relative block size-10 shrink-0">
-                <img
-                  alt=""
-                  aria-hidden="true"
-                  className="size-full object-contain dark:hidden"
-                  src="/robot-head-logo-iso.png"
-                />
-                <img
-                  alt=""
-                  aria-hidden="true"
-                  className="hidden size-full object-contain dark:block"
-                  src="/robot-head-logo-dark-bg.png"
-                />
-              </span>
-              <div className="space-y-1">
-                <p className="text-sm font-medium text-muted-foreground">
-                  Hephaes Desktop
-                </p>
-                <CardTitle>{title}</CardTitle>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <p className="text-sm leading-6 text-muted-foreground">
-              {description}
-            </p>
-          </CardContent>
-        </Card>
+      <div className="flex min-h-svh items-center justify-center bg-background">
+        <Progress className="w-56" />
       </div>
     </AppProviders>
   )
@@ -130,10 +94,7 @@ export function BootstrapApp({
     (!startupComplete && runtime?.status === "loading")
   ) {
     return (
-      <StartupScreen
-        description="Starting the desktop runtime and preparing the backend connection."
-        title="Launching Hephaes"
-      />
+      <StartupScreen />
     )
   }
 
@@ -161,7 +122,7 @@ export function BootstrapApp({
       .join(" ")
 
     return (
-      <StartupScreen description={details} title="Backend startup failed" />
+      <StartupScreen />
     )
   }
 
