@@ -2,28 +2,28 @@
 
 ## Worker Queue for Jobs
 
-- [ ] Offload long-running conversion jobs to a dedicated worker/queue system
+- [ ] Offload long-running conversion jobs to a dedicated worker or queue system
 - [ ] Support concurrent job execution with resource limits
-- [ ] Job cancellation and retry support
+- [ ] Add cancellation and retry support for background work
 
 ## Custom Computation Scripts
 
 - [ ] Accept user-defined computation scripts as a conversion option
-- [ ] Script validation and sandboxed execution
+- [ ] Validate script contracts before execution
 - [ ] Surface script results in job and output records
 
-## Expanded Output Actions
+## Asset And Output Query Improvements
 
-- [ ] End-to-end VLM tagging workflow (currently stub only)
-- [ ] Additional post-processing action types beyond `refresh_metadata`
+- [ ] Move remaining client-side asset filters such as file size and registration date into backend queries
+- [ ] Add pagination support for large asset and output listings
+- [ ] Expose richer backend-side filtering for output metadata
 
-## Backend-Side Filtering
+## Output Inspection
 
-- [ ] Move remaining client-side filters (file size, registration date) to backend queries
-- [ ] Pagination support for large asset and output listings
+- [ ] Expand artifact metadata extraction beyond the current manifest and Parquet summaries
+- [ ] Surface clearer report and sidecar summaries in output detail responses
 
-## Test Coverage
+## Test Coverage And Performance
 
-- [ ] Expand integration test coverage for authoring edge cases
-- [ ] Add websocket replay tests
+- [ ] Expand integration coverage for authoring edge cases and background execution
 - [ ] Add performance benchmarks for conversion execution

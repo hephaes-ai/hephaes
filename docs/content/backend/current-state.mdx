@@ -2,9 +2,13 @@
 
 ## Snapshot
 
-The backend is a FastAPI application with SQLite persistence and inline execution for all workflows. It provides 11 API route modules covering health, assets, episodes, conversions, configs, jobs, outputs, tags, dashboard, and visualization.
+As of `2026-03-30`, the backend is a FastAPI sidecar with in-process background job
+execution. It exposes the active local workflows for assets, conversion authoring,
+saved configs, conversions, jobs, outputs, tags, and dashboard rollups.
 
-All primary workflows are functional end-to-end.
+All durable state lives in the `hephaes` workspace (`workspace.db`) plus local
+filesystem storage. The backend no longer has episode, visualization, output-action,
+or SQLAlchemy/ORM surfaces.
 
 ## API Surface
 
@@ -17,136 +21,107 @@ All primary workflows are functional end-to-end.
 | Method | Route | Description |
 |---|---|---|
 | POST | `/assets/register` | Register asset by file path |
-| POST | `/assets/upload` | Upload raw file |
-| POST | `/assets/register-dialog` | Native file dialog registration |
-| POST | `/assets/scan-directory` | Scan directory for supported files |
-| POST | `/assets/{asset_id}/index` | Trigger indexing via `hephaes.Profiler` |
-| POST | `/assets/reindex-all` | Bulk reindex all assets |
-| GET | `/assets` | List with filters (search, tag, file type, status, duration, start-time) |
-| GET | `/assets/{asset_id}` | Asset detail with indexed metadata |
-| GET | `/assets/{asset_id}/episodes` | List episodes for asset |
+| POST | `/assets/upload` | Upload a raw file into local backend storage and register it |
+| POST | `/assets/register-dialog` | Open the native file dialog and register selected files |
+| POST | `/assets/scan-directory` | Scan a directory for supported asset files |
+| POST | `/assets/{asset_id}/index` | Trigger indexing for one asset |
+| POST | `/assets/{asset_id}/tags` | Attach a tag to an asset |
+| DELETE | `/assets/{asset_id}/tags/{tag_id}` | Detach a tag from an asset |
+| POST | `/assets/reindex-all` | Reindex pending or failed assets |
+| GET | `/assets` | List assets with search, tag, type, status, duration, and start-time filters |
+| GET | `/assets/{asset_id}` | Asset detail with indexed metadata, tags, related jobs, and recent conversions |
 
 ### Tags
 
 | Method | Route | Description |
 |---|---|---|
 | GET | `/tags` | List tag catalog with asset counts |
-| POST | `/tags` | Create tag |
-| POST | `/assets/{asset_id}/tags` | Attach tag to asset |
-| DELETE | `/assets/{asset_id}/tags/{tag_id}` | Detach tag from asset |
-
-### Episodes and Replay
-
-| Method | Route | Description |
-|---|---|---|
-| GET | `/assets/{asset_id}/episodes/{episode_id}` | Episode detail |
-| GET | `/assets/{asset_id}/episodes/{episode_id}/timeline` | Bucketed timeline data for scrubber |
-| GET | `/assets/{asset_id}/episodes/{episode_id}/samples` | Sample windows around timestamp |
-| WS | `/assets/{asset_id}/episodes/{episode_id}/replay` | Realtime replay (hello, seek, play, pause, set_speed, set_streams) |
+| POST | `/tags` | Create a tag |
 
 ### Conversions
 
 | Method | Route | Description |
 |---|---|---|
-| POST | `/conversions` | Execute conversion (inline spec, legacy fields, or saved config reference) |
-| GET | `/conversions` | List conversions with filters (including by image payload contract) |
-| GET | `/conversions/{conversion_id}` | Conversion detail with representation policy |
-| GET | `/conversions/capabilities` | Backend capability metadata (policy version, defaults, supported contracts) |
-| POST | `/conversions/inspect` | Inspect asset topics via `hephaes` |
-| POST | `/conversions/draft` | Generate draft conversion spec |
-| POST | `/conversions/preview` | Preview sample conversion output |
+| POST | `/conversions` | Create and execute a conversion from a saved config or spec |
+| GET | `/conversions` | List conversion runs with representation-policy filters |
+| GET | `/conversions/{conversion_id}` | Conversion detail with linked job and output files |
+| GET | `/conversions/capabilities` | Capability metadata for authoring and output contracts |
+| POST | `/conversions/inspect` | Inspect asset topics through `hephaes` |
+| POST | `/conversions/draft` | Generate a draft conversion spec and persist draft history |
+| POST | `/conversions/preview` | Preview sample conversion rows for a spec |
 
 ### Conversion Configs
 
 | Method | Route | Description |
 |---|---|---|
 | GET | `/conversion-configs` | List saved configs |
-| POST | `/conversion-configs` | Create saved config |
-| GET | `/conversion-configs/{config_id}` | Config detail with migration notes |
-| PATCH | `/conversion-configs/{config_id}` | Update config |
-| POST | `/conversion-configs/{config_id}/duplicate` | Duplicate config |
+| POST | `/conversion-configs` | Create a saved config |
+| GET | `/conversion-configs/{config_id}` | Config detail with revisions and migration notes |
+| PATCH | `/conversion-configs/{config_id}` | Update a saved config |
+| POST | `/conversion-configs/{config_id}/duplicate` | Duplicate a saved config |
 
-Saved configs persist JSON-backed spec payloads with immutable revision history. Configs migrate on load through `hephaes` and surface upgrade notes in responses.
+Saved configs persist spec documents with immutable revision history. Configs migrate
+on load through `hephaes` and surface upgrade notes in responses.
 
 ### Jobs
 
 | Method | Route | Description |
 |---|---|---|
 | GET | `/jobs` | List jobs with type/status filters |
-| GET | `/jobs/{job_id}` | Job detail with effective representation policy for conversion jobs |
+| GET | `/jobs/{job_id}` | Job detail with effective representation policy when available |
 
-Job types: `index`, `convert`, `prepare_visualization`. Statuses: `queued`, `running`, `succeeded`, `failed`.
+Job types surfaced today: `index`, `convert`. Statuses: `queued`, `running`,
+`succeeded`, `failed`.
 
 ### Outputs
 
 | Method | Route | Description |
 |---|---|---|
-| GET | `/outputs` | List with filters (format, role, asset, conversion, availability) |
-| GET | `/outputs/{output_id}` | Output detail with manifest summary |
-| GET | `/outputs/{output_id}/content` | Serve output file content |
-| POST | `/outputs/{output_id}/actions` | Trigger output action |
-| GET | `/outputs/{output_id}/actions` | List actions for output |
-| GET | `/output-actions/{action_id}` | Action detail |
+| GET | `/outputs` | List outputs with filters for format, role, asset, conversion, and availability |
+| GET | `/outputs/{output_id}` | Output detail with manifest and artifact metadata |
+| GET | `/outputs/{output_id}/content` | Serve output file content directly when available |
 
-Output roles: datasets, manifests, reports, sidecars. Only `refresh_metadata` action is implemented end-to-end. Parquet metadata inspection available via `pyarrow`.
+Output roles include datasets, manifests, reports, and other sidecars.
 
 ### Dashboard
 
 | Method | Route | Description |
 |---|---|---|
 | GET | `/dashboard/summary` | Aggregate counts and freshness timestamps |
-| GET | `/dashboard/trends` | Per-day trend buckets (configurable 1-90 day window) |
-| GET | `/dashboard/blockers` | Failed/missing state counts |
-
-### Visualization
-
-| Method | Route | Description |
-|---|---|---|
-| POST | `/assets/{asset_id}/episodes/{episode_id}/prepare-visualization` | Generate cached Rerun `.rrd` |
-| GET | `/assets/{asset_id}/episodes/{episode_id}/viewer-source` | Viewer-source manifest for frontend |
-| Static | `/visualizations/...` | Serve prepared visualization files |
-
-Cache reuse when matching artifact exists. Cache invalidation when viewer or recording versions change.
+| GET | `/dashboard/trends` | Per-day trend buckets for a 1-90 day window |
+| GET | `/dashboard/blockers` | Failed or missing state counts |
 
 ## Persistence Model
 
-SQLite database with SQLAlchemy 2.0 declarative ORM. Tables:
+The backend has no separate database layer of its own.
 
-| Table | Description |
-|---|---|
-| `assets` | Registered files with indexing status (pending/indexing/indexed/failed) |
-| `asset_metadata` | Indexed content (duration, topics, message counts, sensor types) |
-| `tags` | User-defined labels with normalized names |
-| `asset_tags` | Many-to-many asset/tag join |
-| `jobs` | Durable job records with type, status, timestamps |
-| `conversions` | Conversion runs with source IDs, config snapshots, output paths |
-| `conversion_configs` | Reusable spec-based templates |
-| `conversion_config_revisions` | Immutable config change history |
-| `conversion_draft_revisions` | Draft workflow data with status tracking |
-| `output_artifacts` | Output files with role, format, availability |
-| `output_actions` | Post-processing actions on outputs |
+It bootstraps and reads a package-owned workspace that stores:
 
-All tables use UUID primary keys and timezone-aware UTC timestamps.
+- registered assets and indexed metadata
+- tags and asset/tag associations
+- durable jobs and conversion runs
+- saved configs and immutable config revisions
+- draft heads and draft revisions
+- output artifacts
+
+Filesystem storage is split between workspace data, staged uploads, generated
+outputs, and logs.
 
 ## Tests
 
-17 test modules under `tests/` using pytest with httpx for async HTTP testing:
+17 test modules under `tests/` using pytest with httpx cover:
 
-- Asset registration, listing, filtering, and indexing
-- Conversion CRUD, execution, and authoring workflows
-- Conversion config persistence and revision management
-- Authoring request/response contracts
-- Episode playback and streaming
-- Dashboard summary, trends, and blockers
-- Visualization preparation
-- Job tracking and querying
-- Output artifact management and filtering
-- Tag creation and assignment
-- Image payload contract integration
+- asset registration, upload, listing, filtering, and indexing
+- conversion authoring APIs (`inspect`, `draft`, `preview`)
+- saved config persistence, duplication, and migration notes
+- conversion execution and representation-policy handling
+- output artifact listing, detail, content serving, and missing-file refresh behavior
+- dashboard summary, trends, and blockers
+- tags, configuration, sidecar bootstrap, and workspace bootstrapping
 
 ## Known Limitations
 
-- Conversion execution runs inline in the request path — no worker queue for long-running jobs
-- Only `refresh_metadata` output action is implemented; other action types are not yet supported
-- The frontend replay route does not yet use the backend viewer-source / cached `.rrd` flow
-- Some asset list filters (file size, registration date) are applied client-side in the frontend rather than in backend queries
+- conversions run on an in-process background runner; there is no external worker queue, cancellation API, or retry API
+- no replay, visualization, or output-action endpoints are part of the active backend surface
+- some asset list filters such as file size and registration date are still applied client-side in the frontend
+- the frontend type layer still carries a few legacy enum and field names even though the routed backend surface is slimmer
