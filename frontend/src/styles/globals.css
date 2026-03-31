@@ -143,13 +143,12 @@
   }
 
   @media (prefers-reduced-motion: no-preference) {
-    body,
-    header,
-    [data-slot] {
+    *,
+    *::before,
+    *::after {
       transition:
         background-color 180ms ease-out,
         border-color 180ms ease-out,
-        color 180ms ease-out,
         box-shadow 180ms ease-out;
     }
   }
