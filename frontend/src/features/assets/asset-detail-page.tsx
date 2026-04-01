@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { ArrowLeft, ArrowRight, ArrowRightLeft, Database, RefreshCw, Waves } from "lucide-react";
+import { ArrowLeft, ArrowRight, ArrowRightLeft, Copy, Database, FolderOpen, RefreshCw, Waves } from "lucide-react";
 
 import { AssetStatusBadge } from "@/components/asset-status-badge";
 import { EmptyState } from "@/components/empty-state";
@@ -48,6 +48,7 @@ import {
   isWorkflowActiveStatus,
 } from "@/lib/format";
 import { buildConversionHref, buildJobDetailHref, resolveReturnHref } from "@/lib/navigation";
+import { revealPathInFileExplorer } from "@/lib/native-file-explorer";
 import { buildOutputsHref } from "@/lib/outputs";
 import type { NoticeMessage } from "@/lib/types";
 
@@ -331,6 +332,26 @@ export function AssetDetailPage({ assetId }: { assetId: string }) {
     }
   }
 
+  async function onCopyFilePath(path: string) {
+    try {
+      await navigator.clipboard.writeText(path);
+      toast.success("Local file path copied to clipboard.");
+    } catch (copyError) {
+      toast.error("Could not copy local file path", {
+        description: getErrorMessage(copyError),
+      });
+    }
+  }
+
+  async function onRevealFilePath(path: string) {
+    const result = await revealPathInFileExplorer(path);
+    if (result.status === "error") {
+      toast.error("Could not reveal local path", {
+        description: result.error,
+      });
+    }
+  }
+
   return (
     <div className="space-y-6">
       <Button asChild size="sm" variant="ghost">
@@ -342,9 +363,8 @@ export function AssetDetailPage({ assetId }: { assetId: string }) {
 
       <Card>
         <CardHeader className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <div className="min-w-0 space-y-1">
+          <div className="min-w-0">
             <CardTitle className="text-xl">{asset.file_name}</CardTitle>
-            <CardDescription className="break-all">{asset.file_path}</CardDescription>
           </div>
           <div className="flex shrink-0 flex-wrap items-center gap-2">
             <AssetStatusBadge status={effectiveStatus} />
@@ -420,6 +440,35 @@ export function AssetDetailPage({ assetId }: { assetId: string }) {
                 label="Last indexed"
                 value={formatDateTime(asset.last_indexed_time, "Not indexed yet")}
               />
+              <div className="space-y-1 sm:col-span-2">
+                <dt className="text-xs uppercase tracking-wide text-muted-foreground">Local file path</dt>
+                <dd className="min-w-0 text-sm font-medium text-foreground">
+                  <div className="flex items-start gap-2">
+                    <button
+                      aria-label="Reveal local file path in Finder or File Explorer"
+                      className="flex min-w-0 flex-1 cursor-pointer items-start gap-2 text-left underline-offset-4 transition-colors hover:text-primary hover:underline"
+                      onClick={() => void onRevealFilePath(asset.file_path)}
+                      title="Reveal this path in Finder or File Explorer"
+                      type="button"
+                    >
+                      <FolderOpen className="mt-0.5 size-3.5 shrink-0" />
+                      <span className="min-w-0 flex-1 truncate" title={asset.file_path}>
+                        {asset.file_path}
+                      </span>
+                    </button>
+                    <Button
+                      aria-label="Copy local file path"
+                      onClick={() => void onCopyFilePath(asset.file_path)}
+                      size="icon-sm"
+                      title="Copy local file path"
+                      type="button"
+                      variant="outline"
+                    >
+                      <Copy className="size-3.5" />
+                    </Button>
+                  </div>
+                </dd>
+              </div>
               <div className="space-y-1 sm:col-span-2">
                 <dt className="text-xs uppercase tracking-wide text-muted-foreground">Asset ID</dt>
                 <dd className="break-all text-sm font-medium text-foreground">{asset.id}</dd>
