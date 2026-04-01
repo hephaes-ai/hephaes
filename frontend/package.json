@@ -6,6 +6,7 @@
   "scripts": {
     "backend:dev": "node ./scripts/run-backend-dev.mjs",
     "dev": "vite",
+    "vite:dev": "VITE_BACKEND_BASE_URL=http://127.0.0.1:8000 vite",
     "build": "vite build",
     "start": "vite preview",
     "desktop:dev": "npm run dev",

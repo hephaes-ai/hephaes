@@ -1,21 +1,22 @@
-"use client";
+"use client"
 
-import * as React from "react";
-import { ArrowLeft } from "lucide-react";
+import * as React from "react"
+import { ArrowLeft } from "lucide-react"
 
-import { OutputDetailContent } from "@/components/output-detail-content";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
-import { toast } from "@/components/ui/sonner";
-import { useAssets, useOutput } from "@/hooks/use-backend";
-import type { OutputDetail } from "@/lib/api";
-import { BackendApiError, getErrorMessage } from "@/lib/api";
+import { OutputDetailContent } from "@/components/output-detail-content"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { Button } from "@/components/ui/button"
+import { Skeleton } from "@/components/ui/skeleton"
+import { toast } from "@/components/ui/sonner"
+import { useAssets, useOutput } from "@/hooks/use-backend"
+import type { OutputDetail } from "@/lib/api"
+import { BackendApiError, getErrorMessage } from "@/lib/api"
 import {
   AppLink as Link,
   useAppSearchParams as useSearchParams,
-} from "@/lib/app-routing";
-import { resolveReturnHref } from "@/lib/navigation";
+} from "@/lib/app-routing"
+import { resolveReturnHref } from "@/lib/navigation"
+import { revealPathInFileExplorer } from "@/lib/native-file-explorer"
 
 function OutputDetailSkeleton() {
   return (
@@ -25,47 +26,80 @@ function OutputDetailSkeleton() {
       <Skeleton className="h-40 rounded-xl" />
       <Skeleton className="h-64 rounded-xl" />
     </div>
-  );
+  )
 }
 
 export function OutputDetailPageFallback() {
-  return <OutputDetailSkeleton />;
+  return <OutputDetailSkeleton />
 }
 
 export function OutputDetailPage({ outputId }: { outputId: string }) {
-  const searchParams = useSearchParams();
-  const outputResponse = useOutput(outputId);
-  const assetsResponse = useAssets();
+  const searchParams = useSearchParams()
+  const outputResponse = useOutput(outputId)
+  const assetsResponse = useAssets()
 
-  const returnHref = resolveReturnHref(searchParams.get("from"), "/outputs");
+  const returnHref = resolveReturnHref(searchParams.get("from"), "/outputs")
   const currentHref = React.useMemo(() => {
-    const currentQuery = searchParams.toString();
-    return currentQuery ? `/outputs/${outputId}?${currentQuery}` : `/outputs/${outputId}`;
-  }, [outputId, searchParams]);
+    const currentQuery = searchParams.toString()
+    return currentQuery
+      ? `/outputs/${outputId}?${currentQuery}`
+      : `/outputs/${outputId}`
+  }, [outputId, searchParams])
 
   const assetsById = React.useMemo(
-    () => new Map((assetsResponse.data ?? []).map((asset) => [asset.id, asset])),
-    [assetsResponse.data],
-  );
+    () =>
+      new Map((assetsResponse.data ?? []).map((asset) => [asset.id, asset])),
+    [assetsResponse.data]
+  )
 
   async function onCopyReference(output: OutputDetail) {
     try {
-      const reference = `${output.file_name} (${output.id})`;
-      await navigator.clipboard.writeText(reference);
-      toast.success("Output reference copied to clipboard.");
+      const reference = `${output.file_name} (${output.id})`
+      await navigator.clipboard.writeText(reference)
+      toast.success("Output reference copied to clipboard.")
     } catch (error) {
       toast.error("Could not copy reference", {
         description: getErrorMessage(error),
-      });
+      })
+    }
+  }
+
+  async function onCopyFilePath(path: string) {
+    try {
+      await navigator.clipboard.writeText(path)
+      toast.success("Local file path copied to clipboard.")
+    } catch (error) {
+      toast.error("Could not copy local file path", {
+        description: getErrorMessage(error),
+      })
+    }
+  }
+
+  async function onRevealFilePath(output: OutputDetail) {
+    const localFilePath = output.file_path?.trim()
+    if (!localFilePath) {
+      toast.error("Could not reveal local path", {
+        description: "This output does not expose a local file path yet.",
+      })
+      return
+    }
+
+    const result = await revealPathInFileExplorer(localFilePath)
+    if (result.status === "error") {
+      toast.error("Could not reveal local path", {
+        description: result.error,
+      })
     }
   }
 
   if (outputResponse.isLoading) {
-    return <OutputDetailSkeleton />;
+    return <OutputDetailSkeleton />
   }
 
   if (outputResponse.error) {
-    const isMissing = outputResponse.error instanceof BackendApiError && outputResponse.error.status === 404;
+    const isMissing =
+      outputResponse.error instanceof BackendApiError &&
+      outputResponse.error.status === 404
 
     return (
       <div className="space-y-4">
@@ -76,23 +110,31 @@ export function OutputDetailPage({ outputId }: { outputId: string }) {
           </Link>
         </Button>
         <Alert variant="destructive">
-          <AlertTitle>{isMissing ? "Output not found" : "Could not load output"}</AlertTitle>
-          <AlertDescription>{getErrorMessage(outputResponse.error)}</AlertDescription>
+          <AlertTitle>
+            {isMissing ? "Output not found" : "Could not load output"}
+          </AlertTitle>
+          <AlertDescription>
+            {getErrorMessage(outputResponse.error)}
+          </AlertDescription>
         </Alert>
         {!isMissing ? (
           <div>
-            <Button onClick={() => void outputResponse.mutate()} type="button" variant="outline">
+            <Button
+              onClick={() => void outputResponse.mutate()}
+              type="button"
+              variant="outline"
+            >
               Try again
             </Button>
           </div>
         ) : null}
       </div>
-    );
+    )
   }
 
-  const output = outputResponse.data;
+  const output = outputResponse.data
   if (!output) {
-    return null;
+    return null
   }
 
   return (
@@ -106,10 +148,12 @@ export function OutputDetailPage({ outputId }: { outputId: string }) {
 
       <OutputDetailContent
         assetsById={assetsById}
+        onCopyFilePath={onCopyFilePath}
         currentHref={currentHref}
         onCopyReference={onCopyReference}
+        onRevealFilePath={onRevealFilePath}
         output={output}
       />
     </div>
-  );
+  )
 }

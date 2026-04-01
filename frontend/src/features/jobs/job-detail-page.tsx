@@ -6,7 +6,6 @@ import { ArrowLeft, ArrowRight, RefreshCw, TriangleAlert } from "lucide-react";
 import {
   useAssets,
   useBackendCache,
-  useConversion,
   useConversions,
   useJob,
 } from "@/hooks/use-backend";
@@ -27,6 +26,12 @@ import { getImagePayloadContract, isLegacyImagePayloadPolicy } from "@/lib/conve
 
 import { MetadataField } from "@/components/metadata-field";
 import { WorkflowStatusBadge } from "@/components/workflow-status-badge";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -64,35 +69,36 @@ function TargetAssetLinks({
   }
 
   return (
-    <div className="space-y-2">
-      {assetIds.map((assetId) => {
-        const asset = assetsById.get(assetId);
-        return (
-          <div
-            key={assetId}
-            className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-muted/20 px-3 py-3"
-          >
-            <div className="space-y-1">
-              <p className="text-sm font-medium text-foreground">{asset?.file_name ?? assetId}</p>
-              <p className="break-all text-xs text-muted-foreground">{asset?.file_path ?? assetId}</p>
+    <div className="max-h-72 overflow-y-auto pr-1">
+      <div className="space-y-2">
+        {assetIds.map((assetId) => {
+          const asset = assetsById.get(assetId);
+          return (
+            <div
+              key={assetId}
+              className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-muted/20 px-3 py-3"
+            >
+              <div className="space-y-1">
+                <p className="text-sm font-medium text-foreground">{asset?.file_name ?? assetId}</p>
+                <p className="break-all text-xs text-muted-foreground">{asset?.file_path ?? assetId}</p>
+              </div>
+              <Button asChild size="sm" variant="outline">
+                <Link href={buildAssetDetailHref(assetId, currentHref)}>
+                  Open asset
+                  <ArrowRight className="size-3.5" />
+                </Link>
+              </Button>
             </div>
-            <Button asChild size="sm" variant="outline">
-              <Link href={buildAssetDetailHref(assetId, currentHref)}>
-                Open asset
-                <ArrowRight className="size-3.5" />
-              </Link>
-            </Button>
-          </div>
-        );
-      })}
+          );
+        })}
+      </div>
     </div>
   );
 }
 
 export function JobDetailPage({ jobId }: { jobId: string }) {
   const searchParams = useSearchParams();
-  const { revalidateConversionDetail, revalidateConversions, revalidateJobDetail, revalidateJobs } =
-    useBackendCache();
+  const { revalidateConversions, revalidateJobDetail, revalidateJobs } = useBackendCache();
   const jobResponse = useJob(jobId);
   const assetsResponse = useAssets();
   const conversionsResponse = useConversions();
@@ -101,7 +107,6 @@ export function JobDetailPage({ jobId }: { jobId: string }) {
     () => conversionsResponse.data?.find((conversion) => conversion.job_id === jobId) ?? null,
     [conversionsResponse.data, jobId],
   );
-  const conversionDetailResponse = useConversion(matchedConversionSummary?.id ?? "");
 
   const returnHref = resolveReturnHref(searchParams.get("from"), "/jobs");
   const currentHref = React.useMemo(() => {
@@ -120,8 +125,7 @@ export function JobDetailPage({ jobId }: { jobId: string }) {
       return;
     }
 
-    const conversionStatus =
-      conversionDetailResponse.data?.status ?? matchedConversionSummary?.status ?? null;
+    const conversionStatus = matchedConversionSummary?.status ?? null;
     const shouldPoll =
       isWorkflowActiveStatus(job.status) ||
       (conversionStatus ? isWorkflowActiveStatus(conversionStatus) : false);
@@ -134,21 +138,13 @@ export function JobDetailPage({ jobId }: { jobId: string }) {
       void jobResponse.mutate();
       void revalidateJobDetail(job.id);
       void revalidateJobs();
-
-      if (matchedConversionSummary?.id) {
-        void conversionDetailResponse.mutate();
-        void revalidateConversionDetail(matchedConversionSummary.id);
-      }
-
       void revalidateConversions();
     }, 1500);
 
     return () => window.clearInterval(intervalId);
   }, [
-    conversionDetailResponse,
     jobResponse,
     matchedConversionSummary,
-    revalidateConversionDetail,
     revalidateConversions,
     revalidateJobDetail,
     revalidateJobs,
@@ -189,14 +185,11 @@ export function JobDetailPage({ jobId }: { jobId: string }) {
     return null;
   }
 
-  const conversionDetail = conversionDetailResponse.data ?? null;
   const conversionRepresentationPolicy =
-    conversionDetail?.representation_policy ??
-    matchedConversionSummary?.representation_policy ??
-    job.representation_policy ??
-    null;
+    matchedConversionSummary?.representation_policy ?? job.representation_policy ?? null;
   const imagePayloadContract = getImagePayloadContract(conversionRepresentationPolicy);
   const usesLegacyContract = isLegacyImagePayloadPolicy(conversionRepresentationPolicy);
+  const configEntryCount = Object.keys(job.config_json).length;
 
   return (
     <div className="space-y-6">
@@ -233,11 +226,26 @@ export function JobDetailPage({ jobId }: { jobId: string }) {
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,0.9fr)]">
         <Card>
-          <CardHeader>
-            <CardTitle>Job details</CardTitle>
-            <CardDescription>Current durable job state reported by the backend.</CardDescription>
+          <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <CardTitle>Job details</CardTitle>
+              <CardDescription>Current durable job state reported by the backend.</CardDescription>
+            </div>
+            {matchedConversionSummary ? (
+              <Button asChild size="sm" variant="outline">
+                <Link
+                  href={buildOutputsHref({
+                    conversionId: matchedConversionSummary.id,
+                    imagePayloadContract,
+                  })}
+                >
+                  View outputs
+                  <ArrowRight className="size-3.5" />
+                </Link>
+              </Button>
+            ) : null}
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-4">
             <dl className="grid gap-4 sm:grid-cols-2">
               <MetadataField label="Type" value={formatJobType(job.type)} />
               <MetadataField label="Status" value={<WorkflowStatusBadge status={job.status} />} />
@@ -245,6 +253,11 @@ export function JobDetailPage({ jobId }: { jobId: string }) {
               <MetadataField label="Updated" value={formatDateTime(job.updated_at)} />
               <MetadataField label="Started" value={formatDateTime(job.started_at)} />
               <MetadataField label="Finished" value={formatDateTime(job.finished_at)} />
+              <MetadataField label="Image payload contract" value={imagePayloadContract} />
+              <MetadataField
+                label="Schema policy"
+                value={`v${conversionRepresentationPolicy?.policy_version ?? 1}`}
+              />
               <div className="space-y-1 sm:col-span-2">
                 <dt className="text-xs uppercase tracking-wide text-muted-foreground">Output path</dt>
                 <dd className="break-all text-sm font-medium text-foreground">
@@ -252,6 +265,12 @@ export function JobDetailPage({ jobId }: { jobId: string }) {
                 </dd>
               </div>
             </dl>
+
+            <p className="text-sm text-muted-foreground">
+              {usesLegacyContract
+                ? "Legacy list image payload mode is active for this job."
+                : "Training loaders should consume bytes-based image features for linked outputs."}
+            </p>
           </CardContent>
         </Card>
 
@@ -266,107 +285,30 @@ export function JobDetailPage({ jobId }: { jobId: string }) {
         </Card>
       </div>
 
-      {Object.keys(job.config_json).length > 0 ? (
+      {configEntryCount > 0 ? (
         <Card>
           <CardHeader>
             <CardTitle>Config</CardTitle>
             <CardDescription>Execution parameters stored with the durable job record.</CardDescription>
           </CardHeader>
           <CardContent>
-            <pre className="overflow-x-auto rounded-lg border bg-muted/20 p-3 text-xs text-foreground">
-              {JSON.stringify(job.config_json, null, 2)}
-            </pre>
-          </CardContent>
-        </Card>
-      ) : null}
-
-      {matchedConversionSummary ? (
-        <Card>
-          <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-            <div>
-              <CardTitle>Conversion output</CardTitle>
-              <CardDescription>Completed conversion metadata linked to this job.</CardDescription>
-            </div>
-            <Button asChild size="sm" variant="outline">
-              <Link
-                href={buildOutputsHref({
-                  conversionId: matchedConversionSummary.id,
-                  imagePayloadContract,
-                })}
-              >
-                View outputs
-                <ArrowRight className="size-3.5" />
-              </Link>
-            </Button>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <dl className="grid gap-4 sm:grid-cols-2">
-              <MetadataField
-                label="Conversion status"
-                value={
-                  <WorkflowStatusBadge
-                    status={conversionDetail?.status ?? matchedConversionSummary.status}
-                  />
-                }
-              />
-              <MetadataField
-                label="Created"
-                value={formatDateTime(conversionDetail?.created_at ?? matchedConversionSummary.created_at)}
-              />
-              <div className="space-y-1 sm:col-span-2">
-                <dt className="text-xs uppercase tracking-wide text-muted-foreground">Output path</dt>
-                <dd className="break-all text-sm font-medium text-foreground">
-                  {conversionDetail?.output_path ?? matchedConversionSummary.output_path ?? "Not available"}
-                </dd>
-              </div>
-              <div className="space-y-1">
-                <dt className="text-xs uppercase tracking-wide text-muted-foreground">Image payload contract</dt>
-                <dd className="text-sm font-medium text-foreground">{imagePayloadContract}</dd>
-              </div>
-              <div className="space-y-1">
-                <dt className="text-xs uppercase tracking-wide text-muted-foreground">Schema policy</dt>
-                <dd className="text-sm font-medium text-foreground">
-                  v{conversionRepresentationPolicy?.policy_version ?? 1}
-                </dd>
-              </div>
-            </dl>
-
-            <p className="text-sm text-muted-foreground">
-              {usesLegacyContract
-                ? "Legacy list image payload mode is active for this conversion."
-                : "Training loaders should consume bytes-based image features from this conversion."}
-            </p>
-
-            {conversionDetail?.error_message || matchedConversionSummary.error_message ? (
-              <Alert variant="destructive">
-                <TriangleAlert className="size-4" />
-                <AlertTitle>Conversion error</AlertTitle>
-                <AlertDescription>
-                  {conversionDetail?.error_message ?? matchedConversionSummary.error_message}
-                </AlertDescription>
-              </Alert>
-            ) : null}
-
-            {conversionDetail?.output_files.length ? (
-              <div className="space-y-2">
-                <p className="text-xs uppercase tracking-wide text-muted-foreground">Output files</p>
-                <div className="space-y-2">
-                  {conversionDetail.output_files.map((outputFile) => (
-                    <div
-                      key={outputFile}
-                      className="rounded-lg border bg-muted/20 px-3 py-2 text-sm break-all text-foreground"
-                    >
-                      {outputFile}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ) : (
-              <p className="text-sm text-muted-foreground">
-                Output files are not available yet. The job detail will keep polling while the linked conversion is
-                active.
-              </p>
-            )}
+            <Accordion collapsible type="single">
+              <AccordionItem value="raw-config">
+                <AccordionTrigger>
+                  <span className="flex min-w-0 flex-1 items-center justify-between gap-3">
+                    <span className="text-sm font-medium text-foreground">Raw config JSON</span>
+                    <span className="text-xs text-muted-foreground">
+                      {configEntryCount} {configEntryCount === 1 ? "entry" : "entries"}
+                    </span>
+                  </span>
+                </AccordionTrigger>
+                <AccordionContent>
+                  <pre className="overflow-x-auto rounded-lg border bg-muted/20 p-3 text-xs text-foreground">
+                    {JSON.stringify(job.config_json, null, 2)}
+                  </pre>
+                </AccordionContent>
+              </AccordionItem>
+            </Accordion>
           </CardContent>
         </Card>
       ) : null}

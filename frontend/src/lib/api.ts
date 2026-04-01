@@ -736,6 +736,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     headers,
   })
 
+  const contentType = response.headers.get("Content-Type") ?? ""
   const rawPayload = await response.text()
   let payload: unknown = null
 
@@ -750,6 +751,13 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (!response.ok) {
     throw new BackendApiError(
       parseErrorDetail(payload, response.status),
+      response.status
+    )
+  }
+
+  if (response.ok && rawPayload && !contentType.includes("application/json") && typeof payload === "string") {
+    throw new BackendApiError(
+      `Backend returned unexpected content type: ${contentType || "unknown"}. Is VITE_BACKEND_BASE_URL configured?`,
       response.status
     )
   }

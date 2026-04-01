@@ -1,7 +1,7 @@
 use std::{
     io::{BufRead, BufReader, Write},
     net::{TcpListener, TcpStream},
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::Mutex,
     thread,
     time::{Duration, Instant},
@@ -253,9 +253,7 @@ fn resolve_external_backend_base_url() -> Option<String> {
     }
 
     if !is_loopback_url(&parsed_url) {
-        log::warn!(
-            "ignoring VITE_BACKEND_BASE_URL because it does not target a loopback host"
-        );
+        log::warn!("ignoring VITE_BACKEND_BASE_URL because it does not target a loopback host");
         return None;
     }
 
@@ -401,9 +399,7 @@ fn stop_backend_sidecar(app: &AppHandle) {
                 wait_for_process_exit(pid, BACKEND_SHUTDOWN_GRACE_PERIOD)
             }
             Err(error) => {
-                log::warn!(
-                    "could not request graceful shutdown for backend sidecar: {error}"
-                );
+                log::warn!("could not request graceful shutdown for backend sidecar: {error}");
                 false
             }
         };
@@ -599,6 +595,81 @@ fn initialize_backend_runtime_async(app: AppHandle) {
     });
 }
 
+fn resolve_local_path(path: &str) -> Result<PathBuf> {
+    let trimmed_path = path.trim();
+    if trimmed_path.is_empty() {
+        return Err(anyhow!("No local file path was provided."));
+    }
+
+    PathBuf::from(trimmed_path)
+        .canonicalize()
+        .with_context(|| format!("Could not locate a file or folder at {trimmed_path}."))
+}
+
+fn open_directory_in_file_explorer(app: &AppHandle, directory: &Path) -> Result<()> {
+    #[allow(deprecated)]
+    app.shell()
+        .open(directory.display().to_string(), None)
+        .with_context(|| {
+            format!(
+                "Could not open {} in the system file explorer.",
+                directory.display()
+            )
+        })
+}
+
+fn reveal_in_file_explorer_impl(app: &AppHandle, path: &str) -> Result<()> {
+    let resolved_path = resolve_local_path(path)?;
+
+    if resolved_path.is_dir() {
+        return open_directory_in_file_explorer(app, &resolved_path);
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let status = std::process::Command::new("open")
+            .arg("-R")
+            .arg(&resolved_path)
+            .status()
+            .context("Could not launch Finder.")?;
+
+        if !status.success() {
+            return Err(anyhow!("Finder could not reveal the requested file."));
+        }
+
+        return Ok(());
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let status = std::process::Command::new("explorer")
+            .arg("/select,")
+            .arg(&resolved_path)
+            .status()
+            .context("Could not launch File Explorer.")?;
+
+        if !status.success() {
+            return Err(anyhow!(
+                "File Explorer could not reveal the requested file."
+            ));
+        }
+
+        return Ok(());
+    }
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        let parent_directory = resolved_path
+            .parent()
+            .context("Could not determine the containing directory for the requested file.")?;
+
+        return open_directory_in_file_explorer(app, parent_directory);
+    }
+
+    #[allow(unreachable_code)]
+    Ok(())
+}
+
 #[tauri::command]
 fn get_backend_runtime(state: tauri::State<'_, BackendProcessState>) -> BackendRuntimeSnapshot {
     state
@@ -606,6 +677,11 @@ fn get_backend_runtime(state: tauri::State<'_, BackendProcessState>) -> BackendR
         .lock()
         .expect("backend runtime mutex poisoned")
         .clone()
+}
+
+#[tauri::command]
+fn reveal_in_file_explorer(app: AppHandle, path: String) -> std::result::Result<(), String> {
+    reveal_in_file_explorer_impl(&app, &path).map_err(|error| error.to_string())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -627,7 +703,10 @@ pub fn run() {
         .plugin(log_builder.build())
         .plugin(tauri_plugin_shell::init())
         .manage(BackendProcessState::default())
-        .invoke_handler(tauri::generate_handler![get_backend_runtime]);
+        .invoke_handler(tauri::generate_handler![
+            get_backend_runtime,
+            reveal_in_file_explorer
+        ]);
 
     let app = builder
         .setup(|app| {
