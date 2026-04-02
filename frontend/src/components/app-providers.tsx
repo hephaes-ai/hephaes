@@ -7,6 +7,7 @@ import { FeedbackProvider } from "@/components/feedback-provider"
 import { JobStatusToaster } from "@/components/job-status-toaster"
 import { ThemeProvider } from "@/components/theme-provider"
 import { Toaster } from "@/components/ui/sonner"
+import { WorkspaceProvider } from "@/components/workspace-provider"
 
 export function AppProviders({ children }: { children: React.ReactNode }) {
   return (
@@ -25,9 +26,11 @@ export function AppProviders({ children }: { children: React.ReactNode }) {
       >
         <FeedbackProvider>
           <BackendRuntimeMonitor />
-          {children}
-          <JobStatusToaster />
-          <Toaster position="bottom-right" />
+          <WorkspaceProvider>
+            {children}
+            <JobStatusToaster />
+            <Toaster position="bottom-right" />
+          </WorkspaceProvider>
         </FeedbackProvider>
       </SWRConfig>
     </ThemeProvider>

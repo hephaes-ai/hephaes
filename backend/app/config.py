@@ -24,6 +24,7 @@ class Settings:
     app_name: str
     debug: bool
     desktop_mode: bool
+    app_db_path: Path
     data_dir: Path
     workspace_root: Path
     raw_data_dir: Path
@@ -61,10 +62,18 @@ def _resolve_workspace_root(*, data_dir: Path) -> Path:
     return (data_dir / "workspace").expanduser()
 
 
+def _resolve_app_db_path(*, data_dir: Path) -> Path:
+    configured_app_db_path = os.environ.get("HEPHAES_BACKEND_DB_PATH")
+    if configured_app_db_path and configured_app_db_path.strip():
+        return Path(configured_app_db_path).expanduser()
+    return (data_dir / "app.db").expanduser()
+
+
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     desktop_mode = _as_bool(os.environ.get("HEPHAES_DESKTOP_MODE"))
     data_dir = _resolve_default_data_dir(desktop_mode=desktop_mode)
+    app_db_path = _resolve_app_db_path(data_dir=data_dir)
     workspace_root = _resolve_workspace_root(data_dir=data_dir)
     raw_data_dir = _resolve_path("HEPHAES_BACKEND_RAW_DATA_DIR", data_dir / "raw")
     outputs_dir = _resolve_path("HEPHAES_BACKEND_OUTPUTS_DIR", data_dir / "outputs")
@@ -78,6 +87,7 @@ def get_settings() -> Settings:
         app_name=os.environ.get("HEPHAES_BACKEND_APP_NAME", DEFAULT_APP_NAME),
         debug=_as_bool(os.environ.get("HEPHAES_BACKEND_DEBUG")),
         desktop_mode=desktop_mode,
+        app_db_path=app_db_path,
         data_dir=data_dir,
         workspace_root=workspace_root,
         raw_data_dir=raw_data_dir,

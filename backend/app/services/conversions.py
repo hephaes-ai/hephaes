@@ -63,7 +63,7 @@ class PendingConversionExecution:
 def _resolve_workspace(source: Workspace | None = None) -> Workspace:
     if source is not None:
         return source
-    return Workspace.open(get_settings().workspace_root)
+    raise ConversionServiceError("workspace is required")
 
 
 def list_conversions(workspace: Workspace | None = None) -> list[ConversionRun]:

@@ -18,6 +18,10 @@ vi.mock("@/components/theme-toggle", () => ({
   ThemeToggle: () => null,
 }))
 
+vi.mock("@/components/workspace-switcher", () => ({
+  WorkspaceSwitcher: () => null,
+}))
+
 function DashboardWithStaleNavigation() {
   const router = useAppRouter()
 

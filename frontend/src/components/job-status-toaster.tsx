@@ -6,6 +6,7 @@ import { toast } from "@/components/ui/sonner";
 import { useBackendCache, useJobs } from "@/hooks/use-backend";
 import type { JobSummary } from "@/lib/api";
 import { formatJobType, isWorkflowActiveStatus } from "@/lib/format";
+import { useActiveWorkspaceId } from "@/lib/workspace-store";
 
 function buildJobSuccessMessage(job: JobSummary) {
   if (job.type === "index") {
@@ -20,10 +21,15 @@ function buildJobSuccessMessage(job: JobSummary) {
 }
 
 export function JobStatusToaster() {
+  const activeWorkspaceId = useActiveWorkspaceId();
   const { revalidateAssetLists, revalidateConversions, revalidateJobs, revalidateOutputs } =
     useBackendCache();
   const jobsResponse = useJobs({ refreshInterval: 1500 });
   const knownStatusesRef = React.useRef<Map<string, string>>(new Map());
+
+  React.useEffect(() => {
+    knownStatusesRef.current = new Map();
+  }, [activeWorkspaceId]);
 
   React.useEffect(() => {
     const jobs = jobsResponse.data ?? [];

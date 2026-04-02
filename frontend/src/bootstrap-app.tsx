@@ -2,6 +2,13 @@ import * as React from "react"
 
 import App from "@/App"
 import { AppProviders } from "@/components/app-providers"
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
 import { useFrontendRuntime } from "@/hooks/use-desktop-backend-runtime"
 import {
@@ -15,11 +22,29 @@ type BootstrapState =
   | { runtime: FrontendRuntimeSnapshot; status: "failed" }
   | { status: "ready" }
 
-export function StartupScreen() {
+export function StartupScreen({
+  description = "Starting the desktop app and checking the backend connection.",
+  showProgress = true,
+  title = "Launching Hephaes",
+}: {
+  description?: string
+  showProgress?: boolean
+  title?: string
+}) {
   return (
     <AppProviders>
-      <div className="flex min-h-svh items-center justify-center bg-background">
-        <Progress className="w-56" />
+      <div className="flex min-h-svh items-center justify-center bg-background px-4">
+        <Card className="w-full max-w-lg">
+          <CardHeader>
+            <CardTitle>{title}</CardTitle>
+            <CardDescription>{description}</CardDescription>
+          </CardHeader>
+          {showProgress ? (
+            <CardContent>
+              <Progress className="w-full" />
+            </CardContent>
+          ) : null}
+        </Card>
       </div>
     </AppProviders>
   )
@@ -122,7 +147,11 @@ export function BootstrapApp({
       .join(" ")
 
     return (
-      <StartupScreen />
+      <StartupScreen
+        description={details}
+        showProgress={false}
+        title="Backend startup failed"
+      />
     )
   }
 
