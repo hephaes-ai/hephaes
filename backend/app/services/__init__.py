@@ -19,6 +19,12 @@ from app.services.conversions import (
     get_conversion_or_raise,
     list_conversions,
 )
+from app.services.workspaces import (
+    RegisteredWorkspace,
+    WorkspaceRegistry,
+    WorkspaceRegistryError,
+    WorkspaceRegistryNotFoundError,
+)
 
 __all__ = [
     "AssetNotFoundError",
@@ -30,6 +36,10 @@ __all__ = [
     "ConversionValidationError",
     "InvalidAssetPathError",
     "InvalidAssetUploadError",
+    "RegisteredWorkspace",
+    "WorkspaceRegistry",
+    "WorkspaceRegistryError",
+    "WorkspaceRegistryNotFoundError",
     "get_conversion",
     "get_conversion_or_raise",
     "infer_file_type",

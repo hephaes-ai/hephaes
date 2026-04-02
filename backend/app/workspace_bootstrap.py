@@ -15,6 +15,7 @@ from hephaes import (
 from hephaes.workspace.schema import WORKSPACE_DIRNAME
 
 from app.config import Settings
+from app.services.workspaces import WorkspaceRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +35,39 @@ def _is_unsupported_workspace_schema_error(exc: WorkspaceError) -> bool:
     return "unsupported workspace schema version" in str(exc).lower()
 
 
-def resolve_backend_workspace(settings: Settings) -> Workspace:
+def bootstrap_workspace_registry(settings: Settings) -> WorkspaceRegistry:
+    registry = WorkspaceRegistry(settings.app_db_path)
+    registry.initialize()
+
+    existing_workspaces = registry.list_workspaces(refresh_status=True)
+    if not existing_workspaces:
+        _import_legacy_workspace_if_available(settings, registry)
+
+    return registry
+
+
+def resolve_backend_workspace(
+    settings: Settings,
+    registry: WorkspaceRegistry | None = None,
+) -> Workspace | None:
+    active_registry = registry or bootstrap_workspace_registry(settings)
+    return active_registry.resolve_active_workspace()
+
+
+def _import_legacy_workspace_if_available(
+    settings: Settings,
+    registry: WorkspaceRegistry,
+) -> Workspace | None:
+    legacy_workspace_dir = settings.workspace_root / WORKSPACE_DIRNAME
+    if not legacy_workspace_dir.exists():
+        return None
+
+    workspace = _resolve_legacy_workspace(settings)
+    registry.register_workspace(workspace.root, activate=True)
+    return workspace
+
+
+def _resolve_legacy_workspace(settings: Settings) -> Workspace:
     try:
         return Workspace.open(settings.workspace_root)
     except WorkspaceNotFoundError:

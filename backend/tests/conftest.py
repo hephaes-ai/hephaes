@@ -42,6 +42,7 @@ def client(
     tmp_path: Path,
 ):
     monkeypatch.setenv("HEPHAES_BACKEND_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("HEPHAES_BACKEND_DB_PATH", str(tmp_path / "app.db"))
     monkeypatch.setenv("HEPHAES_BACKEND_OUTPUTS_DIR", str(backend_outputs_dir))
     monkeypatch.setenv("HEPHAES_BACKEND_RAW_DATA_DIR", str(backend_raw_data_dir))
     monkeypatch.setenv("HEPHAES_BACKEND_LOG_DIR", str(tmp_path / "logs"))
@@ -55,8 +56,10 @@ def client(
 
     get_settings.cache_clear()
 
+    from hephaes import Workspace
     from app.main import create_app
 
+    Workspace.init(tmp_path / "workspace", exist_ok=True)
     app = create_app()
     with TestClient(app) as test_client:
         yield test_client

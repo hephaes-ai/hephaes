@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from app.config import get_settings
-from app.workspace_bootstrap import resolve_backend_workspace
+from app.workspace_bootstrap import bootstrap_workspace_registry, resolve_backend_workspace
 from hephaes import UnsupportedWorkspaceSchemaError
 from hephaes.workspace.errors import WorkspaceError
 from hephaes.workspace import Workspace
@@ -116,6 +116,8 @@ def test_resolve_backend_workspace_resets_for_legacy_generic_schema_error(
     settings = get_settings()
     workspace_root = settings.workspace_root
     original_init = Workspace.init
+    original_open = Workspace.open
+    open_state = {"should_fail": True}
 
     monkeypatch.setattr(
         Workspace,
@@ -124,12 +126,19 @@ def test_resolve_backend_workspace_resets_for_legacy_generic_schema_error(
             lambda cls, root: (_ for _ in ()).throw(
                 WorkspaceError("unsupported workspace schema version 9")
             )
+            if open_state["should_fail"]
+            else original_open(root)
         ),
     )
+
+    def _init_workspace(cls, root, exist_ok=False):
+        open_state["should_fail"] = False
+        return original_init(root, exist_ok=exist_ok)
+
     monkeypatch.setattr(
         Workspace,
         "init",
-        classmethod(lambda cls, root, exist_ok=False: original_init(root, exist_ok=exist_ok)),
+        classmethod(_init_workspace),
     )
     _write_unsupported_workspace(workspace_root)
 
@@ -148,6 +157,7 @@ def test_resolve_backend_workspace_does_not_swallow_other_workspace_errors(
 ) -> None:
     _configure_backend_env(monkeypatch, tmp_path, desktop_mode=True)
     settings = get_settings()
+    Workspace.init(settings.workspace_root)
 
     monkeypatch.setattr(
         Workspace,
@@ -161,4 +171,86 @@ def test_resolve_backend_workspace_does_not_swallow_other_workspace_errors(
         resolve_backend_workspace(settings)
 
     assert not (settings.data_dir / "workspace-archives").exists()
+    get_settings.cache_clear()
+
+
+def test_resolve_backend_workspace_returns_none_when_registry_is_empty_and_no_legacy_workspace_exists(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _configure_backend_env(monkeypatch, tmp_path, desktop_mode=True)
+    settings = get_settings()
+
+    registry = bootstrap_workspace_registry(settings)
+    workspace = resolve_backend_workspace(settings, registry)
+
+    assert registry.list_workspaces() == []
+    assert workspace is None
+
+    get_settings.cache_clear()
+
+
+def test_bootstrap_workspace_registry_imports_legacy_workspace_when_registry_is_empty(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _configure_backend_env(monkeypatch, tmp_path, desktop_mode=True)
+    settings = get_settings()
+    legacy_workspace = Workspace.init(settings.workspace_root)
+
+    registry = bootstrap_workspace_registry(settings)
+    registered_workspaces = registry.list_workspaces()
+
+    assert len(registered_workspaces) == 1
+    assert registered_workspaces[0].root_path == legacy_workspace.root
+    assert registered_workspaces[0].status == "ready"
+    assert registry.get_active_workspace_id() == registered_workspaces[0].id
+
+    get_settings.cache_clear()
+
+
+def test_resolve_backend_workspace_reconciles_to_last_used_registered_workspace(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _configure_backend_env(monkeypatch, tmp_path, desktop_mode=True)
+    settings = get_settings()
+    first_workspace = Workspace.init(tmp_path / "first")
+    second_workspace = Workspace.init(tmp_path / "second")
+
+    registry = bootstrap_workspace_registry(settings)
+    first = registry.register_workspace(first_workspace.root)
+    second = registry.register_workspace(second_workspace.root)
+    registry.set_active_workspace(first.id)
+    registry.set_active_workspace(second.id)
+    registry.set_active_workspace(None, update_last_opened=False)
+
+    resolved = resolve_backend_workspace(settings, registry)
+
+    assert resolved is not None
+    assert resolved.root == second_workspace.root
+    assert registry.get_active_workspace_id() == second.id
+
+    get_settings.cache_clear()
+
+
+def test_resolve_backend_workspace_falls_back_to_first_ready_workspace_when_none_were_used(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _configure_backend_env(monkeypatch, tmp_path, desktop_mode=True)
+    settings = get_settings()
+    first_workspace = Workspace.init(tmp_path / "alpha")
+    second_workspace = Workspace.init(tmp_path / "beta")
+
+    registry = bootstrap_workspace_registry(settings)
+    first = registry.register_workspace(first_workspace.root)
+    registry.register_workspace(second_workspace.root)
+
+    resolved = resolve_backend_workspace(settings, registry)
+
+    assert resolved is not None
+    assert resolved.root == first_workspace.root
+    assert registry.get_active_workspace_id() == first.id
+
     get_settings.cache_clear()

@@ -40,6 +40,11 @@ from app.schemas.conversion_authoring import (
     SavedConversionDraftRevisionResponse,
     SavedConversionDraftStatus,
 )
+from app.schemas.workspaces import (
+    WorkspaceRegistryListResponse,
+    WorkspaceRegistrySummaryResponse,
+    WorkspaceStatus,
+)
 __all__ = [
     "AuthoringPersistenceMode",
     "AssetMetadataResponse",
@@ -75,4 +80,7 @@ __all__ = [
     "SavedConversionDraftRevisionResponse",
     "SavedConversionDraftStatus",
     "ReindexAllResponse",
+    "WorkspaceRegistryListResponse",
+    "WorkspaceRegistrySummaryResponse",
+    "WorkspaceStatus",
 ]
