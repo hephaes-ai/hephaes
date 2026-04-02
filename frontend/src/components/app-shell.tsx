@@ -5,6 +5,7 @@ import { Menu } from "lucide-react"
 import { BackendStatus } from "@/components/backend-status"
 import { BackendConnectionNotice } from "@/components/backend-connection-notice"
 import { ThemeToggle } from "@/components/theme-toggle"
+import { WorkspaceSwitcher } from "@/components/workspace-switcher"
 import { Button, buttonVariants } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -46,7 +47,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   ]
 
   function onNavigate(href: string) {
-    return (event: Parameters<NonNullable<React.ComponentProps<typeof AppLink>["onClick"]>>[0]) => {
+    return (
+      event: Parameters<
+        NonNullable<React.ComponentProps<typeof AppLink>["onClick"]>
+      >[0]
+    ) => {
       event.preventDefault()
       router.push(href, { flushSync: true, scroll: false })
     }
@@ -95,7 +100,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 {navItems.map((item) => (
                   <DropdownMenuItem
                     key={item.href}
-                    onSelect={() => router.push(item.href, { flushSync: true, scroll: false })}
+                    onSelect={() =>
+                      router.push(item.href, { flushSync: true, scroll: false })
+                    }
                   >
                     {item.label}
                   </DropdownMenuItem>
@@ -122,6 +129,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </nav>
           </div>
           <div className="flex items-center gap-2">
+            <WorkspaceSwitcher />
             <div className="hidden md:block">
               <BackendStatus />
             </div>
