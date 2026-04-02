@@ -48,6 +48,32 @@ export interface HealthResponse {
   status: string
 }
 
+export type WorkspaceStatus = "ready" | "missing" | "invalid"
+
+export interface WorkspaceRegistrySummary {
+  created_at: string
+  database_path: string
+  id: string
+  last_opened_at: string | null
+  name: string
+  root_path: string
+  status: WorkspaceStatus
+  status_reason: string | null
+  updated_at: string
+  workspace_dir: string
+}
+
+export interface WorkspaceRegistryListResponse {
+  active_workspace_id: string | null
+  workspaces: WorkspaceRegistrySummary[]
+}
+
+export interface WorkspaceCreateRequest {
+  activate?: boolean
+  name?: string | null
+  root_path: string
+}
+
 export interface DashboardCountEntry {
   count: number
   key: string
@@ -606,9 +632,18 @@ export class BackendApiError extends Error {
 }
 
 const DEFAULT_BACKEND_BASE_URL = "http://127.0.0.1:8000"
+const ACTIVE_WORKSPACE_HEADER = "X-Hephaes-Workspace-Id"
 
 declare global {
+  var __HEPHAES_ACTIVE_WORKSPACE_ID__: string | undefined
   var __HEPHAES_BACKEND_BASE_URL__: string | undefined
+}
+
+type WorkspaceRequestScope = "active" | "none"
+
+interface BackendRequestOptions {
+  workspaceId?: string | null
+  workspaceScope?: WorkspaceRequestScope
 }
 
 export function getBackendBaseUrl() {
@@ -625,6 +660,29 @@ export function getBackendBaseUrl() {
     configuredNextBaseUrl ||
     DEFAULT_BACKEND_BASE_URL
   return resolvedBaseUrl.replace(/\/+$/, "")
+}
+
+export function getActiveWorkspaceRequestId() {
+  if (typeof globalThis === "undefined") {
+    return undefined
+  }
+
+  const workspaceId = globalThis.__HEPHAES_ACTIVE_WORKSPACE_ID__?.trim()
+  return workspaceId ? workspaceId : undefined
+}
+
+export function setActiveWorkspaceRequestId(
+  workspaceId: string | null | undefined
+) {
+  if (typeof globalThis === "undefined") {
+    return
+  }
+
+  const normalizedWorkspaceId = workspaceId?.trim()
+  globalThis.__HEPHAES_ACTIVE_WORKSPACE_ID__ =
+    normalizedWorkspaceId && normalizedWorkspaceId.length > 0
+      ? normalizedWorkspaceId
+      : undefined
 }
 
 function buildBackendUrl(path: string) {
@@ -724,11 +782,23 @@ export function serializeOutputsQuery(query?: OutputsQuery | null) {
   return params.toString()
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+async function request<T>(
+  path: string,
+  init?: RequestInit,
+  options?: BackendRequestOptions
+): Promise<T> {
   const headers = new Headers(init?.headers)
+  const workspaceScope = options?.workspaceScope ?? "active"
+  const workspaceId =
+    options?.workspaceId ??
+    (workspaceScope === "active" ? getActiveWorkspaceRequestId() : undefined)
 
   if (typeof init?.body === "string" && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json")
+  }
+
+  if (workspaceId && !headers.has(ACTIVE_WORKSPACE_HEADER)) {
+    headers.set(ACTIVE_WORKSPACE_HEADER, workspaceId)
   }
 
   const response = await fetch(buildBackendUrl(path), {
@@ -778,7 +848,44 @@ export function getErrorMessage(error: unknown) {
 }
 
 export function getHealth() {
-  return request<HealthResponse>("/health")
+  return request<HealthResponse>("/health", undefined, { workspaceScope: "none" })
+}
+
+export function listWorkspaces() {
+  return request<WorkspaceRegistryListResponse>("/workspaces", undefined, {
+    workspaceScope: "none",
+  })
+}
+
+export function createWorkspace(payload: WorkspaceCreateRequest) {
+  return request<WorkspaceRegistrySummary>(
+    "/workspaces",
+    {
+      body: JSON.stringify(payload),
+      method: "POST",
+    },
+    { workspaceScope: "none" }
+  )
+}
+
+export function activateWorkspace(workspaceId: string) {
+  return request<WorkspaceRegistrySummary>(
+    `/workspaces/${workspaceId}/activate`,
+    {
+      method: "POST",
+    },
+    { workspaceScope: "none" }
+  )
+}
+
+export function deleteWorkspace(workspaceId: string) {
+  return request<void>(
+    `/workspaces/${workspaceId}`,
+    {
+      method: "DELETE",
+    },
+    { workspaceScope: "none" }
+  )
 }
 
 export function getDashboardSummary() {

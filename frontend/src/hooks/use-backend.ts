@@ -5,6 +5,7 @@ import useSWR, { useSWRConfig } from "swr"
 
 import {
   BackendApiError,
+  listWorkspaces,
   getConversionAuthoringCapabilities,
   getDashboardBlockers,
   getDashboardSummary,
@@ -25,27 +26,76 @@ import {
   serializeOutputsQuery,
   type OutputsQuery,
   type AssetListQuery,
+  type WorkspaceRegistryListResponse,
 } from "@/lib/api"
+import { useActiveWorkspaceId } from "@/lib/workspace-store"
+
+const WORKSPACE_SCOPED_SWR_OPTIONS = {
+  keepPreviousData: false,
+} as const
+
+const WORKSPACE_SCOPED_KEY_PREFIXES = new Set([
+  "asset",
+  "assets",
+  "conversion",
+  "conversion-authoring",
+  "conversion-config",
+  "conversion-configs",
+  "conversions",
+  "dashboard",
+  "job",
+  "jobs",
+  "output",
+  "outputs",
+  "tags",
+])
+
+function isWorkspaceScopedKey(key: unknown) {
+  return (
+    Array.isArray(key) &&
+    typeof key[0] === "string" &&
+    WORKSPACE_SCOPED_KEY_PREFIXES.has(key[0])
+  )
+}
+
+function matchesWorkspaceKey(
+  key: unknown,
+  prefix: string,
+  workspaceId: string
+) {
+  return Array.isArray(key) && key[0] === prefix && key[1] === workspaceId
+}
 
 export const backendKeys = {
-  asset: (assetId: string) => ["asset", assetId] as const,
-  assets: (query?: AssetListQuery | null) =>
-    ["assets", serializeAssetListQuery(query)] as const,
-  conversion: (conversionId: string) => ["conversion", conversionId] as const,
-  conversionAuthoringCapabilities: ["conversion-authoring", "capabilities"] as const,
-  conversions: ["conversions"] as const,
-  dashboardBlockers: ["dashboard", "blockers"] as const,
-  dashboardSummary: ["dashboard", "summary"] as const,
-  dashboardTrends: (days = 7) => ["dashboard", "trends", days] as const,
+  asset: (workspaceId: string, assetId: string) =>
+    ["asset", workspaceId, assetId] as const,
+  assets: (workspaceId: string, query?: AssetListQuery | null) =>
+    ["assets", workspaceId, serializeAssetListQuery(query)] as const,
+  conversion: (workspaceId: string, conversionId: string) =>
+    ["conversion", workspaceId, conversionId] as const,
+  conversionAuthoringCapabilities: (workspaceId: string) =>
+    ["conversion-authoring", workspaceId, "capabilities"] as const,
+  conversions: (workspaceId: string) => ["conversions", workspaceId] as const,
+  dashboardBlockers: (workspaceId: string) =>
+    ["dashboard", workspaceId, "blockers"] as const,
+  dashboardSummary: (workspaceId: string) =>
+    ["dashboard", workspaceId, "summary"] as const,
+  dashboardTrends: (workspaceId: string, days = 7) =>
+    ["dashboard", workspaceId, "trends", days] as const,
   health: ["health"] as const,
-  job: (jobId: string) => ["job", jobId] as const,
-  jobs: ["jobs"] as const,
-  output: (outputId: string) => ["output", outputId] as const,
-  outputs: (query?: OutputsQuery | null) =>
-    ["outputs", serializeOutputsQuery(query)] as const,
-  savedConfig: (configId: string) => ["conversion-config", configId] as const,
-  savedConfigs: ["conversion-configs"] as const,
-  tags: ["tags"] as const,
+  job: (workspaceId: string, jobId: string) =>
+    ["job", workspaceId, jobId] as const,
+  jobs: (workspaceId: string) => ["jobs", workspaceId] as const,
+  output: (workspaceId: string, outputId: string) =>
+    ["output", workspaceId, outputId] as const,
+  outputs: (workspaceId: string, query?: OutputsQuery | null) =>
+    ["outputs", workspaceId, serializeOutputsQuery(query)] as const,
+  savedConfig: (workspaceId: string, configId: string) =>
+    ["conversion-config", workspaceId, configId] as const,
+  savedConfigs: (workspaceId: string) =>
+    ["conversion-configs", workspaceId] as const,
+  tags: (workspaceId: string) => ["tags", workspaceId] as const,
+  workspaces: ["workspaces"] as const,
 }
 
 type JobsHookOptions = {
@@ -67,6 +117,13 @@ function shouldRetryBackendReadError(error: unknown) {
   return true
 }
 
+export function useWorkspaceRegistry(enabled = true) {
+  return useSWR<WorkspaceRegistryListResponse>(
+    enabled ? backendKeys.workspaces : null,
+    () => listWorkspaces()
+  )
+}
+
 export function useHealth() {
   return useSWR(backendKeys.health, () => getHealth(), {
     dedupingInterval: 10_000,
@@ -76,113 +133,221 @@ export function useHealth() {
 }
 
 export function useAssets(query?: AssetListQuery | null) {
-  return useSWR(query === null ? null : backendKeys.assets(query), () =>
-    listAssets(query)
+  const activeWorkspaceId = useActiveWorkspaceId()
+
+  return useSWR(
+    activeWorkspaceId && query !== null
+      ? backendKeys.assets(activeWorkspaceId, query)
+      : null,
+    () => listAssets(query),
+    WORKSPACE_SCOPED_SWR_OPTIONS
   )
 }
 
 export function useDashboardBlockers() {
-  return useSWR(backendKeys.dashboardBlockers, () => getDashboardBlockers())
+  const activeWorkspaceId = useActiveWorkspaceId()
+
+  return useSWR(
+    activeWorkspaceId ? backendKeys.dashboardBlockers(activeWorkspaceId) : null,
+    () => getDashboardBlockers(),
+    WORKSPACE_SCOPED_SWR_OPTIONS
+  )
 }
 
 export function useDashboardSummary() {
-  return useSWR(backendKeys.dashboardSummary, () => getDashboardSummary())
+  const activeWorkspaceId = useActiveWorkspaceId()
+
+  return useSWR(
+    activeWorkspaceId ? backendKeys.dashboardSummary(activeWorkspaceId) : null,
+    () => getDashboardSummary(),
+    WORKSPACE_SCOPED_SWR_OPTIONS
+  )
 }
 
 export function useDashboardTrends(days = 7) {
-  return useSWR(backendKeys.dashboardTrends(days), () => getDashboardTrends(days))
+  const activeWorkspaceId = useActiveWorkspaceId()
+
+  return useSWR(
+    activeWorkspaceId
+      ? backendKeys.dashboardTrends(activeWorkspaceId, days)
+      : null,
+    () => getDashboardTrends(days),
+    WORKSPACE_SCOPED_SWR_OPTIONS
+  )
 }
 
 export function useAsset(assetId: string) {
-  return useSWR(assetId ? backendKeys.asset(assetId) : null, () =>
-    getAssetDetail(assetId)
+  const activeWorkspaceId = useActiveWorkspaceId()
+
+  return useSWR(
+    activeWorkspaceId && assetId
+      ? backendKeys.asset(activeWorkspaceId, assetId)
+      : null,
+    () => getAssetDetail(assetId),
+    WORKSPACE_SCOPED_SWR_OPTIONS
   )
 }
 
 export function useConversions() {
-  return useSWR(backendKeys.conversions, () => listConversions())
+  const activeWorkspaceId = useActiveWorkspaceId()
+
+  return useSWR(
+    activeWorkspaceId ? backendKeys.conversions(activeWorkspaceId) : null,
+    () => listConversions(),
+    WORKSPACE_SCOPED_SWR_OPTIONS
+  )
 }
 
 export function useConversion(conversionId: string) {
+  const activeWorkspaceId = useActiveWorkspaceId()
+
   return useSWR(
-    conversionId ? backendKeys.conversion(conversionId) : null,
-    () => getConversion(conversionId)
+    activeWorkspaceId && conversionId
+      ? backendKeys.conversion(activeWorkspaceId, conversionId)
+      : null,
+    () => getConversion(conversionId),
+    WORKSPACE_SCOPED_SWR_OPTIONS
   )
 }
 
 export function useConversionAuthoringCapabilities() {
+  const activeWorkspaceId = useActiveWorkspaceId()
+
   return useSWR(
-    backendKeys.conversionAuthoringCapabilities,
+    activeWorkspaceId
+      ? backendKeys.conversionAuthoringCapabilities(activeWorkspaceId)
+      : null,
     () => getConversionAuthoringCapabilities(),
     {
       dedupingInterval: 60_000,
+      keepPreviousData: false,
     }
   )
 }
 
 export function useSavedConversionConfigs() {
-  return useSWR(backendKeys.savedConfigs, () => listConversionConfigs())
+  const activeWorkspaceId = useActiveWorkspaceId()
+
+  return useSWR(
+    activeWorkspaceId ? backendKeys.savedConfigs(activeWorkspaceId) : null,
+    () => listConversionConfigs(),
+    WORKSPACE_SCOPED_SWR_OPTIONS
+  )
 }
 
 export function useSavedConversionConfig(configId: string) {
+  const activeWorkspaceId = useActiveWorkspaceId()
+
   return useSWR(
-    configId ? backendKeys.savedConfig(configId) : null,
-    () => getConversionConfig(configId)
+    activeWorkspaceId && configId
+      ? backendKeys.savedConfig(activeWorkspaceId, configId)
+      : null,
+    () => getConversionConfig(configId),
+    WORKSPACE_SCOPED_SWR_OPTIONS
   )
 }
 
 export function useOutputs(query?: OutputsQuery | null) {
-  return useSWR(query === null ? null : backendKeys.outputs(query), () =>
-    listOutputs(query)
+  const activeWorkspaceId = useActiveWorkspaceId()
+
+  return useSWR(
+    activeWorkspaceId && query !== null
+      ? backendKeys.outputs(activeWorkspaceId, query)
+      : null,
+    () => listOutputs(query),
+    WORKSPACE_SCOPED_SWR_OPTIONS
   )
 }
 
 export function useOutput(outputId: string) {
-  return useSWR(outputId ? backendKeys.output(outputId) : null, () =>
-    getOutput(outputId)
+  const activeWorkspaceId = useActiveWorkspaceId()
+
+  return useSWR(
+    activeWorkspaceId && outputId
+      ? backendKeys.output(activeWorkspaceId, outputId)
+      : null,
+    () => getOutput(outputId),
+    WORKSPACE_SCOPED_SWR_OPTIONS
   )
 }
 
 export function useJobs(options?: JobsHookOptions) {
-  return useSWR(backendKeys.jobs, () => listJobs(), {
+  const activeWorkspaceId = useActiveWorkspaceId()
+
+  return useSWR(activeWorkspaceId ? backendKeys.jobs(activeWorkspaceId) : null, () => listJobs(), {
     errorRetryCount: JOBS_ERROR_RETRY_COUNT,
     errorRetryInterval: JOBS_ERROR_RETRY_INTERVAL_MS,
+    keepPreviousData: false,
     refreshInterval: options?.refreshInterval,
     shouldRetryOnError: shouldRetryBackendReadError,
   })
 }
 
 export function useJob(jobId: string) {
-  return useSWR(jobId ? backendKeys.job(jobId) : null, () => getJob(jobId))
+  const activeWorkspaceId = useActiveWorkspaceId()
+
+  return useSWR(
+    activeWorkspaceId && jobId
+      ? backendKeys.job(activeWorkspaceId, jobId)
+      : null,
+    () => getJob(jobId),
+    WORKSPACE_SCOPED_SWR_OPTIONS
+  )
 }
 
 export function useTags() {
-  return useSWR(backendKeys.tags, () => listTags())
+  const activeWorkspaceId = useActiveWorkspaceId()
+
+  return useSWR(
+    activeWorkspaceId ? backendKeys.tags(activeWorkspaceId) : null,
+    () => listTags(),
+    WORKSPACE_SCOPED_SWR_OPTIONS
+  )
 }
 
 export function useBackendCache() {
   const { mutate } = useSWRConfig()
+  const activeWorkspaceId = useActiveWorkspaceId()
+
+  const clearWorkspaceScopedCaches = React.useCallback(async () => {
+    await mutate(
+      (key) => isWorkspaceScopedKey(key),
+      undefined,
+      {
+        populateCache: false,
+        revalidate: false,
+      }
+    )
+  }, [mutate])
+
+  const revalidateWorkspaces = React.useCallback(async () => {
+    await mutate(backendKeys.workspaces)
+  }, [mutate])
 
   const revalidateAssetLists = React.useCallback(async () => {
+    if (!activeWorkspaceId) {
+      return
+    }
+
     await mutate(
-      (key) => Array.isArray(key) && key[0] === "assets",
+      (key) => matchesWorkspaceKey(key, "assets", activeWorkspaceId),
       undefined,
       {
         revalidate: true,
         populateCache: false,
       }
     )
-  }, [mutate])
+  }, [activeWorkspaceId, mutate])
 
   const revalidateAssetDetail = React.useCallback(
     async (assetId: string) => {
-      if (!assetId) {
+      if (!activeWorkspaceId || !assetId) {
         return
       }
 
-      await mutate(backendKeys.asset(assetId))
+      await mutate(backendKeys.asset(activeWorkspaceId, assetId))
     },
-    [mutate]
+    [activeWorkspaceId, mutate]
   )
 
   const revalidateAssetEverywhere = React.useCallback(
@@ -196,81 +361,108 @@ export function useBackendCache() {
   )
 
   const revalidateTags = React.useCallback(async () => {
-    await mutate(backendKeys.tags)
-  }, [mutate])
+    if (!activeWorkspaceId) {
+      return
+    }
+
+    await mutate(backendKeys.tags(activeWorkspaceId))
+  }, [activeWorkspaceId, mutate])
 
   const revalidateConversions = React.useCallback(async () => {
-    await mutate(backendKeys.conversions)
-  }, [mutate])
+    if (!activeWorkspaceId) {
+      return
+    }
+
+    await mutate(backendKeys.conversions(activeWorkspaceId))
+  }, [activeWorkspaceId, mutate])
 
   const revalidateSavedConfigs = React.useCallback(async () => {
-    await mutate(backendKeys.savedConfigs)
-  }, [mutate])
+    if (!activeWorkspaceId) {
+      return
+    }
+
+    await mutate(backendKeys.savedConfigs(activeWorkspaceId))
+  }, [activeWorkspaceId, mutate])
 
   const revalidateSavedConfigDetail = React.useCallback(
     async (configId: string) => {
-      if (!configId) {
+      if (!activeWorkspaceId || !configId) {
         return
       }
 
-      await mutate(backendKeys.savedConfig(configId))
+      await mutate(backendKeys.savedConfig(activeWorkspaceId, configId))
     },
-    [mutate]
+    [activeWorkspaceId, mutate]
   )
 
   const revalidateOutputs = React.useCallback(async () => {
+    if (!activeWorkspaceId) {
+      return
+    }
+
     await mutate(
-      (key) => Array.isArray(key) && key[0] === "outputs",
+      (key) => matchesWorkspaceKey(key, "outputs", activeWorkspaceId),
       undefined,
       {
         revalidate: true,
       }
     )
-  }, [mutate])
+  }, [activeWorkspaceId, mutate])
 
   const revalidateJobs = React.useCallback(async () => {
-    await mutate(backendKeys.jobs)
-  }, [mutate])
+    if (!activeWorkspaceId) {
+      return
+    }
+
+    await mutate(backendKeys.jobs(activeWorkspaceId))
+  }, [activeWorkspaceId, mutate])
 
   const revalidateJobDetail = React.useCallback(
     async (jobId: string) => {
-      if (!jobId) {
+      if (!activeWorkspaceId || !jobId) {
         return
       }
 
-      await mutate(backendKeys.job(jobId))
+      await mutate(backendKeys.job(activeWorkspaceId, jobId))
     },
-    [mutate]
+    [activeWorkspaceId, mutate]
   )
 
   const revalidateConversionDetail = React.useCallback(
     async (conversionId: string) => {
-      if (!conversionId) {
+      if (!activeWorkspaceId || !conversionId) {
         return
       }
 
-      await mutate(backendKeys.conversion(conversionId))
+      await mutate(backendKeys.conversion(activeWorkspaceId, conversionId))
     },
-    [mutate]
+    [activeWorkspaceId, mutate]
   )
 
   const revalidateOutputDetail = React.useCallback(
     async (outputId: string) => {
-      if (!outputId) {
+      if (!activeWorkspaceId || !outputId) {
         return
       }
 
       await Promise.all([
-        mutate(backendKeys.output(outputId), undefined, { revalidate: true }),
-        mutate((key) => Array.isArray(key) && key[0] === "outputs", undefined, {
+        mutate(backendKeys.output(activeWorkspaceId, outputId), undefined, {
           revalidate: true,
         }),
+        mutate(
+          (key) => matchesWorkspaceKey(key, "outputs", activeWorkspaceId),
+          undefined,
+          {
+            revalidate: true,
+          }
+        ),
       ])
     },
-    [mutate]
+    [activeWorkspaceId, mutate]
   )
 
   return {
+    clearWorkspaceScopedCaches,
     revalidateAssetDetail,
     revalidateAssetEverywhere,
     revalidateAssetLists,
@@ -283,5 +475,6 @@ export function useBackendCache() {
     revalidateSavedConfigDetail,
     revalidateSavedConfigs,
     revalidateTags,
+    revalidateWorkspaces,
   }
 }
