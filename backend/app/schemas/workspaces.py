@@ -37,3 +37,27 @@ class WorkspaceRegistryListResponse(BaseModel):
 
     active_workspace_id: str | None = None
     workspaces: list[WorkspaceRegistrySummaryResponse]
+
+
+class WorkspaceCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    root_path: str = Field(min_length=1)
+    name: str | None = None
+    activate: bool = True
+
+    @field_validator("root_path")
+    @classmethod
+    def validate_root_path(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("root_path must be non-empty")
+        return stripped
+
+    @field_validator("name")
+    @classmethod
+    def normalize_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped or None

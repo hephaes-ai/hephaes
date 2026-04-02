@@ -15,6 +15,7 @@ from app.api.health import router as health_router
 from app.api.jobs import router as jobs_router
 from app.api.outputs import router as outputs_router
 from app.api.tags import router as tags_router
+from app.api.workspaces import router as workspaces_router
 from app.config import get_settings
 from app.services.job_runner import BackendJobRunner
 from app.workspace_bootstrap import bootstrap_workspace_registry, resolve_backend_workspace
@@ -57,6 +58,7 @@ def create_app() -> FastAPI:
     )
     app.state.settings = settings
     app.include_router(health_router)
+    app.include_router(workspaces_router)
     app.include_router(assets_router)
     app.include_router(dashboard_router)
     app.include_router(conversion_configs_router)

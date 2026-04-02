@@ -41,6 +41,7 @@ from app.schemas.conversion_authoring import (
     SavedConversionDraftStatus,
 )
 from app.schemas.workspaces import (
+    WorkspaceCreateRequest,
     WorkspaceRegistryListResponse,
     WorkspaceRegistrySummaryResponse,
     WorkspaceStatus,
@@ -80,6 +81,7 @@ __all__ = [
     "SavedConversionDraftRevisionResponse",
     "SavedConversionDraftStatus",
     "ReindexAllResponse",
+    "WorkspaceCreateRequest",
     "WorkspaceRegistryListResponse",
     "WorkspaceRegistrySummaryResponse",
     "WorkspaceStatus",

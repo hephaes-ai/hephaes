@@ -233,6 +233,18 @@ class WorkspaceRegistry:
 
         return self.get_workspace(workspace_id)
 
+    def resolve_workspace_by_id(self, workspace_id: str) -> Workspace:
+        registered_workspace = self.get_workspace(workspace_id, refresh_status=True)
+        if registered_workspace.status != "ready":
+            raise WorkspaceRegistryError(
+                f"workspace is not ready: {workspace_id}"
+            )
+        try:
+            return Workspace.open(registered_workspace.root_path)
+        except WorkspaceError as exc:
+            self._mark_workspace_invalid(workspace_id, str(exc))
+            raise WorkspaceRegistryError(str(exc)) from exc
+
     def register_workspace(
         self,
         root_path: str | Path,
@@ -249,7 +261,8 @@ class WorkspaceRegistry:
             )
 
         now = _to_db_timestamp(_utc_now())
-        normalized_name = (name or "").strip() or _default_workspace_name(normalized_root)
+        explicit_name = (name or "").strip() or None
+        normalized_name = explicit_name or _default_workspace_name(normalized_root)
 
         with self._transaction() as connection:
             existing_row = connection.execute(
@@ -290,6 +303,7 @@ class WorkspaceRegistry:
             else:
                 workspace_id = existing_row["id"]
                 last_opened_at = now if activate else existing_row["last_opened_at"]
+                next_name = explicit_name or existing_row["name"]
                 connection.execute(
                     """
                     UPDATE workspaces
@@ -304,7 +318,7 @@ class WorkspaceRegistry:
                     WHERE id = ?
                     """,
                     (
-                        normalized_name or existing_row["name"],
+                        next_name,
                         str(workspace_dir),
                         str(database_path),
                         now,
@@ -319,6 +333,23 @@ class WorkspaceRegistry:
             self.set_active_workspace(workspace_id, update_last_opened=False)
 
         return self.get_workspace(workspace_id)
+
+    def remove_workspace(self, workspace_id: str) -> RegisteredWorkspace:
+        workspace = self.get_workspace(workspace_id, refresh_status=False)
+        with self._transaction() as connection:
+            connection.execute(
+                "DELETE FROM workspaces WHERE id = ?",
+                (workspace_id,),
+            )
+            connection.execute(
+                """
+                DELETE FROM app_state
+                WHERE key = 'active_workspace_id' AND value = ?
+                """,
+                (workspace_id,),
+            )
+        self.reconcile_active_workspace()
+        return workspace
 
     def refresh_workspace_status(self, workspace_id: str) -> RegisteredWorkspace:
         workspace = self.get_workspace(workspace_id, refresh_status=False)

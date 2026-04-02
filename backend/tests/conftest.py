@@ -65,3 +65,33 @@ def client(
         yield test_client
 
     get_settings.cache_clear()
+
+
+@pytest.fixture()
+def empty_registry_client(
+    monkeypatch: pytest.MonkeyPatch,
+    backend_outputs_dir: Path,
+    backend_raw_data_dir: Path,
+    tmp_path: Path,
+):
+    monkeypatch.setenv("HEPHAES_BACKEND_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("HEPHAES_BACKEND_DB_PATH", str(tmp_path / "app.db"))
+    monkeypatch.setenv("HEPHAES_BACKEND_OUTPUTS_DIR", str(backend_outputs_dir))
+    monkeypatch.setenv("HEPHAES_BACKEND_RAW_DATA_DIR", str(backend_raw_data_dir))
+    monkeypatch.setenv("HEPHAES_BACKEND_LOG_DIR", str(tmp_path / "logs"))
+    monkeypatch.setenv("HEPHAES_WORKSPACE_ROOT", str(tmp_path / "workspace"))
+
+    import app.config as app_config
+    from app.config import get_settings
+    from app.main import create_app
+
+    monkeypatch.setattr(app_config, "DEFAULT_JOB_EXECUTION_MODE", "inline")
+    monkeypatch.setattr(app_config, "DEFAULT_JOB_MAX_WORKERS", 1)
+
+    get_settings.cache_clear()
+
+    app = create_app()
+    with TestClient(app) as test_client:
+        yield test_client
+
+    get_settings.cache_clear()
