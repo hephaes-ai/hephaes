@@ -11,9 +11,7 @@ import {
 } from "@/lib/workspace-store"
 
 vi.mock("@/lib/api", async () => {
-  const actual = await vi.importActual<typeof import("@/lib/api")>(
-    "@/lib/api"
-  )
+  const actual = await vi.importActual<typeof import("@/lib/api")>("@/lib/api")
 
   return {
     ...actual,
@@ -37,6 +35,7 @@ function JobsProbe() {
 
 function buildWorkspaceSummary(id: string) {
   return {
+    active_job_count: 0,
     created_at: "2026-04-01T00:00:00Z",
     database_path: `/tmp/${id}/.hephaes/workspace.sqlite3`,
     id,
@@ -89,9 +88,12 @@ describe("useJobs", () => {
 
     renderWithSWR(<JobsProbe />)
 
-    await waitFor(() => {
-      expect(vi.mocked(listJobs)).toHaveBeenCalledTimes(2)
-    }, { timeout: 2_000 })
+    await waitFor(
+      () => {
+        expect(vi.mocked(listJobs)).toHaveBeenCalledTimes(2)
+      },
+      { timeout: 2_000 }
+    )
 
     await waitFor(() => {
       expect(screen.getByText("loaded 0")).toBeInTheDocument()

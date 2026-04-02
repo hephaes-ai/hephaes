@@ -7,6 +7,7 @@ import {
   FolderOpen,
   LoaderCircle,
   Plus,
+  Trash2,
 } from "lucide-react"
 
 import { InlineNotice } from "@/components/inline-notice"
@@ -37,12 +38,18 @@ import { useWorkspace } from "@/components/workspace-provider"
 import { useFrontendRuntime } from "@/hooks/use-desktop-backend-runtime"
 import { openDirectoryDialog } from "@/lib/native-dialogs"
 import type { WorkspaceRegistrySummary } from "@/lib/api"
+import {
+  subscribeToWorkspaceUiRequests,
+  type WorkspaceCreateIntent,
+} from "@/lib/workspace-ui-events"
 import type { NoticeMessage } from "@/lib/types"
 
 interface CreateWorkspaceDraft {
   name: string
   rootPath: string
 }
+
+type DeleteDialogTarget = WorkspaceRegistrySummary | null
 
 const EMPTY_DRAFT: CreateWorkspaceDraft = {
   name: "",
@@ -74,6 +81,14 @@ function getWorkspaceStatusVariant(workspace: WorkspaceRegistrySummary) {
   return workspace.status === "ready" ? "outline" : "destructive"
 }
 
+function canDeleteWorkspace(workspace: WorkspaceRegistrySummary) {
+  return workspace.active_job_count === 0
+}
+
+function getDeleteActionLabel(workspace: WorkspaceRegistrySummary) {
+  return workspace.status === "ready" ? "Delete workspace" : "Remove entry"
+}
+
 export function WorkspaceSwitcher() {
   const workspace = useWorkspace()
   const runtime = useFrontendRuntime()
@@ -81,8 +96,12 @@ export function WorkspaceSwitcher() {
   const [isDropdownOpen, setIsDropdownOpen] = React.useState(false)
   const [isManageDialogOpen, setIsManageDialogOpen] = React.useState(false)
   const [isCreateDialogOpen, setIsCreateDialogOpen] = React.useState(false)
+  const [createFlowIntent, setCreateFlowIntent] =
+    React.useState<WorkspaceCreateIntent>("create")
   const [createDraft, setCreateDraft] =
     React.useState<CreateWorkspaceDraft>(EMPTY_DRAFT)
+  const [deleteTarget, setDeleteTarget] =
+    React.useState<DeleteDialogTarget>(null)
   const [createNotice, setCreateNotice] = React.useState<NoticeMessage | null>(
     null
   )
@@ -90,8 +109,17 @@ export function WorkspaceSwitcher() {
     runtime?.capabilities.nativeDirectoryDialog ?? false
 
   function resetCreateDialog() {
+    setCreateFlowIntent("create")
     setCreateDraft(EMPTY_DRAFT)
     setCreateNotice(null)
+  }
+
+  function closeDeleteDialog() {
+    if (workspace.deletingWorkspaceId !== null) {
+      return
+    }
+
+    setDeleteTarget(null)
   }
 
   function handleCreateDialogOpenChange(open: boolean) {
@@ -105,44 +133,69 @@ export function WorkspaceSwitcher() {
     }
   }
 
-  async function beginCreateWorkspaceFlow() {
-    if (workspace.isCreatingWorkspace) {
-      return false
-    }
+  const beginCreateWorkspaceFlow = React.useCallback(
+    async (intent: WorkspaceCreateIntent = "create") => {
+      if (workspace.isCreatingWorkspace) {
+        return false
+      }
 
-    if (!canBrowseDirectories) {
-      notify({
-        description:
-          "This runtime cannot open the native directory picker yet.",
-        title: "Directory picker unavailable",
-        tone: "error",
+      if (!canBrowseDirectories) {
+        notify({
+          description:
+            "This runtime cannot open the native directory picker yet.",
+          title: "Directory picker unavailable",
+          tone: "error",
+        })
+        return false
+      }
+
+      const selection = await openDirectoryDialog()
+
+      if (selection.status === "cancelled") {
+        return false
+      }
+
+      if (selection.status === "error") {
+        notify({
+          description: selection.error,
+          title: "Directory picker unavailable",
+          tone: "error",
+        })
+        return false
+      }
+
+      setCreateFlowIntent(intent)
+      setCreateDraft({
+        name: deriveWorkspaceName(selection.directoryPath),
+        rootPath: selection.directoryPath,
       })
-      return false
-    }
+      setCreateNotice(null)
+      setIsCreateDialogOpen(true)
+      return true
+    },
+    [canBrowseDirectories, notify, workspace.isCreatingWorkspace]
+  )
 
-    const selection = await openDirectoryDialog()
+  React.useEffect(() => {
+    return subscribeToWorkspaceUiRequests((request) => {
+      if (request.type === "open-manage") {
+        setIsDropdownOpen(false)
+        setIsManageDialogOpen(true)
+        return
+      }
 
-    if (selection.status === "cancelled") {
-      return false
-    }
+      void (async () => {
+        setIsDropdownOpen(false)
+        const didOpenCreateDialog = await beginCreateWorkspaceFlow(
+          request.intent
+        )
 
-    if (selection.status === "error") {
-      notify({
-        description: selection.error,
-        title: "Directory picker unavailable",
-        tone: "error",
-      })
-      return false
-    }
-
-    setCreateDraft({
-      name: deriveWorkspaceName(selection.directoryPath),
-      rootPath: selection.directoryPath,
+        if (didOpenCreateDialog) {
+          setIsManageDialogOpen(false)
+        }
+      })()
     })
-    setCreateNotice(null)
-    setIsCreateDialogOpen(true)
-    return true
-  }
+  }, [beginCreateWorkspaceFlow])
 
   async function handleActivateWorkspace(workspaceId: string) {
     if (
@@ -210,7 +263,8 @@ export function WorkspaceSwitcher() {
       setIsManageDialogOpen(false)
       notify({
         description: `${createdWorkspace.name} is ready to use.`,
-        title: "Workspace ready",
+        title:
+          createFlowIntent === "open" ? "Workspace opened" : "Workspace ready",
         tone: "success",
       })
     } catch (error) {
@@ -225,9 +279,48 @@ export function WorkspaceSwitcher() {
     }
   }
 
+  async function handleDeleteWorkspace() {
+    if (deleteTarget === null) {
+      return
+    }
+
+    try {
+      await workspace.deleteWorkspace(deleteTarget.id)
+      setDeleteTarget(null)
+      notify({
+        description:
+          deleteTarget.status === "ready"
+            ? `Removed ${deleteTarget.workspace_dir} and kept ${deleteTarget.root_path}.`
+            : `Removed the stale registry entry for ${deleteTarget.name}.`,
+        title:
+          deleteTarget.status === "ready"
+            ? "Workspace deleted"
+            : "Workspace entry removed",
+        tone: "success",
+      })
+    } catch (error) {
+      notify({
+        description:
+          error instanceof Error
+            ? error.message
+            : "The workspace could not be removed.",
+        title: "Could not remove workspace",
+        tone: "error",
+      })
+    }
+  }
+
   const activeWorkspaceLabel =
     workspace.activeWorkspace?.name ??
     (workspace.status === "loading" ? "Loading workspaces" : "Select workspace")
+  const createDialogTitle =
+    createFlowIntent === "open" ? "Open workspace" : "Create workspace"
+  const createDialogActionLabel =
+    createFlowIntent === "open" ? "Open workspace" : "Create workspace"
+  const createDialogDescription =
+    createFlowIntent === "open"
+      ? "Confirm the selected working directory. If it already contains `.hephaes`, Hephaes will register it. Otherwise a new workspace will be created there."
+      : "Confirm the display name for the selected working directory. Existing `.hephaes` folders are registered instead of recreated."
 
   return (
     <>
@@ -378,29 +471,63 @@ export function WorkspaceSwitcher() {
                         <p className="break-all">
                           Workspace data: {item.workspace_dir}
                         </p>
+                        {item.status_reason ? (
+                          <p>{item.status_reason}</p>
+                        ) : null}
+                        {item.active_job_count > 0 ? (
+                          <p>
+                            {item.active_job_count} queued or running{" "}
+                            {item.active_job_count === 1
+                              ? "job blocks"
+                              : "jobs block"}{" "}
+                            deletion.
+                          </p>
+                        ) : null}
                       </div>
                     </div>
 
-                    <Button
-                      disabled={
-                        item.status !== "ready" ||
-                        item.id === workspace.activeWorkspaceId ||
-                        workspace.activatingWorkspaceId !== null
-                      }
-                      onClick={() => {
-                        void handleActivateWorkspace(item.id)
-                      }}
-                      size="sm"
-                      type="button"
-                      variant="outline"
-                    >
-                      {workspace.activatingWorkspaceId === item.id ? (
-                        <LoaderCircle className="size-4 animate-spin" />
-                      ) : null}
-                      {item.id === workspace.activeWorkspaceId
-                        ? "Current workspace"
-                        : "Use workspace"}
-                    </Button>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        disabled={
+                          item.status !== "ready" ||
+                          item.id === workspace.activeWorkspaceId ||
+                          workspace.activatingWorkspaceId !== null
+                        }
+                        onClick={() => {
+                          void handleActivateWorkspace(item.id)
+                        }}
+                        size="sm"
+                        type="button"
+                        variant="outline"
+                      >
+                        {workspace.activatingWorkspaceId === item.id ? (
+                          <LoaderCircle className="size-4 animate-spin" />
+                        ) : null}
+                        {item.id === workspace.activeWorkspaceId
+                          ? "Current workspace"
+                          : "Use workspace"}
+                      </Button>
+                      <Button
+                        disabled={
+                          !canDeleteWorkspace(item) ||
+                          (workspace.deletingWorkspaceId !== null &&
+                            workspace.deletingWorkspaceId !== item.id)
+                        }
+                        onClick={() => {
+                          setDeleteTarget(item)
+                        }}
+                        size="sm"
+                        type="button"
+                        variant="destructive"
+                      >
+                        {workspace.deletingWorkspaceId === item.id ? (
+                          <LoaderCircle className="size-4 animate-spin" />
+                        ) : (
+                          <Trash2 className="size-4" />
+                        )}
+                        {getDeleteActionLabel(item)}
+                      </Button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -412,7 +539,8 @@ export function WorkspaceSwitcher() {
               disabled={!canBrowseDirectories || workspace.isCreatingWorkspace}
               onClick={() => {
                 void (async () => {
-                  const didOpenCreateDialog = await beginCreateWorkspaceFlow()
+                  const didOpenCreateDialog =
+                    await beginCreateWorkspaceFlow("create")
                   if (didOpenCreateDialog) {
                     setIsManageDialogOpen(false)
                   }
@@ -423,6 +551,23 @@ export function WorkspaceSwitcher() {
             >
               <Plus className="size-4" />
               Create workspace
+            </Button>
+            <Button
+              disabled={!canBrowseDirectories || workspace.isCreatingWorkspace}
+              onClick={() => {
+                void (async () => {
+                  const didOpenCreateDialog =
+                    await beginCreateWorkspaceFlow("open")
+                  if (didOpenCreateDialog) {
+                    setIsManageDialogOpen(false)
+                  }
+                })()
+              }}
+              type="button"
+              variant="outline"
+            >
+              <FolderOpen className="size-4" />
+              Open existing workspace
             </Button>
             <Button onClick={() => setIsManageDialogOpen(false)} type="button">
               Done
@@ -440,11 +585,8 @@ export function WorkspaceSwitcher() {
           showCloseButton={!workspace.isCreatingWorkspace}
         >
           <DialogHeader>
-            <DialogTitle>Create workspace</DialogTitle>
-            <DialogDescription>
-              Confirm the display name for the selected working directory.
-              Existing `.hephaes` folders are registered instead of recreated.
-            </DialogDescription>
+            <DialogTitle>{createDialogTitle}</DialogTitle>
+            <DialogDescription>{createDialogDescription}</DialogDescription>
           </DialogHeader>
 
           <form
@@ -510,11 +652,102 @@ export function WorkspaceSwitcher() {
                   <LoaderCircle className="size-4 animate-spin" />
                 ) : null}
                 {workspace.isCreatingWorkspace
-                  ? "Creating..."
-                  : "Create workspace"}
+                  ? createFlowIntent === "open"
+                    ? "Opening..."
+                    : "Creating..."
+                  : createDialogActionLabel}
               </Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        onOpenChange={() => closeDeleteDialog()}
+        open={deleteTarget !== null}
+      >
+        <DialogContent
+          className="max-w-lg"
+          showCloseButton={workspace.deletingWorkspaceId === null}
+        >
+          <DialogHeader>
+            <DialogTitle>
+              {deleteTarget
+                ? getDeleteActionLabel(deleteTarget)
+                : "Delete workspace"}
+            </DialogTitle>
+            <DialogDescription>
+              {deleteTarget?.status === "ready"
+                ? "This removes only the `.hephaes` directory inside the selected working directory."
+                : "This removes the stale workspace entry from the desktop registry."}
+            </DialogDescription>
+          </DialogHeader>
+
+          {deleteTarget ? (
+            <div className="space-y-4">
+              <InlineNotice
+                description={
+                  deleteTarget.status === "ready"
+                    ? `Hephaes will delete only ${deleteTarget.workspace_dir} and keep ${deleteTarget.root_path} plus any source logs outside .hephaes.`
+                    : `If ${deleteTarget.workspace_dir} is already gone, this only removes the registry entry for ${deleteTarget.name}.`
+                }
+                title={
+                  deleteTarget.status === "ready"
+                    ? "Parent directory is preserved"
+                    : "Registry cleanup only"
+                }
+                tone="info"
+              />
+
+              <div className="rounded-lg border bg-muted/20 px-4 py-3 text-sm text-muted-foreground">
+                <p className="font-medium text-foreground">
+                  {deleteTarget.name}
+                </p>
+                <p className="mt-2 break-all">{deleteTarget.root_path}</p>
+                {deleteTarget.active_job_count > 0 ? (
+                  <p className="mt-2">
+                    {deleteTarget.active_job_count} queued or running{" "}
+                    {deleteTarget.active_job_count === 1
+                      ? "job blocks"
+                      : "jobs block"}{" "}
+                    deletion.
+                  </p>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
+
+          <DialogFooter>
+            <Button
+              disabled={workspace.deletingWorkspaceId !== null}
+              onClick={closeDeleteDialog}
+              type="button"
+              variant="ghost"
+            >
+              Cancel
+            </Button>
+            <Button
+              disabled={
+                deleteTarget === null ||
+                !canDeleteWorkspace(deleteTarget) ||
+                workspace.deletingWorkspaceId !== null
+              }
+              onClick={() => {
+                void handleDeleteWorkspace()
+              }}
+              type="button"
+              variant="destructive"
+            >
+              {workspace.deletingWorkspaceId !== null ? (
+                <LoaderCircle className="size-4 animate-spin" />
+              ) : (
+                <Trash2 className="size-4" />
+              )}
+              {deleteTarget
+                ? getDeleteActionLabel(deleteTarget)
+                : "Delete workspace"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </>

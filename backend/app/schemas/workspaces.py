@@ -15,6 +15,7 @@ class WorkspaceRegistrySummaryResponse(BaseModel):
 
     id: str = Field(min_length=1)
     name: str = Field(min_length=1)
+    active_job_count: int = Field(ge=0, default=0)
     root_path: str = Field(min_length=1)
     workspace_dir: str = Field(min_length=1)
     database_path: str = Field(min_length=1)

@@ -32,6 +32,7 @@ import {
 } from "@/features/outputs/outputs-page"
 
 import { ConversionEntryErrorState } from "@/components/conversion-entry-state"
+import { WorkspaceGate } from "@/components/workspace-gate"
 import { resolveConversionEntry } from "@/lib/conversion-entry"
 import { useAppRouter, useAppSearchParams } from "@/lib/app-routing"
 import { resolveReturnHref } from "@/lib/navigation"
@@ -189,21 +190,23 @@ function ConversionUseRoute() {
 
 export function DesktopRoutes() {
   return (
-    <Routes>
-      <Route element={<HomeRedirectRoute />} path="/" />
-      <Route element={<DashboardRoute />} path="/dashboard" />
-      <Route element={<InventoryRoute />} path="/inventory" />
-      <Route element={<AssetDetailRoute />} path="/assets/:assetId" />
-      <Route element={<JobsRoute />} path="/jobs" />
-      <Route element={<JobDetailRoute />} path="/jobs/:jobId" />
-      <Route element={<OutputsRoute />} path="/outputs" />
-      <Route element={<OutputDetailRoute />} path="/outputs/:outputId" />
-      <Route element={<LegacyReplayRedirectRoute />} path="/replay" />
-      <Route element={<LegacyReplayRedirectRoute />} path="/visualize" />
-      <Route element={<ConversionBootstrapRoute />} path="/convert" />
-      <Route element={<ConversionCreateRoute />} path="/convert/new" />
-      <Route element={<ConversionUseRoute />} path="/convert/use" />
-      <Route element={<Navigate replace to="/dashboard" />} path="*" />
-    </Routes>
+    <WorkspaceGate>
+      <Routes>
+        <Route element={<HomeRedirectRoute />} path="/" />
+        <Route element={<DashboardRoute />} path="/dashboard" />
+        <Route element={<InventoryRoute />} path="/inventory" />
+        <Route element={<AssetDetailRoute />} path="/assets/:assetId" />
+        <Route element={<JobsRoute />} path="/jobs" />
+        <Route element={<JobDetailRoute />} path="/jobs/:jobId" />
+        <Route element={<OutputsRoute />} path="/outputs" />
+        <Route element={<OutputDetailRoute />} path="/outputs/:outputId" />
+        <Route element={<LegacyReplayRedirectRoute />} path="/replay" />
+        <Route element={<LegacyReplayRedirectRoute />} path="/visualize" />
+        <Route element={<ConversionBootstrapRoute />} path="/convert" />
+        <Route element={<ConversionCreateRoute />} path="/convert/new" />
+        <Route element={<ConversionUseRoute />} path="/convert/use" />
+        <Route element={<Navigate replace to="/dashboard" />} path="*" />
+      </Routes>
+    </WorkspaceGate>
   )
 }

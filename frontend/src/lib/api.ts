@@ -51,6 +51,7 @@ export interface HealthResponse {
 export type WorkspaceStatus = "ready" | "missing" | "invalid"
 
 export interface WorkspaceRegistrySummary {
+  active_job_count: number
   created_at: string
   database_path: string
   id: string
@@ -825,7 +826,12 @@ async function request<T>(
     )
   }
 
-  if (response.ok && rawPayload && !contentType.includes("application/json") && typeof payload === "string") {
+  if (
+    response.ok &&
+    rawPayload &&
+    !contentType.includes("application/json") &&
+    typeof payload === "string"
+  ) {
     throw new BackendApiError(
       `Backend returned unexpected content type: ${contentType || "unknown"}. Is VITE_BACKEND_BASE_URL configured?`,
       response.status
@@ -848,7 +854,9 @@ export function getErrorMessage(error: unknown) {
 }
 
 export function getHealth() {
-  return request<HealthResponse>("/health", undefined, { workspaceScope: "none" })
+  return request<HealthResponse>("/health", undefined, {
+    workspaceScope: "none",
+  })
 }
 
 export function listWorkspaces() {

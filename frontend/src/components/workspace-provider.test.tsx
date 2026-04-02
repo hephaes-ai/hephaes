@@ -1,8 +1,17 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react"
 import { SWRConfig } from "swr"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { WorkspaceProvider, useWorkspace } from "@/components/workspace-provider"
+import {
+  WorkspaceProvider,
+  useWorkspace,
+} from "@/components/workspace-provider"
 import { useFrontendRuntime } from "@/hooks/use-desktop-backend-runtime"
 import {
   activateWorkspace,
@@ -17,9 +26,7 @@ vi.mock("@/hooks/use-desktop-backend-runtime", () => ({
 }))
 
 vi.mock("@/lib/api", async () => {
-  const actual = await vi.importActual<typeof import("@/lib/api")>(
-    "@/lib/api"
-  )
+  const actual = await vi.importActual<typeof import("@/lib/api")>("@/lib/api")
 
   return {
     ...actual,
@@ -46,6 +53,7 @@ const LOADING_RUNTIME = normalizeFrontendRuntime({
 
 function buildWorkspaceSummary(id: string, name: string) {
   return {
+    active_job_count: 0,
     created_at: "2026-04-01T00:00:00Z",
     database_path: `/tmp/${id}/.hephaes/workspace.sqlite3`,
     id,
@@ -71,7 +79,10 @@ function WorkspaceProbe() {
       <div>{`active:${workspace.activeWorkspaceId ?? "none"}`}</div>
       <div>{`active-name:${workspace.activeWorkspace?.name ?? "none"}`}</div>
       <div>{`count:${workspace.workspaces.length}`}</div>
-      <button onClick={() => void workspace.setActiveWorkspace("ws_beta")} type="button">
+      <button
+        onClick={() => void workspace.setActiveWorkspace("ws_beta")}
+        type="button"
+      >
         Activate Beta
       </button>
     </div>
@@ -150,17 +161,23 @@ describe("WorkspaceProvider", () => {
     renderWithWorkspaceProvider()
 
     await waitFor(() => {
-      expect(screen.getByText(`active:${ALPHA_WORKSPACE.id}`)).toBeInTheDocument()
+      expect(
+        screen.getByText(`active:${ALPHA_WORKSPACE.id}`)
+      ).toBeInTheDocument()
     })
 
     fireEvent.click(screen.getByRole("button", { name: "Activate Beta" }))
 
     await waitFor(() => {
-      expect(vi.mocked(activateWorkspace)).toHaveBeenCalledWith(BETA_WORKSPACE.id)
+      expect(vi.mocked(activateWorkspace)).toHaveBeenCalledWith(
+        BETA_WORKSPACE.id
+      )
     })
 
     await waitFor(() => {
-      expect(screen.getByText(`active:${BETA_WORKSPACE.id}`)).toBeInTheDocument()
+      expect(
+        screen.getByText(`active:${BETA_WORKSPACE.id}`)
+      ).toBeInTheDocument()
     })
 
     expect(screen.getByText("active-name:Beta Workspace")).toBeInTheDocument()

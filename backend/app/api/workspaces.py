@@ -30,8 +30,23 @@ WorkspaceRegistryDep = Annotated[WorkspaceRegistry, Depends(get_workspace_regist
 def _to_workspace_summary_response(
     workspace: RegisteredWorkspace,
 ) -> WorkspaceRegistrySummaryResponse:
+    active_job_count = 0
+
+    if workspace.status == "ready":
+        try:
+            resolved_workspace = Workspace.open(workspace.root_path)
+        except WorkspaceError:
+            active_job_count = 0
+        else:
+            active_job_count = sum(
+                1
+                for job in resolved_workspace.list_jobs()
+                if job.status in {"pending", "running"}
+            )
+
     return WorkspaceRegistrySummaryResponse.model_validate(
         {
+            "active_job_count": active_job_count,
             "id": workspace.id,
             "name": workspace.name,
             "root_path": str(workspace.root_path),

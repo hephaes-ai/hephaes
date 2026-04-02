@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shutil
 from dataclasses import replace
 from pathlib import Path
 
@@ -40,6 +41,7 @@ def test_list_workspaces_returns_active_legacy_workspace(client: TestClient) -> 
     assert payload["active_workspace_id"] is not None
     assert len(payload["workspaces"]) == 1
     assert payload["workspaces"][0]["id"] == payload["active_workspace_id"]
+    assert payload["workspaces"][0]["active_job_count"] == 0
     assert payload["workspaces"][0]["status"] == "ready"
 
 
@@ -68,6 +70,7 @@ def test_create_workspace_initializes_workspace_and_activates_it(
     assert body["root_path"] == str(workspace_root.resolve())
     assert body["workspace_dir"] == str((workspace_root / ".hephaes").resolve())
     assert body["database_path"] == str((workspace_root / ".hephaes" / WORKSPACE_DB_FILENAME).resolve())
+    assert body["active_job_count"] == 0
     assert body["status"] == "ready"
     assert (workspace_root / ".hephaes" / WORKSPACE_DB_FILENAME).is_file()
 
@@ -176,6 +179,37 @@ def test_delete_workspace_blocks_when_workspace_has_active_jobs(
     assert response.status_code == 409
     assert response.json()["detail"] == "cannot delete a workspace with queued or running jobs"
     assert (second_root / ".hephaes").is_dir()
+
+
+def test_list_workspaces_reports_active_job_count(
+    client: TestClient,
+    tmp_path: Path,
+) -> None:
+    second_root = tmp_path / "active-job-workspace"
+    created = _create_workspace(client, second_root, activate=True).json()
+    client.app.state.workspace.create_job(kind="index")
+
+    payload = _list_workspaces(client)
+    listed_workspace = next(
+        workspace for workspace in payload["workspaces"] if workspace["id"] == created["id"]
+    )
+
+    assert listed_workspace["active_job_count"] == 1
+
+
+def test_delete_workspace_allows_removing_stale_registry_entries(
+    client: TestClient,
+    tmp_path: Path,
+) -> None:
+    second_root = tmp_path / "stale-workspace"
+    created = _create_workspace(client, second_root, activate=False).json()
+    shutil.rmtree(second_root / ".hephaes")
+
+    response = client.delete(f"/workspaces/{created['id']}")
+
+    assert response.status_code == 204
+    listed = _list_workspaces(client)
+    assert all(workspace["id"] != created["id"] for workspace in listed["workspaces"])
 
 
 def test_delete_workspace_rejects_mismatched_registered_directory(

@@ -47,6 +47,7 @@ function buildWorkspace(
   rootPath = `/tmp/${id}`
 ): WorkspaceRegistrySummary {
   return {
+    active_job_count: 0,
     created_at: "2026-04-01T00:00:00Z",
     database_path: `${rootPath}/.hephaes/workspace.sqlite3`,
     id,
@@ -215,5 +216,86 @@ describe("WorkspaceSwitcher", () => {
         root_path: "/tmp/existing-project",
       })
     })
+  })
+
+  it("confirms workspace deletion before removing it from the registry", async () => {
+    const deleteWorkspace = vi.fn().mockResolvedValue(undefined)
+    const removableWorkspace = {
+      ...BETA_WORKSPACE,
+      active_job_count: 0,
+    }
+    mockUseWorkspace.mockReturnValue(
+      buildWorkspaceHookValue({
+        deleteWorkspace,
+        workspaces: [ALPHA_WORKSPACE, removableWorkspace],
+      })
+    )
+
+    render(<WorkspaceSwitcher />)
+
+    openSwitcherMenu()
+    fireEvent.click(screen.getByText("Manage workspaces..."))
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("heading", { name: "Manage workspaces" })
+      ).toBeInTheDocument()
+    })
+
+    fireEvent.click(
+      screen.getAllByRole("button", { name: "Delete workspace" }).at(-1)!
+    )
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("heading", { name: "Delete workspace" })
+      ).toBeInTheDocument()
+    })
+
+    expect(
+      screen.getAllByText((content) =>
+        content.includes(BETA_WORKSPACE.workspace_dir)
+      ).length
+    ).toBeGreaterThan(0)
+
+    fireEvent.click(
+      screen.getAllByRole("button", { name: "Delete workspace" }).at(-1)!
+    )
+
+    await waitFor(() => {
+      expect(deleteWorkspace).toHaveBeenCalledWith(BETA_WORKSPACE.id)
+    })
+  })
+
+  it("disables deletion when queued or running jobs exist for a workspace", async () => {
+    mockUseWorkspace.mockReturnValue(
+      buildWorkspaceHookValue({
+        workspaces: [
+          ALPHA_WORKSPACE,
+          {
+            ...BETA_WORKSPACE,
+            active_job_count: 2,
+          },
+        ],
+      })
+    )
+
+    render(<WorkspaceSwitcher />)
+
+    openSwitcherMenu()
+    fireEvent.click(screen.getByText("Manage workspaces..."))
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("heading", { name: "Manage workspaces" })
+      ).toBeInTheDocument()
+    })
+
+    expect(
+      screen.getByText("2 queued or running jobs block deletion.")
+    ).toBeInTheDocument()
+    expect(
+      screen.getAllByRole("button", { name: "Delete workspace" }).at(-1)
+    ).toBeDisabled()
   })
 })
